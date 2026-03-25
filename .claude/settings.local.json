@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -L --max-time 30 https://research.unsw.edu.au/projects/unsw-nb15-dataset)",
+      "Bash(curl -s -L --max-time 30 https://www.unb.ca/cic/datasets/ids-2018.html)",
+      "Bash(python3 -c \"import huggingface_hub\")",
+      "Bash(/home/alex/fine_tunning/.venv/bin/huggingface-cli download:*)",
+      "Bash(wget -q --show-progress \"https://mcfp.felk.cvut.cz/publicDatasets/IoT-23-Dataset/iot_23_datasets_small.tar.gz\" -O /home/alex/fine_tunning/datasets/iot-23/iot_23_datasets_small.tar.gz)",
+      "Bash(tar -tjf /home/alex/fine_tunning/datasets/ctu-13/CTU-13-Dataset.tar.bz2)",
+      "Bash(/home/alex/fine_tunning/.venv/bin/python -c \"import huggingface_hub; print\\(huggingface_hub.__version__\\)\")",
+      "Bash(/home/alex/fine_tunning/.venv/bin/python -c \":*)",
+      "Bash(tar -xOf /home/alex/fine_tunning/datasets/ctu-13/CTU-13-Dataset.tar.bz2 CTU-13-Dataset/1/capture20110810.binetflow)",
+      "Bash(du -sh /home/alex/fine_tunning/datasets/*/)",
+      "Bash(.venv/bin/python -c \":*)"
+    ]
+  }
+}
