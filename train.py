@@ -11,9 +11,9 @@ torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.benchmark        = True
 
 MODEL       = "Qwen/Qwen2.5-1.5B-Instruct"
-DATASET     = "ids_dataset.jsonl"       # output from preprocess.py
-OUTPUT_DIR  = "./v3-ids-model"          # training checkpoints
-ADAPTER_DIR = "./v3-ids-lora-adapter"   # final adapter
+DATASET     = "zeek_dataset.jsonl"      # output from preprocess_zeek.py
+OUTPUT_DIR  = "./v4-ids-model"          # training checkpoints
+ADAPTER_DIR = "./v4-ids-lora-adapter"   # final adapter
 
 # ── 4-bit quantization ────────────────────────────────────────────────────────
 bnb_config = BitsAndBytesConfig(
@@ -66,18 +66,18 @@ trainer = SFTTrainer(
         bf16=True,
         # ── Schedule ──────────────────────────────────────────────────────
         num_train_epochs=3,
-        learning_rate=1e-4,
+        learning_rate=5e-5,             # lower than v3 (1e-4) — more data, more steps
         lr_scheduler_type="cosine",
-        warmup_ratio=0.05,
+        warmup_ratio=0.03,              # 3% warmup is enough with ~50k steps/run
         weight_decay=0.01,
         # ── Data loading (CPU helps HERE — async prefetch) ────────────────
         dataloader_pin_memory=True,     # page-locked CPU RAM → faster transfer
         dataloader_num_workers=0,       # must be 0 on Python 3.14 (forkserver)
         # ── Logging & saving ──────────────────────────────────────────────
-        logging_steps=20,
-        eval_strategy="epoch",
+        logging_steps=200,              # ~300k samples → ~17k steps/epoch; log less often
+        eval_strategy="no",
         save_strategy="epoch",
-        load_best_model_at_end=True,
+        load_best_model_at_end=False,
         metric_for_best_model="eval_loss",
         max_length=512,
     ),

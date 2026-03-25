@@ -11,7 +11,7 @@ from sklearn.metrics import classification_report, confusion_matrix
 
 # ── Config ───────────────────────────────────────────────────────────────────
 BASE_MODEL      = "Qwen/Qwen2.5-1.5B-Instruct"
-FINETUNED_MODEL = "./v3-ids-lora-adapter"
+FINETUNED_MODEL = "./v4-ids-lora-adapter"
 BENCHMARK_CACHE = "benchmark_samples.json"
 MAX_NEW_TOKENS  = 80
 BATCH_SIZE      = 8     # lower to 4 if OOM
