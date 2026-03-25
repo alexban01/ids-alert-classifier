@@ -11,7 +11,9 @@
       "Bash(/home/alex/fine_tunning/.venv/bin/python -c \":*)",
       "Bash(tar -xOf /home/alex/fine_tunning/datasets/ctu-13/CTU-13-Dataset.tar.bz2 CTU-13-Dataset/1/capture20110810.binetflow)",
       "Bash(du -sh /home/alex/fine_tunning/datasets/*/)",
-      "Bash(.venv/bin/python -c \":*)"
+      "Bash(.venv/bin/python -c \":*)",
+      "Bash(git -C /home/alex/fine_tunning status --short)",
+      "Bash(git -C /home/alex/fine_tunning ls-files)"
     ]
   }
 }
