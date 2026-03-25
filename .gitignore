@@ -1,0 +1,26 @@
+# Datasets — raw source files
+*.pcap_ISCX.csv
+datasets/
+
+# Generated training data
+*.jsonl
+
+# Model outputs — checkpoints, adapters, GGUF
+v4-ids-model/
+v4-ids-lora-adapter/
+*.gguf
+
+# Benchmark cache (regenerated automatically)
+benchmark_samples.json
+
+# External tools
+llama.cpp/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Claude Code
+.claude/
