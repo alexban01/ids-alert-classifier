@@ -3,7 +3,8 @@
 Fine-tune `Qwen/Qwen2.5-1.5B-Instruct` via QLoRA to classify network flows as
 **ATTACK** or **FALSE POSITIVE**, targeting deployment against Zeek conn.log / PCAP captures.
 
-**Hardware:** Ryzen 7 3700X, 32 GB RAM, RTX 3070 (8 GB VRAM)
+**Local hardware:** Ryzen 7 3700X, 32 GB RAM, RTX 3070 (8 GB VRAM)
+**Training (v5):** RunPod RTX 5090 (32 GB VRAM), ~$0.89/hr on-demand
 
 ## Python Environment
 
@@ -17,8 +18,10 @@ Arch Linux managed environment — system `python3`/`pip3` refuse to install pac
 | File | Purpose |
 |---|---|
 | `preprocess_zeek.py` | Builds `zeek_dataset.jsonl` (300k samples) from 4 dataset sources |
-| `train.py` | QLoRA fine-tuning via SFTTrainer, saves adapter to `v4-ids-lora-adapter/` |
-| `benchmark.py` | Head-to-head: vanilla Qwen vs fine-tuned on CICIDS2017 samples |
+| `train.py` | QLoRA fine-tuning via SFTTrainer (v5: targets RunPod 5090), saves adapter to `v5-ids-lora-adapter/` |
+| `benchmark.py` | Fine-tuned model benchmark on CICIDS2017 samples (Zeek-native prompt) |
+| `benchmark_vanilla.py` | Standalone vanilla Qwen benchmark (same Zeek-native prompt) |
+| `setup_runpod.sh` | RunPod pod setup: pip installs + dataset check |
 | `Modelfile` | Ollama config — currently `FROM ./v3-ids.gguf`, temperature 0, num_predict 80 |
 | `.gitignore` | Excludes datasets, models, checkpoints, generated JSONL, venvs |
 | `datasets/SOURCES.txt` | Download URLs for all 4 dataset sources |
@@ -27,51 +30,54 @@ Arch Linux managed environment — system `python3`/`pip3` refuse to install pac
 - `datasets/` — IoT-23 (8.7 GB .tar.gz), CTU-13 (1.9 GB .tar.bz2), UNSW-NB15 (175 MB .parquet)
 - `*.pcap_ISCX.csv` — 8 CICIDS2017 CSVs in project root
 - `zeek_dataset.jsonl` — 300k training samples (208 MB)
-- `v4-ids-model/` — training checkpoints
-- `v4-ids-lora-adapter/` — final LoRA adapter
-- `*.gguf`, `llama.cpp/`, `benchmark_samples.json`
+- `v4-ids-model/`, `v5-ids-model/` — training checkpoints
+- `v4-ids-lora-adapter/`, `v5-ids-lora-adapter/` — final LoRA adapters
+- `*.gguf`, `llama.cpp/`, `benchmark_samples*.json`
 
 ## Model Architecture
 
 - **Base:** `Qwen/Qwen2.5-1.5B-Instruct`
 - **Quantization:** 4-bit NF4 (BitsAndBytes), bf16 compute dtype
-- **LoRA:** r=8, lora_alpha=16, dropout=0.05, bias=none
-- **Target modules (v4):** `q_proj`, `k_proj`, `v_proj`, `o_proj`, `gate_proj`, `up_proj`, `down_proj` (7 modules — all attention + MLP)
+- **LoRA (v5):** r=16, lora_alpha=32, dropout=0.05, bias=none (v4 was r=8, lora_alpha=16)
+- **Target modules:** `q_proj`, `k_proj`, `v_proj`, `o_proj`, `gate_proj`, `up_proj`, `down_proj` (7 modules — all attention + MLP)
 
-## Training (v4)
+## Training (v5 — RunPod RTX 5090)
 
-Run: `.venv/bin/python train.py`
+Run on RunPod pod: `python train.py` (after `bash setup_runpod.sh`)
 
 Dataset is split 90/10 train/test (`test_size=0.1, seed=42`).
 
 ```python
-per_device_train_batch_size = 2
-per_device_eval_batch_size  = 2
-gradient_accumulation_steps = 8   # effective batch = 16
-optim = "paged_adamw_8bit"        # 8-bit optimizer states — key VRAM saver
-num_train_epochs = 3
-learning_rate = 5e-5              # lower than v3's 1e-4
-lr_scheduler_type = "cosine"
+per_device_train_batch_size = 16    # v4: 2 (VRAM-limited)
+per_device_eval_batch_size  = 16    # v4: 2
+gradient_accumulation_steps = 1     # v4: 8 — effective batch stays 16
+optim = "paged_adamw_8bit"
+num_train_epochs = 3                # v4: 1
+learning_rate = 2e-4                # v4: 5e-5 — QLoRA paper sweet spot
+lr_scheduler_type = "cosine_with_restarts"  # v4: cosine (decayed to ~0)
+lr_scheduler_kwargs = {"num_cycles": 3}     # 1 restart per epoch
 warmup_ratio = 0.03
 weight_decay = 0.01
 bf16 = True
-gradient_checkpointing = True
-eval_strategy = "no"              # IMPORTANT: prevents OOM at epoch boundary
-load_best_model_at_end = False    # IMPORTANT: prevents OOM
+gradient_checkpointing = False      # v4: True (32 GB VRAM — no need)
+eval_strategy = "epoch"             # v4: "no" (OOM on 3070)
+load_best_model_at_end = True       # v4: False (OOM on 3070)
+metric_for_best_model = "eval_loss"
 save_strategy = "epoch"
 max_length = 512
-logging_steps = 200
-dataloader_num_workers = 0        # must be 0 — Python 3.14 forkserver issue
+logging_steps = 100
+dataloader_num_workers = 4          # v4: 0 (Python 3.14 forkserver issue)
 dataloader_pin_memory = True
 ```
 
-**OOM warning:** RTX 3070 uses ~6700/8192 MiB during training. Re-enabling
-`eval_strategy="epoch"` or `load_best_model_at_end=True` will OOM.
+**Time estimate:** ~2-3 hours total (3 epochs) on RTX 5090. Cost: ~$2-3.
 
-**Time estimate:** ~11 hours/epoch at ~2.5 s/step for 300k samples.
+After training, the best adapter (by eval_loss) is saved via
+`trainer.model.save_pretrained()` → `adapter_config.json` + `adapter_model.safetensors`
+in `v5-ids-lora-adapter/`. Download this to local machine for inference/GGUF conversion.
 
-After training, the adapter is saved via `trainer.model.save_pretrained()` which
-produces `adapter_config.json` + `adapter_model.safetensors` in `v4-ids-lora-adapter/`.
+**Inference still runs locally on RTX 3070** — adapter is hardware-agnostic. The
+4-bit base model + LoRA adapter loads the same way regardless of training GPU.
 
 ## Preprocessing
 
@@ -154,20 +160,21 @@ Run: `.venv/bin/python benchmark.py`
 - Generates or loads `benchmark_samples_v4.json` (50 samples/class/CSV from 8 CICIDS2017 files)
 - Uses Zeek-native 10-field prompt (same `build_prompt` as `preprocess_zeek.py`)
 - Maps CICIDS2017 columns to Zeek schema (protocol number, µs→s duration, conn_state="-")
-- Runs batched inference (batch_size=8, max_new_tokens=80) on vanilla Qwen then fine-tuned
+- Runs batched inference (batch_size=8, max_new_tokens=80) on fine-tuned model only
 - Reports: classification report, confusion matrix, per-attack-type accuracy, format failure rate
 - Parses model output for `VERDICT:` line — returns `UNKNOWN` if not found
+- `benchmark_vanilla.py` — same setup but runs vanilla Qwen only (standalone)
 
 **Adapter loading:** Requires `adapter_config.json` in the adapter dir → loads via
-`PeftModel.from_pretrained()` (standard for v4).
+`PeftModel.from_pretrained()`.
 
 ## Ollama Deployment
 
 ```bash
 # 1. Convert to GGUF (use llama.cpp's own venv)
-llama.cpp/.venv/bin/python llama.cpp/convert_hf_to_gguf.py v4-ids-lora-adapter/ --outfile v4-ids.gguf
+llama.cpp/.venv/bin/python llama.cpp/convert_hf_to_gguf.py v5-ids-lora-adapter/ --outfile v5-ids.gguf
 
-# 2. Update Modelfile: change FROM ./v3-ids.gguf to FROM ./v4-ids.gguf
+# 2. Update Modelfile: change FROM line to FROM ./v5-ids.gguf
 
 # 3. Create Ollama model
 ollama create ids-classifier -f Modelfile
@@ -181,4 +188,5 @@ ollama run ids-classifier
 | Version | Status | Notes |
 |---|---|---|
 | v3 | Done | CICIDS2017 only, CICFlowMeter 15-feature prompt, ~89% accuracy |
-| v4 | Dataset ready, training not started | 4-source Zeek-native 10-field prompt, 300k samples |
+| v4 | Done | 4-source Zeek-native 10-field prompt, 300k samples, r=8, 1 epoch, 82% accuracy |
+| v5 | Training ready | RunPod 5090, r=16, 3 epochs, cosine_with_restarts, LR 2e-4, eval enabled |
