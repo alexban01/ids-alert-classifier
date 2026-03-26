@@ -151,18 +151,15 @@ REASON: Traffic pattern matches known malicious behavior with anomalous packet r
 
 Run: `.venv/bin/python benchmark.py`
 
-- Generates or loads `benchmark_samples.json` (50 samples/class/CSV from 8 CICIDS2017 files)
+- Generates or loads `benchmark_samples_v4.json` (50 samples/class/CSV from 8 CICIDS2017 files)
+- Uses Zeek-native 10-field prompt (same `build_prompt` as `preprocess_zeek.py`)
+- Maps CICIDS2017 columns to Zeek schema (protocol number, µs→s duration, conn_state="-")
 - Runs batched inference (batch_size=8, max_new_tokens=80) on vanilla Qwen then fine-tuned
 - Reports: classification report, confusion matrix, per-attack-type accuracy, format failure rate
 - Parses model output for `VERDICT:` line — returns `UNKNOWN` if not found
 
-**Adapter loading** supports two paths:
-1. `adapter_config.json` exists -> `PeftModel.from_pretrained()` (clean, expected for v4)
-2. No `adapter_config.json` -> legacy manual LoRA injection from `model.safetensors`
-   (uses only `q_proj`, `v_proj` — 2 modules, leftover from v2)
-
-**TODO:** benchmark.py still uses the old 15-feature CICFlowMeter prompt, not the
-Zeek-native 10-field prompt. It must be rewritten before v4 benchmark results are meaningful.
+**Adapter loading:** Requires `adapter_config.json` in the adapter dir → loads via
+`PeftModel.from_pretrained()` (standard for v4).
 
 ## Ollama Deployment
 

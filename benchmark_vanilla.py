@@ -1,3 +1,5 @@
+"""Standalone vanilla Qwen2.5-1.5B benchmark on CICIDS2017 (Zeek-native prompt)."""
+
 import os
 import json
 import random
@@ -5,15 +7,13 @@ import torch
 import pandas as pd
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-from peft import PeftModel
 from sklearn.metrics import classification_report, confusion_matrix
 
 # ── Config ───────────────────────────────────────────────────────────────────
 BASE_MODEL      = "Qwen/Qwen2.5-1.5B-Instruct"
-FINETUNED_MODEL = "./v4-ids-lora-adapter"
 BENCHMARK_CACHE = "benchmark_samples_v4.json"
 MAX_NEW_TOKENS  = 80
-BATCH_SIZE      = 8     # lower to 4 if OOM
+BATCH_SIZE      = 8
 SAMPLES_PER_CLASS_PER_FILE = 50
 RANDOM_SEED     = 42
 
@@ -28,7 +28,6 @@ CSV_FILES = [
     "Wednesday-workingHours.pcap_ISCX.csv",
 ]
 
-# CICFlowMeter columns needed for Zeek-schema mapping
 CICIDS_COLS = [
     "Protocol", "Flow Duration",
     "Total Fwd Packets", "Total Backward Packets",
@@ -78,7 +77,6 @@ def build_prompt(proto, duration, orig_pkts, resp_pkts,
     ]
     return "\n".join(lines)
 
-# ── Dataset generation ────────────────────────────────────────────────────────
 def label_to_verdict(label):
     return "FALSE POSITIVE" if label.strip() == "BENIGN" else "ATTACK"
 
@@ -109,11 +107,10 @@ def generate_benchmark_samples():
         sampled = pd.concat(parts)
 
         for _, row in sampled.iterrows():
-            # Map CICFlowMeter → Zeek schema
             proto_num = str(int(float(row["Protocol"]))) if "Protocol" in avail else "unknown"
             dur_us    = row.get("Flow Duration", 0)
             try:
-                duration = str(float(dur_us) / 1e6)  # µs → seconds
+                duration = str(float(dur_us) / 1e6)
             except (ValueError, TypeError):
                 duration = "0"
 
@@ -121,7 +118,7 @@ def generate_benchmark_samples():
             resp_pkts  = str(row["Total Backward Packets"])     if "Total Backward Packets"     in avail else "0"
             orig_bytes = str(row["Total Length of Fwd Packets"])if "Total Length of Fwd Packets"in avail else "0"
             resp_bytes = str(row["Total Length of Bwd Packets"])if "Total Length of Bwd Packets"in avail else "0"
-            conn_state = "-"  # CICFlowMeter has no conn_state equivalent
+            conn_state = "-"
 
             prompt = build_prompt(proto_num, duration, orig_pkts, resp_pkts,
                                   orig_bytes, resp_bytes, conn_state)
@@ -248,42 +245,11 @@ def print_report(preds, samples, label, unknowns):
         correct = sum(truths[i] == preds[i] for i in idx)
         print(f"  {raw:42s} {correct}/{len(idx)} ({100*correct/len(idx):.0f}%)")
 
-    return truths
-
-# ── Load model helper ─────────────────────────────────────────────────────────
-def load_model(path, is_finetuned=False):
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
-    )
-
-    if is_finetuned:
-        print(f"Loading base model + LoRA adapter from {path} ...")
-        base = AutoModelForCausalLM.from_pretrained(
-            BASE_MODEL,
-            quantization_config=bnb_config,
-            device_map="cuda",
-        )
-        model = PeftModel.from_pretrained(base, path)
-        print("  Loaded adapter via PeftModel.from_pretrained")
-    else:
-        print(f"Loading vanilla model: {path} ...")
-        model = AutoModelForCausalLM.from_pretrained(
-            path,
-            quantization_config=bnb_config,
-            device_map="cuda",
-        )
-
-    model.eval()
-    return model
-
 # ── Main ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.benchmark        = True
 
-    # Load or generate benchmark samples
     if os.path.exists(BENCHMARK_CACHE):
         print(f"[CACHE] Loading existing samples from {BENCHMARK_CACHE}")
         with open(BENCHMARK_CACHE) as f:
@@ -292,35 +258,23 @@ if __name__ == "__main__":
     else:
         samples = generate_benchmark_samples()
 
-    # Tokenizer is shared — both models use the same Qwen2.5 vocabulary
     _tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, padding_side="left")
     if _tokenizer.pad_token is None:
         _tokenizer.pad_token = _tokenizer.eos_token
 
-    # ── Fine-tuned model ──────────────────────────────────────────────────────
-    model = load_model(FINETUNED_MODEL, is_finetuned=True)
-    preds, unknowns = run_batched_inference(
-        model, samples, "Fine-tuned Qwen2.5-1.5B (v4)"
+    print(f"Loading vanilla model: {BASE_MODEL} ...")
+    model = AutoModelForCausalLM.from_pretrained(
+        BASE_MODEL,
+        quantization_config=BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+        ),
+        device_map="cuda",
     )
-    print_report(preds, samples, "Fine-tuned Qwen2.5-1.5B (v4)", unknowns)
-    del model
-    torch.cuda.empty_cache()
+    model.eval()
 
-    # ── Summary ───────────────────────────────────────────────────────────────
-    truths     = [s["ground_truth"] for s in samples]
-    attack_idx = [i for i, t in enumerate(truths) if t == "ATTACK"]
-    benign_idx = [i for i, t in enumerate(truths) if t == "FALSE POSITIVE"]
-
-    acc         = sum(t == p for t, p in zip(truths, preds)) / len(truths)
-    atk_recall  = sum(preds[i] == "ATTACK"         for i in attack_idx) / len(attack_idx)
-    ben_recall  = sum(preds[i] == "FALSE POSITIVE" for i in benign_idx) / len(benign_idx)
-    fmt_fail    = sum(p == "UNKNOWN" for p in preds) / len(truths)
-
-    print(f"\n{'='*60}")
-    print(f"  SUMMARY")
-    print(f"{'='*60}")
-    print(f"  {'Overall accuracy':40s} {acc:>9.1%}")
-    print(f"  {'Attack recall (catch rate)':40s} {atk_recall:>9.1%}")
-    print(f"  {'Benign recall (false pos rate)':40s} {ben_recall:>9.1%}")
-    print(f"  {'Format failure rate':40s} {fmt_fail:>9.1%}")
-    print(f"{'='*60}")
+    preds, unknowns = run_batched_inference(
+        model, samples, "Vanilla Qwen2.5-1.5B-Instruct"
+    )
+    print_report(preds, samples, "Vanilla Qwen2.5-1.5B-Instruct", unknowns)

@@ -65,7 +65,7 @@ trainer = SFTTrainer(
         gradient_checkpointing=True,
         bf16=True,
         # ── Schedule ──────────────────────────────────────────────────────
-        num_train_epochs=3,
+        num_train_epochs=1,
         learning_rate=5e-5,             # lower than v3 (1e-4) — more data, more steps
         lr_scheduler_type="cosine",
         warmup_ratio=0.03,              # 3% warmup is enough with ~50k steps/run
