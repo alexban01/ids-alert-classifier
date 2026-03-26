@@ -14,7 +14,8 @@
       "Bash(.venv/bin/python -c \":*)",
       "Bash(git -C /home/alex/fine_tunning status --short)",
       "Bash(git -C /home/alex/fine_tunning ls-files)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(chmod +x /home/alex/fine_tunning/setup_runpod.sh)"
     ]
   }
 }

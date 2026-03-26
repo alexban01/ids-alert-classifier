@@ -10,7 +10,7 @@ from sklearn.metrics import classification_report, confusion_matrix
 
 # ── Config ───────────────────────────────────────────────────────────────────
 BASE_MODEL      = "Qwen/Qwen2.5-1.5B-Instruct"
-FINETUNED_MODEL = "./v4-ids-lora-adapter"
+FINETUNED_MODEL = "./v5-ids-lora-adapter"
 BENCHMARK_CACHE = "benchmark_samples_v4.json"
 MAX_NEW_TOKENS  = 80
 BATCH_SIZE      = 8     # lower to 4 if OOM
@@ -300,9 +300,9 @@ if __name__ == "__main__":
     # ── Fine-tuned model ──────────────────────────────────────────────────────
     model = load_model(FINETUNED_MODEL, is_finetuned=True)
     preds, unknowns = run_batched_inference(
-        model, samples, "Fine-tuned Qwen2.5-1.5B (v4)"
+        model, samples, "Fine-tuned Qwen2.5-1.5B (v5)"
     )
-    print_report(preds, samples, "Fine-tuned Qwen2.5-1.5B (v4)", unknowns)
+    print_report(preds, samples, "Fine-tuned Qwen2.5-1.5B (v5)", unknowns)
     del model
     torch.cuda.empty_cache()
 
