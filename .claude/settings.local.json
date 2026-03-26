@@ -13,7 +13,8 @@
       "Bash(du -sh /home/alex/fine_tunning/datasets/*/)",
       "Bash(.venv/bin/python -c \":*)",
       "Bash(git -C /home/alex/fine_tunning status --short)",
-      "Bash(git -C /home/alex/fine_tunning ls-files)"
+      "Bash(git -C /home/alex/fine_tunning ls-files)",
+      "WebSearch"
     ]
   }
 }
