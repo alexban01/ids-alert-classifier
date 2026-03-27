@@ -81,7 +81,7 @@ trainer = SFTTrainer(
         dataloader_pin_memory=True,
         dataloader_num_workers=4,
         # ── Eval & saving ────────────────────────────────────────────────
-        logging_steps=100,
+        logging_steps=250,
         eval_strategy="epoch",
         save_strategy="epoch",
         load_best_model_at_end=True,
