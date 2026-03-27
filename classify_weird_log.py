@@ -5,6 +5,8 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import PeftModel
 
+from prompt_utils import SYSTEM_PROMPT, build_prompt, extract_verdict
+
 # ── Config ────────────────────────────────────────────────────────────────────
 BASE_MODEL  = "Qwen/Qwen2.5-1.5B-Instruct"
 ADAPTER_DIR = "./v4-ids-lora-adapter"
@@ -12,48 +14,6 @@ WEIRD_LOG   = "weird.log"
 CONN_LOG    = "conn.log"
 MAX_NEW_TOKENS = 80
 BATCH_SIZE  = 8
-
-SYSTEM_PROMPT = (
-    "You are a network security analyst. "
-    "Always respond with VERDICT: <ATTACK or FALSE POSITIVE> on the first line, "
-    "followed by REASON: <brief explanation>."
-)
-
-# ── Prompt builder (same as preprocess_zeek.py / benchmark.py) ───────────────
-def _safe(v, fmt=".1f"):
-    try:
-        return format(float(v), fmt) if v not in (None, "", "-", "?") else "N/A"
-    except (ValueError, TypeError):
-        return "N/A"
-
-def build_prompt(proto, duration, orig_pkts, resp_pkts,
-                 orig_bytes, resp_bytes, conn_state):
-    try:
-        dur_f = float(duration)
-        ob_f  = float(orig_bytes)
-        rb_f  = float(resp_bytes)
-        op_f  = float(orig_pkts)
-        rp_f  = float(resp_pkts)
-        bps   = (ob_f + rb_f) / dur_f if dur_f > 0 else 0.0
-        op_sz = ob_f / op_f if op_f > 0 else 0.0
-        rp_sz = rb_f / rp_f if rp_f > 0 else 0.0
-    except (ValueError, TypeError, ZeroDivisionError):
-        bps = op_sz = rp_sz = 0.0
-
-    lines = [
-        "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n",
-        f"  Proto:              {proto}",
-        f"  Duration (s):       {_safe(duration, '.6f')}",
-        f"  Orig Packets:       {_safe(orig_pkts, '.0f')}",
-        f"  Resp Packets:       {_safe(resp_pkts, '.0f')}",
-        f"  Orig Bytes:         {_safe(orig_bytes, '.0f')}",
-        f"  Resp Bytes:         {_safe(resp_bytes, '.0f')}",
-        f"  Conn State:         {conn_state}",
-        f"  Bytes/sec:          {_safe(bps, '.1f')}",
-        f"  Orig Bytes/Pkt:     {_safe(op_sz, '.1f')}",
-        f"  Resp Bytes/Pkt:     {_safe(rp_sz, '.1f')}",
-    ]
-    return "\n".join(lines)
 
 # ── Parse conn.log into UID lookup ────────────────────────────────────────────
 def parse_conn_log(path):
@@ -108,15 +68,6 @@ def parse_weird_log(path):
     return entries
 
 # ── Inference ─────────────────────────────────────────────────────────────────
-def extract_verdict(output):
-    for line in output.upper().splitlines():
-        if "VERDICT:" in line:
-            if "FALSE POSITIVE" in line:
-                return "FALSE POSITIVE"
-            if "ATTACK" in line:
-                return "ATTACK"
-    return "UNKNOWN"
-
 def classify_batch(model, tokenizer, prompts):
     texts = [
         tokenizer.apply_chat_template(

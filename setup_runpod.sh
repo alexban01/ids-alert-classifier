@@ -1,12 +1,13 @@
 #!/bin/bash
 # Run this on the RunPod pod after SSH/terminal access.
 # Assumes the Runpod Pytorch 2.8.0 template (CUDA 12.8, Ubuntu 24.04).
+# Target GPU: RTX 3090 (24 GB VRAM)
 #
 # Usage:
 #   1. Upload zeek_dataset.jsonl + train.py to /workspace/
 #   2. Run: bash setup_runpod.sh
 #   3. Run: python train.py
-#   4. Download v5-ids-lora-adapter/ when done
+#   4. Download v6-ids-lora-adapter/ when done
 
 set -e
 
@@ -38,3 +39,4 @@ fi
 echo ""
 echo "── Ready ──"
 echo "Run:  cd /workspace && python train.py"
+echo "Then: scp -r pod:/workspace/v6-ids-lora-adapter/ ."

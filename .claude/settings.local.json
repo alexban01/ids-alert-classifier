@@ -15,7 +15,26 @@
       "Bash(git -C /home/alex/fine_tunning status --short)",
       "Bash(git -C /home/alex/fine_tunning ls-files)",
       "WebSearch",
-      "Bash(chmod +x /home/alex/fine_tunning/setup_runpod.sh)"
+      "Bash(chmod +x /home/alex/fine_tunning/setup_runpod.sh)",
+      "Bash(python3 -m json.tool)",
+      "Bash(git -C /home/alex/fine_tunning log --oneline -20)",
+      "Bash(python3:*)",
+      "Bash(ls -lht /home/alex/fine_tunning/*.py)",
+      "Read(//home/alex/fine_tunning/**)",
+      "Bash(du -sh /home/alex/fine_tunning/*)",
+      "WebFetch(domain:www.stratosphereips.org)",
+      "WebFetch(domain:mcfp.felk.cvut.cz)",
+      "WebFetch(domain:datasets.uwf.edu)",
+      "WebFetch(domain:www.mdpi.com)",
+      "WebFetch(domain:fkie-cad.github.io)",
+      "WebFetch(domain:www.researchgate.net)",
+      "Bash(echo \"exists: $?\")",
+      "Bash(for tactic:*)",
+      "Bash(do mkdir:*)",
+      "Bash(wget -q -r -np -nH --cut-dirs=5 -P \"$tactic\" \"https://datasets.uwf.edu/data/UWF-ZeekData24/csv/$tactic/\" --accept=\"*.csv\")",
+      "Bash(echo \"  done: $tactic\")",
+      "Bash(done)",
+      "Bash(head -5 /home/alex/fine_tunning/datasets/uwf-zeekdata24/Benign/part-00000-*.csv)"
     ]
   }
 }
