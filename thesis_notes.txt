@@ -1,0 +1,260 @@
+================================================================================
+IDS ALERT CLASSIFIER — THESIS DEVELOPMENT NOTES
+Fine-tuning Qwen2.5-1.5B-Instruct for network intrusion detection
+================================================================================
+
+This file is a running log of design decisions, version changes, findings, and
+reasoning. It is intended to support the final master's thesis write-up.
+Never delete — append new entries as the project evolves.
+
+================================================================================
+MODEL CHOICE
+================================================================================
+
+Base model: Qwen/Qwen2.5-1.5B-Instruct
+Quantization: 4-bit NF4 (QLoRA) via BitsAndBytes, bf16 compute dtype
+
+Why an LLM over classical ML or BERT?
+- Classical ML (Random Forest, XGBoost) and BERT achieve high accuracy on
+  CICIDS2017 but are known to overfit its statistical artifacts — this is
+  well-documented in the literature. They generalise poorly to out-of-
+  distribution traffic.
+- BERT fine-tuned on network flows would match accuracy but produces no
+  explanation — it is a black box requiring a separate explainability layer
+  (LIME, SHAP) to be useful to a SOC analyst.
+- The LLM approach produces a structured VERDICT + REASON for every alert.
+  Explainability is a hard requirement in real SOC environments. A Random
+  Forest that outputs "ATTACK: 0.94" is not actionable. A response of
+  "VERDICT: ATTACK / REASON: Asymmetric byte distribution and connection
+  state indicate hostile intent." is.
+- The REASON field is the key academic and practical differentiator.
+
+Why Qwen2.5-1.5B specifically?
+- Small enough to run on consumer hardware (RTX 3070, 8 GB VRAM) at inference
+  via 4-bit loading. Deployment cost is zero beyond the local machine.
+- Instruction-tuned base makes it respond well to the structured prompt format
+  without requiring large amounts of data to learn the output schema.
+- QLoRA means only a small adapter (~20 MB) is trained and stored — the frozen
+  4-bit base model is hardware-agnostic.
+
+Known limitation to address in thesis:
+- Binary classification (ATTACK / FALSE POSITIVE) is a simplification. Real
+  IDS needs multi-class attack categorisation. This is a scoped first step.
+- A potential extension is a third class (UNKNOWN / low-confidence) with
+  calibration metrics to model uncertainty.
+
+================================================================================
+PROMPT FORMAT (all versions)
+================================================================================
+
+System prompt:
+  "You are a network security analyst. Always respond with
+   VERDICT: <ATTACK or FALSE POSITIVE> on the first line,
+   followed by REASON: <brief explanation>."
+
+Input: 10 Zeek-native fields — 7 base + 3 derived:
+  Proto, Duration (s), Orig Packets, Resp Packets, Orig Bytes, Resp Bytes,
+  Conn State, Bytes/sec, Orig Bytes/Pkt, Resp Bytes/Pkt
+
+Derived fields propagate N/A when base fields are missing (e.g. S0
+connections with no byte counts). This mirrors real inference behaviour
+where Zeek logs frequently contain dash placeholders for unset fields.
+
+Expected output:
+  VERDICT: ATTACK
+  REASON: <brief explanation>
+
+The prompt format was kept identical across training, benchmarking, and live
+classification (classify_conn_log.py, classify_weird_log.py) to avoid any
+train/inference mismatch.
+
+================================================================================
+VERSION HISTORY
+================================================================================
+
+--------------------------------------------------------------------------------
+v3 — COMPLETED
+--------------------------------------------------------------------------------
+Dataset:    CICIDS2017 only (CICFlowMeter CSVs)
+Prompt:     CICFlowMeter 15-feature prompt (not Zeek-native)
+Accuracy:   ~89% on CICIDS2017 benchmark
+LoRA:       r=8, lora_alpha=16
+Epochs:     1
+Hardware:   Local RTX 3070
+
+Findings:
+- Good accuracy on CICIDS2017 but the prompt used CICFlowMeter-specific
+  features that do not exist in a real Zeek conn.log. The model was
+  therefore useless for real-world deployment against live traffic.
+- Single dataset training made the model brittle to distribution shift.
+
+--------------------------------------------------------------------------------
+v4 — COMPLETED
+--------------------------------------------------------------------------------
+Dataset:    4 sources — IoT-23, CTU-13, UNSW-NB15, CICIDS2017
+            ~300k samples total
+Prompt:     Zeek-native 10-field prompt (same as v3 but redesigned)
+Accuracy:   ~82% on CICIDS2017 benchmark
+LoRA:       r=8, lora_alpha=16
+Epochs:     1
+Hardware:   Local RTX 3070
+
+Why the step down from 89% to 82%:
+- The new prompt uses Zeek-native fields only. CICIDS2017 has no conn_state
+  (set to "-") and uses numeric protocol codes ("6" instead of "tcp").
+  The model saw more diverse, harder data — the accuracy drop is expected
+  and acceptable given the gain in real-world generalisability.
+
+Critical finding — real-world deployment failure:
+- When run against a real Zeek conn.log (classify_conn_log.py), v4 produced
+  an approximately 95% FALSE POSITIVE rate. Nearly all legitimate traffic
+  was flagged as ATTACK.
+- Root cause: the training data (IoT-23, CTU-13, UNSW-NB15, CICIDS2017) is
+  all lab-generated or synthetic. The model had never seen realistic benign
+  traffic patterns from actual user browsing and enterprise activity.
+  It learned to classify "unusual-looking" flows as attacks, and real traffic
+  contains many flows that look unusual by lab standards (e.g. short S0
+  connections, zero-byte responses, varied protocol behaviour).
+- The dash/N/A propagation was also broken in v4: missing fields (Zeek
+  uses "-" as a placeholder) were falling through to 0.0 in derived fields
+  (Bytes/sec, Orig Bytes/Pkt, Resp Bytes/Pkt), creating a numeric signal
+  that was inconsistent between training and inference.
+
+--------------------------------------------------------------------------------
+v5 — SKIPPED
+--------------------------------------------------------------------------------
+Would have had the same real-world FP rate as v4 since it did not address
+the root cause (lack of real-world benign training data). Skipped to avoid
+wasting compute.
+Time to train: 36 hours
+Hardware = Local RTX 3070
+
+--------------------------------------------------------------------------------
+v6 — TRAINING IN PROGRESS (started 2026-03-28)
+--------------------------------------------------------------------------------
+Dataset:    6 sources — IoT-23, CTU-13, UNSW-NB15, CICIDS2017,
+            UWF-ZeekData24, CTU-Normal
+            ~330k samples (180k ATTACK / 150k FALSE POSITIVE)
+LoRA:       r=16, lora_alpha=32 (doubled adapter capacity vs v4)
+Epochs:     3 (vs 1 in v4)
+Hardware:   RunPod RTX 5090 (32 GB VRAM), $0.90/hr
+Estimated training cost: ~$5-6
+
+Key changes from v4 and why:
+
+1. Added UWF-ZeekData24 (real Zeek conn.log, University of West Florida
+   cyber range, MITRE ATT&CK labelled):
+   - Real network traffic from a university cyber range, not synthetic.
+   - Zeek-native column names — minimal preprocessing needed.
+   - Directly addresses the real-world FP problem from v4.
+
+2. Added CTU-Normal (benign-only Zeek conn.log from Stratosphere Lab,
+   CTU-Normal-20 through 32):
+   - Real user browsing and background traffic, no attacks.
+   - Provides the model with realistic benign patterns it had never seen.
+   - All 80k samples labelled FALSE POSITIVE.
+   - Directly addresses the real-world FP problem from v4.
+
+3. Fixed N/A propagation (prompt_utils.py):
+   - In v4, missing fields ("-", empty string) fell through to 0.0 in
+     derived calculations. Now _is_na() detects unset fields and derived
+     fields (Bytes/sec, Bytes/Pkt) propagate as "N/A" rather than "0.0".
+   - Training data and inference prompts now match exactly for flows with
+     missing fields (e.g. S0 connection state with no byte counts).
+
+4. Fixed IoT-23 dash handling:
+   - v4 used len(parts) < 22 to skip malformed lines. The correct check
+     is len(parts) < 21 — the last IoT-23 field bundles tunnel_parents,
+     label, and detailed-label as space-separated sub-tokens within a
+     single tab field. The off-by-one caused valid labelled lines to be
+     silently dropped.
+
+5. Shared prompt_utils.py (single source of truth):
+   - In v4, build_prompt() was duplicated across preprocess_zeek.py,
+     benchmark.py, and classify_conn_log.py. Any divergence would create
+     a train/inference mismatch. Now all scripts import from one module.
+
+6. Increased LoRA rank: r=8 → r=16, lora_alpha=16 → 32:
+   - Doubles adapter capacity. The harder attack types (web attacks,
+     infiltration) showed lower per-class accuracy in v4. More expressive
+     adapters should help without significant VRAM impact (~20 MB more).
+
+7. Increased epochs: 1 → 3 with cosine_with_restarts (3 cycles):
+   - v4 trained for only 1 epoch — likely underfit given the dataset size
+     and task complexity. 3 epochs with 1 restart per epoch allows the
+     model to consolidate learning while the cosine schedule prevents
+     overfitting at the end of each cycle.
+
+8. Moved training to RunPod (RTX 5090):
+   - Local RTX 3070 (8 GB VRAM) cannot fit batch=12 with the full v6
+     config. RunPod provides on-demand access to 32 GB VRAM at $0.90/hr.
+   - Training cost per run is ~$5-6, making iteration affordable.
+
+Training configuration (v6 final):
+  per_device_train_batch_size = 22
+  gradient_accumulation_steps = 1    (effective batch = 22)
+  optim = "paged_adamw_8bit"         (pages optimizer states to CPU RAM
+                                      under pressure — keeps VRAM ~19 GB)
+  gradient_checkpointing = True      (required even on 32 GB — disabling
+                                      it caused VRAM to spike to 31/32 GB)
+  bf16 = True
+  num_train_epochs = 3
+  learning_rate = 2e-4
+  lr_scheduler_type = "cosine_with_restarts"
+  num_cycles = 3                     (1 restart per epoch)
+  warmup_ratio = 0.03
+  weight_decay = 0.01
+  max_length = 512                   (prompts are ~80-100 tokens; no
+                                      truncation occurs in practice)
+  eval_strategy = "epoch"
+  load_best_model_at_end = True      (selects checkpoint with lowest
+                                      eval_loss across 3 epochs)
+
+Notes on training configuration decisions:
+- paged_adamw_8bit was chosen over adamw_torch_fused: switching to fused
+  caused VRAM to jump from ~19 GB to ~31 GB (close to OOM on 32 GB).
+  paged offloads optimizer states to CPU under memory pressure, which is
+  why VRAM stays low despite a large dataset.
+- gradient_checkpointing=True was initially disabled thinking 32 GB was
+  sufficient. Disabling it caused VRAM to spike to 31/32 GB (96%).
+  Re-enabled — it trades ~20% compute speed for significant VRAM saving
+  by recomputing activations during the backward pass instead of storing them.
+- Batch size was tuned from 12 → 22 after observing ~13 GB VRAM usage at
+  batch=12, leaving substantial headroom. Batch=22 estimated at ~18 GB,
+  giving a safe margin while improving throughput.
+
+================================================================================
+BENCHMARK METHODOLOGY
+================================================================================
+
+- 50 samples per class per CSV across 8 CICIDS2017 files = 800 samples total
+- Same build_prompt() as training (via shared prompt_utils.py)
+- Batched inference, batch_size=8, max_new_tokens=80
+- Parses VERDICT: line — returns UNKNOWN if not found
+- Reports: classification report, confusion matrix, per-attack-type accuracy,
+  format failure rate (% of outputs where no VERDICT line was found)
+- Also runs vanilla Qwen (no adapter) on same samples for comparison
+
+================================================================================
+REAL-WORLD VALIDATION
+================================================================================
+
+classify_conn_log.py — runs the fine-tuned adapter against a real Zeek
+conn.log captured from local network traffic.
+
+classify_weird_log.py — cross-references weird.log entries with conn.log
+to enrich them with flow statistics before classification.
+
+v4 result: ~95% FALSE POSITIVE rate on real traffic.
+v6 result: TBD — pending training completion and local deployment.
+
+================================================================================
+TO ADD IN FUTURE ENTRIES
+================================================================================
+
+- v6 benchmark results (accuracy, per-class, format failure rate)
+- v6 real-world FP rate vs v4
+- Any v7 changes if v6 results are insufficient
+- Comparison table: vanilla Qwen vs v4 vs v6
+
+================================================================================
