@@ -6,6 +6,8 @@ Datasets supported:
   - CTU-13        : binetflow (Argus bidirectional flows)
   - UNSW-NB15     : CSV/parquet (Bro/Zeek-generated, good column overlap)
   - CICIDS2017    : CICFlowMeter CSVs (already present) — mapped to Zeek schema
+  - UWF-ZeekData24: real Zeek conn.log from university cyber range (MITRE labeled)
+  - CTU-Normal    : benign-only Zeek conn.log from real user browsing
 
 Output: zeek_dataset.jsonl  (same chat format as ids_dataset.jsonl)
 
@@ -23,32 +25,23 @@ import math
 
 import pandas as pd
 
+from prompt_utils import SYSTEM_PROMPT, build_prompt
+
 # ── Config ────────────────────────────────────────────────────────────────────
 OUTPUT_FILE   = "zeek_dataset.jsonl"
 RANDOM_SEED   = 42
 MAX_PER_SOURCE_CLASS = 80_000   # cap per (source, class) before merging
-FINAL_BENIGN  = 120_000         # target benign rows in final dataset
-FINAL_ATTACK  = 180_000         # target attack rows (60/40 split, attacks heavier)
+FINAL_BENIGN  = 150_000         # target benign rows in final dataset
+FINAL_ATTACK  = 180_000         # target attack rows
 
 DATASETS = {
-    "iot23":    "datasets/iot-23/iot_23_datasets_small.tar.gz",
-    "ctu13":    "datasets/ctu-13/CTU-13-Dataset.tar.bz2",
-    "unsw":     "datasets/unsw-nb15/",
-    "cicids":   ".",   # looks for *.pcap_ISCX.csv in cwd
+    "iot23":      "datasets/iot-23/iot_23_datasets_small.tar.gz",
+    "ctu13":      "datasets/ctu-13/CTU-13-Dataset.tar.bz2",
+    "unsw":       "datasets/unsw-nb15/",
+    "cicids":     ".",   # looks for *.pcap_ISCX.csv in cwd
+    "uwf":        "datasets/uwf-zeekdata24/",
+    "ctu_normal": "datasets/ctu-normal/",
 }
-
-SYSTEM_PROMPT = (
-    "You are a network security analyst. "
-    "Always respond with VERDICT: <ATTACK or FALSE POSITIVE> on the first line, "
-    "followed by REASON: <brief explanation>."
-)
-
-# ── Reason generators ──────────────────────────────────────────────────────────
-def _safe(v, fmt=".1f"):
-    try:
-        return format(float(v), fmt) if v not in (None, "", "-", "?") else "N/A"
-    except (ValueError, TypeError):
-        return "N/A"
 
 ATTACK_REASONS = [
     "Traffic pattern matches known malicious behavior with anomalous packet ratios.",
@@ -82,37 +75,7 @@ def pick_reason(verdict):
     pool = ATTACK_REASONS if verdict == "ATTACK" else BENIGN_REASONS
     return random.choice(pool)
 
-# ── Feature → prompt ───────────────────────────────────────────────────────────
-def build_prompt(proto, duration, orig_pkts, resp_pkts,
-                 orig_bytes, resp_bytes, conn_state):
-    """Convert Zeek-native features to model prompt text."""
-    try:
-        dur_f   = float(duration)
-        ob_f    = float(orig_bytes)
-        rb_f    = float(resp_bytes)
-        op_f    = float(orig_pkts)
-        rp_f    = float(resp_pkts)
-        bps     = (ob_f + rb_f) / dur_f if dur_f > 0 else 0.0
-        op_sz   = ob_f / op_f if op_f > 0 else 0.0
-        rp_sz   = rb_f / rp_f if rp_f > 0 else 0.0
-    except (ValueError, TypeError, ZeroDivisionError):
-        bps = op_sz = rp_sz = 0.0
-
-    lines = [
-        "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n",
-        f"  Proto:              {proto}",
-        f"  Duration (s):       {_safe(duration, '.6f')}",
-        f"  Orig Packets:       {_safe(orig_pkts, '.0f')}",
-        f"  Resp Packets:       {_safe(resp_pkts, '.0f')}",
-        f"  Orig Bytes:         {_safe(orig_bytes, '.0f')}",
-        f"  Resp Bytes:         {_safe(resp_bytes, '.0f')}",
-        f"  Conn State:         {conn_state}",
-        f"  Bytes/sec:          {_safe(bps, '.1f')}",
-        f"  Orig Bytes/Pkt:     {_safe(op_sz, '.1f')}",
-        f"  Resp Bytes/Pkt:     {_safe(rp_sz, '.1f')}",
-    ]
-    return "\n".join(lines)
-
+# ── Sample builder ─────────────────────────────────────────────────────────────
 def make_sample(proto, duration, orig_pkts, resp_pkts,
                 orig_bytes, resp_bytes, conn_state, verdict, source):
     prompt  = build_prompt(proto, duration, orig_pkts, resp_pkts,
@@ -186,13 +149,6 @@ def load_iot23(archive_path):
                     verdict = "FALSE POSITIVE"
                 else:
                     continue
-
-                # skip "-" placeholders
-                if orig_bytes == "-": orig_bytes = "0"
-                if resp_bytes == "-": resp_bytes = "0"
-                if duration   == "-": duration   = "0"
-                if orig_pkts  == "-": orig_pkts  = "0"
-                if resp_pkts  == "-": resp_pkts  = "0"
 
                 bucket = samples[verdict]
                 if len(bucket) < MAX_PER_SOURCE_CLASS:
@@ -447,6 +403,131 @@ def load_cicids(base_dir):
     return samples["ATTACK"] + samples["FALSE POSITIVE"]
 
 
+def load_uwf(dataset_dir):
+    """Read UWF-ZeekData24 CSV files (Spark output, one dir per MITRE tactic)."""
+    if not os.path.isdir(dataset_dir):
+        print(f"[SKIP] UWF-ZeekData24 directory not found: {dataset_dir}")
+        return []
+
+    csv_files = glob.glob(os.path.join(dataset_dir, "**/*.csv"), recursive=True)
+    csv_files = [f for f in csv_files if not os.path.basename(f).startswith(".")]
+    if not csv_files:
+        print(f"[SKIP] No CSV files found in {dataset_dir}")
+        return []
+
+    print(f"[UWF-ZeekData24] Loading {len(csv_files)} CSV(s) from {dataset_dir}")
+    samples = {"ATTACK": [], "FALSE POSITIVE": []}
+
+    for fpath in csv_files:
+        print(f"  Reading {os.path.relpath(fpath, dataset_dir)} ...")
+        try:
+            df = pd.read_csv(fpath, low_memory=False)
+        except Exception as e:
+            print(f"    ERROR: {e}")
+            continue
+
+        df.columns = [c.strip() for c in df.columns]
+
+        # UWF-ZeekData24 columns: proto, duration, orig_pkts, resp_pkts,
+        # orig_bytes, resp_bytes, conn_state, label_binary ("True"/"False")
+        label_col = next((c for c in ["label_binary", "label_tactic"] if c in df.columns), None)
+        if label_col is None:
+            print(f"    No label column found, skipping.")
+            continue
+
+        attacks = benign = 0
+        for _, row in df.iterrows():
+            if label_col == "label_binary":
+                verdict = "ATTACK" if str(row[label_col]).strip() == "True" else "FALSE POSITIVE"
+            else:
+                verdict = "ATTACK" if str(row[label_col]).strip() != "none" else "FALSE POSITIVE"
+
+            bucket = samples[verdict]
+            if len(bucket) >= MAX_PER_SOURCE_CLASS:
+                continue
+
+            # UWF uses empty strings for missing values — pass through as-is
+            # (build_prompt / _safe will convert to N/A)
+            proto      = str(row.get("proto", "unknown")).strip()
+            duration   = str(row.get("duration", "")).strip()
+            orig_pkts  = str(row.get("orig_pkts", "")).strip()
+            resp_pkts  = str(row.get("resp_pkts", "")).strip()
+            orig_bytes = str(row.get("orig_bytes", "")).strip()
+            resp_bytes = str(row.get("resp_bytes", "")).strip()
+            conn_state = str(row.get("conn_state", "-")).strip()
+
+            # pandas converts empty CSV cells to nan
+            if duration in ("nan", "None"):   duration   = ""
+            if orig_pkts in ("nan", "None"):  orig_pkts  = ""
+            if resp_pkts in ("nan", "None"):  resp_pkts  = ""
+            if orig_bytes in ("nan", "None"): orig_bytes = ""
+            if resp_bytes in ("nan", "None"): resp_bytes = ""
+
+            bucket.append(make_sample(
+                proto, duration, orig_pkts, resp_pkts,
+                orig_bytes, resp_bytes, conn_state, verdict, "uwf",
+            ))
+            if verdict == "ATTACK": attacks += 1
+            else:                   benign  += 1
+
+        print(f"    {attacks} attacks, {benign} benign")
+
+    print(f"  UWF-ZeekData24 total: {len(samples['ATTACK'])} attacks, "
+          f"{len(samples['FALSE POSITIVE'])} benign")
+    return samples["ATTACK"] + samples["FALSE POSITIVE"]
+
+
+def load_ctu_normal(dataset_dir):
+    """Read CTU-Normal benign Zeek conn.log files (standard 21-field TSV)."""
+    if not os.path.isdir(dataset_dir):
+        print(f"[SKIP] CTU-Normal directory not found: {dataset_dir}")
+        return []
+
+    log_files = sorted(glob.glob(os.path.join(dataset_dir, "*.log")))
+    if not log_files:
+        print(f"[SKIP] No .log files found in {dataset_dir}")
+        return []
+
+    print(f"[CTU-Normal] Loading {len(log_files)} conn.log file(s) from {dataset_dir}")
+    samples = []
+    total = 0
+
+    for fpath in log_files:
+        count = 0
+        with open(fpath) as f:
+            for line in f:
+                if line.startswith("#"):
+                    continue
+                parts = line.strip().split("\t")
+                if len(parts) < 21:
+                    continue
+
+                if len(samples) >= MAX_PER_SOURCE_CLASS:
+                    break
+
+                proto      = parts[6]
+                duration   = parts[8]
+                orig_bytes = parts[9]
+                resp_bytes = parts[10]
+                conn_state = parts[11]
+                orig_pkts  = parts[16]
+                resp_pkts  = parts[18]
+
+                # All CTU-Normal traffic is benign — pass - values through as-is
+                samples.append(make_sample(
+                    proto, duration, orig_pkts, resp_pkts,
+                    orig_bytes, resp_bytes, conn_state,
+                    "FALSE POSITIVE", "ctu_normal",
+                ))
+                count += 1
+
+        total += count
+        print(f"  {os.path.basename(fpath)}: {count} benign entries")
+
+    print(f"  CTU-Normal total: {len(samples)} benign")
+    return samples
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     random.seed(RANDOM_SEED)
@@ -456,6 +537,8 @@ if __name__ == "__main__":
     all_samples += load_ctu13(DATASETS["ctu13"])
     all_samples += load_unsw(DATASETS["unsw"])
     all_samples += load_cicids(DATASETS["cicids"])
+    all_samples += load_uwf(DATASETS["uwf"])
+    all_samples += load_ctu_normal(DATASETS["ctu_normal"])
 
     attacks = [s for s in all_samples if s["verdict"] == "ATTACK"]
     benign  = [s for s in all_samples if s["verdict"] == "FALSE POSITIVE"]

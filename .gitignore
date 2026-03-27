@@ -10,6 +10,8 @@ v4-ids-model/
 v4-ids-lora-adapter/
 v5-ids-model/
 v5-ids-lora-adapter/
+v6-ids-model/
+v6-ids-lora-adapter/
 *.gguf
 
 # Benchmark cache (regenerated automatically)

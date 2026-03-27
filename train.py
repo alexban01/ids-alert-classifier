@@ -11,8 +11,8 @@ torch.backends.cudnn.benchmark        = True
 
 MODEL       = "Qwen/Qwen2.5-1.5B-Instruct"
 DATASET     = "zeek_dataset.jsonl"      # output from preprocess_zeek.py
-OUTPUT_DIR  = "./v5-ids-model"          # training checkpoints
-ADAPTER_DIR = "./v5-ids-lora-adapter"   # final adapter
+OUTPUT_DIR  = "./v6-ids-model"          # training checkpoints
+ADAPTER_DIR = "./v6-ids-lora-adapter"   # final adapter
 
 # ── 4-bit quantization ──────────────────────────────────────────────────────
 # QLoRA: 4-bit base model stays the same — adapter output is hardware-agnostic.
@@ -49,14 +49,12 @@ dataset = load_dataset("json", data_files=DATASET)["train"]
 dataset = dataset.train_test_split(test_size=0.1, seed=42)
 
 # ── Training ─────────────────────────────────────────────────────────────────
-# Targeting RTX 5090 (32 GB VRAM) on RunPod.
-# Key differences from v4 (RTX 3070, 8 GB):
-#   - batch_size 2→16 (8x fewer forward passes, same effective batch)
-#   - gradient_checkpointing OFF (saves ~30% compute overhead)
-#   - eval + load_best_model_at_end re-enabled (impossible on 8 GB)
-#   - 3 epochs with cosine_with_restarts (3 cycles, 1 per epoch)
-#   - LR 2e-4 (up from 5e-5) — QLoRA paper sweet spot
-#   - dataloader_num_workers=4 (RunPod uses standard Python, no forkserver issue)
+# Targeting RTX 3090 (24 GB VRAM) on RunPod.
+# Key differences from v5 (RTX 5090, 32 GB):
+#   - batch_size 16→12 (conservative for 24 GB incl. VRAM spikes)
+#   - gradient_checkpointing stays ON (essential at 24 GB)
+#   - new data sources: UWF-ZeekData24 + CTU-Normal (real-world benign patterns)
+#   - fixed prompt pipeline: N/A propagation, IoT-23 dash fix
 trainer = SFTTrainer(
     model=model,
     peft_config=lora_config,
@@ -65,12 +63,12 @@ trainer = SFTTrainer(
     args=SFTConfig(
         output_dir=OUTPUT_DIR,
         # ── Batch size ────────────────────────────────────────────────────
-        per_device_train_batch_size=16,
-        per_device_eval_batch_size=16,
-        gradient_accumulation_steps=1,  # effective batch = 16
+        per_device_train_batch_size=24,
+        per_device_eval_batch_size=24,
+        gradient_accumulation_steps=1,  # effective batch = 24
         optim="paged_adamw_8bit",
         # ── Precision ────────────────────────────────────────────────────
-        gradient_checkpointing=True,    # safety margin — RunPod eats ~9 GB
+        gradient_checkpointing=True,    # activations too large without it even on 32 GB
         bf16=True,
         # ── Schedule ─────────────────────────────────────────────────────
         num_train_epochs=3,
