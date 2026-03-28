@@ -3,6 +3,32 @@ IDS ALERT CLASSIFIER — THESIS DEVELOPMENT NOTES
 Fine-tuning Qwen2.5-1.5B-Instruct for network intrusion detection
 ================================================================================
 
+PROJECT OVERVIEW
+----------------
+
+This project serves a dual purpose:
+
+1. MASTER'S THESIS
+   Final thesis submission for a cybersecurity master's degree. The project
+   investigates the viability of fine-tuning a small instruction-tuned LLM
+   (Qwen2.5-1.5B-Instruct) for real-time network intrusion detection using
+   Zeek conn.log data. Key research questions include:
+     - Can a fine-tuned LLM match or exceed classical ML accuracy on IDS tasks?
+     - Does multi-source heterogeneous training data improve generalisation to
+       real-world traffic compared to lab-only datasets?
+     - Does the explainability of LLM output (VERDICT + REASON) provide
+       practical value over black-box classifiers in a SOC context?
+
+2. REAL DEPLOYMENT TARGET
+   Beyond the thesis, the goal is a working IDS classifier that runs locally
+   on consumer hardware (RTX 3070, 8 GB VRAM) via Ollama, classifying live
+   Zeek conn.log and weird.log entries in real time. The system must be:
+     - Fast enough for interactive use on local hardware
+     - Accurate enough to be trusted (low false positive rate on real traffic)
+     - Explainable — every verdict comes with a human-readable reason
+
+--------------------------------------------------------------------------------
+
 This file is a running log of design decisions, version changes, findings, and
 reasoning. It is intended to support the final master's thesis write-up.
 Never delete — append new entries as the project evolves.
@@ -42,6 +68,161 @@ Known limitation to address in thesis:
   IDS needs multi-class attack categorisation. This is a scoped first step.
 - A potential extension is a third class (UNKNOWN / low-confidence) with
   calibration metrics to model uncertainty.
+
+================================================================================
+HOW LoRA AND QLoRA WORK
+================================================================================
+
+--- The problem LoRA solves ---
+
+A full fine-tune of Qwen2.5-1.5B means updating all 1.5 billion parameters
+via gradient descent. Each parameter needs:
+  - The parameter itself    (bf16 = 2 bytes)
+  - Its gradient            (2 bytes)
+  - Two optimizer momentum values (8 bytes each in fp32)
+
+That is ~18 GB just for optimizer states on a 1.5B model. Impossible on
+consumer hardware, and wasteful — you are retraining a model that already
+knows language, reasoning, and structure just to teach it one narrow task.
+
+--- The key insight ---
+
+When you fine-tune a large model on a specific task, the CHANGE in each weight
+matrix turns out to be low-rank. This was observed empirically by the LoRA
+authors (Hu et al., 2021).
+
+Low-rank means: a 1536×1536 matrix has 2.3M independent numbers. But if the
+useful change to that matrix can be described by combining just 16 "directions",
+you do not need 2.3M numbers. You can store two small matrices that, when
+multiplied together, reconstruct that change. That product is a rank-16
+approximation of the full update.
+
+This is the bet LoRA makes: the task-specific update lives in a low-dimensional
+subspace of the weight space.
+
+--- The mechanism ---
+
+For each target weight matrix W (e.g. query projection, shape 1536×1536):
+
+  Freeze W completely. Add two new matrices alongside it:
+    A: shape (1536 × 16)  — projects DOWN into rank space
+    B: shape (16  × 1536) — projects UP back to original dimension
+
+  Forward pass becomes:
+    output = W · x  +  (B · A) · x
+             ^^^^^^     ^^^^^^^^^^^
+          frozen base   learned correction
+
+  At the start of training, B is initialised to zeros, so B·A = 0 and the
+  adapter adds nothing. The model starts identical to the base. A and B
+  learn together during training to produce corrections that push outputs
+  toward the task objective.
+
+  The scaling factor lora_alpha / r (32/16 = 2.0 in v6) controls the
+  magnitude of the correction.
+
+--- What "rank" means intuitively ---
+
+Imagine describing the change from a neutral face to a smiling face. A full
+1024×1024 image has 1M numbers, but the change only involves a few directions:
+lip corners up, cheeks raised, etc. Maybe 10-20 directions are enough.
+
+Rank is the number of those directions. r=1 is extremely constrained.
+r=16 gives 16 directions of change. r=full_dimension recovers the full
+fine-tune. For binary classification of structured network flows, r=16
+is generous — the task is narrow and consistent.
+
+--- What gets trained vs frozen ---
+
+  Frozen (never updated, no gradient, no optimizer state):
+    - All original W matrices (attention projections, MLP weights, etc.)
+    - Embedding layers
+    - Layer norms
+
+  Trained (gradients computed, optimizer states held):
+    - A and B matrices for each targeted layer
+    - v6 targets: q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj
+    - 7 modules × 28 layers × 2 matrices = 392 small matrices
+    - Total trainable parameters: ~688k out of 1.5B (0.046%)
+    - Adapter size on disk: ~20 MB
+
+--- What QLoRA adds ---
+
+LoRA alone still requires the base model in full precision (~3 GB in bf16).
+QLoRA loads the base model in 4-bit NF4 quantization (~900 MB instead of 3 GB).
+
+The 4-bit weights are never updated. During the forward pass each layer is
+dequantized to bf16 on the fly for computation, then discarded. The LoRA
+matrices A and B remain in full bf16 throughout. Gradients only flow into
+A and B — never into the frozen quantized weights.
+
+--- What "activations" are and why they matter for VRAM ---
+
+Activations are the intermediate tensors produced at every step of the forward
+pass. Every layer takes the previous layer's output as input and produces a
+new output tensor — both are activations.
+
+During training, the backward pass computes gradients by working backwards
+through the network. To do this it needs the intermediate values from the
+forward pass. By default, every intermediate tensor from every layer is kept
+in VRAM until the backward pass finishes.
+
+Activation memory scales with:
+  - Batch size: 22 samples processed simultaneously
+  - Sequence length: up to 512 tokens (~100 in practice for these prompts)
+  - Hidden dimension: 1536 numbers per token per layer
+  - 28 layers × multiple intermediate tensors per layer
+
+This is why gradient_checkpointing=True is required even on 32 GB VRAM.
+Instead of storing all activations, it keeps only activations at a subset
+of checkpoint layers and recomputes the rest on demand during the backward
+pass. This trades ~20% extra compute for a large reduction in VRAM usage.
+Disabling it caused VRAM to spike from ~19 GB to ~31 GB (96% of 32 GB).
+
+--- VRAM breakdown for v6 on RTX 5090 ---
+
+  4-bit base model:          ~900 MB
+  LoRA adapter (bf16):        ~20 MB
+  Activations (batch=22):  ~10-12 GB  (dominant cost, reduced by grad ckpt)
+  Optimizer states:            ~5 MB  (paged to CPU RAM under pressure)
+  CUDA / framework overhead:  ~1-2 GB
+  Total observed:            ~14-19 GB
+
+--- What the trained adapter captures ---
+
+After training on 330k labelled flows, A and B have learned corrections that
+at each layer push the model's internal representations in task-relevant
+directions:
+
+  - Short-duration, high-packet-count, asymmetric flows → ATTACK region
+  - Clean SF-state, balanced byte-ratio flows → FALSE POSITIVE region
+  - Output format: VERDICT: X / REASON: Y
+
+The base model provides the representational space (language understanding,
+structured output, reasoning). The adapter provides the directions — which
+way to move in that space for this specific task.
+
+The correction is small in magnitude but applied at every layer of every
+forward pass. 28 layers of small nudges add up to meaningfully different
+final behaviour.
+
+  Input prompt (network flow text)
+          │
+          ▼
+  [Embedding layer — frozen]
+          │
+          ▼  (repeated × 28 layers)
+  ┌──────────────────────────────────┐
+  │  W_frozen · x                    │  ← original Qwen knowledge
+  │        +                         │
+  │  B · A · x  (scaled by α/r=2.0) │  ← IDS correction from training data
+  └──────────────────────────────────┘
+          │
+          ▼
+  [Output head — frozen]
+          │
+          ▼
+  "VERDICT: ATTACK\nREASON: ..."
 
 ================================================================================
 PROMPT FORMAT (all versions)

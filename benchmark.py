@@ -1,21 +1,44 @@
+"""
+benchmark.py — Three-way comparison: Vanilla vs v4 vs v6 on CICIDS2017.
+
+Runs each model sequentially (loads, infers, unloads) to stay within 8 GB VRAM.
+Produces individual reports + a side-by-side summary table at the end.
+Results saved to benchmark_report.txt and benchmark_results.json.
+
+Usage:
+    .venv/bin/python benchmark.py
+"""
+
 import os
 import json
 import random
 import torch
 import pandas as pd
+from datetime import datetime
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import PeftModel
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import (
+    classification_report, confusion_matrix, matthews_corrcoef
+)
 
-# ── Config ───────────────────────────────────────────────────────────────────
+from prompt_utils import SYSTEM_PROMPT, build_prompt, extract_verdict
+
+# ── Config ────────────────────────────────────────────────────────────────────
 BASE_MODEL      = "Qwen/Qwen2.5-1.5B-Instruct"
-FINETUNED_MODEL = "./v5-ids-lora-adapter"
 BENCHMARK_CACHE = "benchmark_samples_v4.json"
+REPORT_TXT      = "benchmark_report.txt"
+RESULTS_JSON    = "benchmark_results.json"
 MAX_NEW_TOKENS  = 80
-BATCH_SIZE      = 8     # lower to 4 if OOM
+BATCH_SIZE      = 8
 SAMPLES_PER_CLASS_PER_FILE = 50
 RANDOM_SEED     = 42
+
+MODELS = [
+    ("Vanilla Qwen2.5-1.5B",  BASE_MODEL,              False),
+    ("v4 Fine-tuned",          "./v4-ids-lora-adapter", True),
+    ("v6 Fine-tuned",          "./v6-ids-lora-adapter", True),
+]
 
 CSV_FILES = [
     "Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv",
@@ -28,7 +51,6 @@ CSV_FILES = [
     "Wednesday-workingHours.pcap_ISCX.csv",
 ]
 
-# CICFlowMeter columns needed for Zeek-schema mapping
 CICIDS_COLS = [
     "Protocol", "Flow Duration",
     "Total Fwd Packets", "Total Backward Packets",
@@ -36,11 +58,23 @@ CICIDS_COLS = [
     "Label",
 ]
 
-from prompt_utils import SYSTEM_PROMPT, build_prompt, extract_verdict
+# Fix CICIDS2017 label encoding artifacts (Latin-1 read as UTF-8)
+LABEL_FIXES = {
+    "Web Attack \x96 Brute Force": "Web Attack - Brute Force",
+    "Web Attack \x96 XSS":         "Web Attack - XSS",
+    "Web Attack \x96 Sql Injection":"Web Attack - Sql Injection",
+    "Web Attack â Brute Force":    "Web Attack - Brute Force",
+    "Web Attack â XSS":            "Web Attack - XSS",
+    "Web Attack â Sql Injection":  "Web Attack - Sql Injection",
+}
 
-# ── Dataset generation ────────────────────────────────────────────────────────
+def fix_label(label):
+    label = label.strip()
+    return LABEL_FIXES.get(label, label)
+
+# ── Sample generation ─────────────────────────────────────────────────────────
 def label_to_verdict(label):
-    return "FALSE POSITIVE" if label.strip() == "BENIGN" else "ATTACK"
+    return "FALSE POSITIVE" if fix_label(label) == "BENIGN" else "ATTACK"
 
 def generate_benchmark_samples():
     samples = []
@@ -49,7 +83,7 @@ def generate_benchmark_samples():
             print(f"[SKIP] Not found: {fpath}")
             continue
         print(f"[LOAD] {fpath}")
-        df = pd.read_csv(fpath, low_memory=False)
+        df = pd.read_csv(fpath, low_memory=False, encoding="latin-1")
         df.columns = df.columns.str.strip()
         df = df.replace([float("inf"), float("-inf")], float("nan")).dropna()
 
@@ -58,6 +92,7 @@ def generate_benchmark_samples():
             print(f"  [SKIP] No Label column")
             continue
 
+        df["Label"] = df["Label"].apply(fix_label)
         benign  = df[df["Label"] == "BENIGN"]
         attacks = df[df["Label"] != "BENIGN"]
         n_benign  = min(SAMPLES_PER_CLASS_PER_FILE, len(benign))
@@ -69,28 +104,26 @@ def generate_benchmark_samples():
         sampled = pd.concat(parts)
 
         for _, row in sampled.iterrows():
-            # Map CICFlowMeter → Zeek schema
             proto_num = str(int(float(row["Protocol"]))) if "Protocol" in avail else "unknown"
             dur_us    = row.get("Flow Duration", 0)
             try:
-                duration = str(float(dur_us) / 1e6)  # µs → seconds
+                duration = str(float(dur_us) / 1e6)
             except (ValueError, TypeError):
                 duration = "0"
 
-            orig_pkts  = str(row["Total Fwd Packets"])          if "Total Fwd Packets"          in avail else "0"
-            resp_pkts  = str(row["Total Backward Packets"])     if "Total Backward Packets"     in avail else "0"
-            orig_bytes = str(row["Total Length of Fwd Packets"])if "Total Length of Fwd Packets"in avail else "0"
-            resp_bytes = str(row["Total Length of Bwd Packets"])if "Total Length of Bwd Packets"in avail else "0"
-            conn_state = "-"  # CICFlowMeter has no conn_state equivalent
+            orig_pkts  = str(row["Total Fwd Packets"])           if "Total Fwd Packets"           in avail else "0"
+            resp_pkts  = str(row["Total Backward Packets"])      if "Total Backward Packets"      in avail else "0"
+            orig_bytes = str(row["Total Length of Fwd Packets"]) if "Total Length of Fwd Packets" in avail else "0"
+            resp_bytes = str(row["Total Length of Bwd Packets"]) if "Total Length of Bwd Packets" in avail else "0"
+            conn_state = "-"
 
             prompt = build_prompt(proto_num, duration, orig_pkts, resp_pkts,
                                   orig_bytes, resp_bytes, conn_state)
-
             samples.append({
                 "prompt":       prompt,
                 "ground_truth": label_to_verdict(row["Label"]),
                 "source_file":  os.path.basename(fpath),
-                "raw_label":    row["Label"].strip(),
+                "raw_label":    fix_label(row["Label"]),
             })
         print(f"  → {n_benign} benign + {n_attacks} attacks sampled")
 
@@ -101,7 +134,7 @@ def generate_benchmark_samples():
     print(f"\n✅ {len(samples)} benchmark samples saved to {BENCHMARK_CACHE}\n")
     return samples
 
-# ── PyTorch Dataset ───────────────────────────────────────────────────────────
+# ── Dataset / inference ───────────────────────────────────────────────────────
 _tokenizer = None
 
 class PromptDataset(Dataset):
@@ -133,18 +166,12 @@ def collate_fn(batch):
         max_length=512,
     )
 
-# ── Inference ─────────────────────────────────────────────────────────────────
 def run_batched_inference(model, samples, label):
     dataset    = PromptDataset(samples)
     dataloader = DataLoader(
-        dataset,
-        batch_size=BATCH_SIZE,
-        shuffle=False,
-        num_workers=0,
-        pin_memory=True,
-        collate_fn=collate_fn,
+        dataset, batch_size=BATCH_SIZE, shuffle=False,
+        num_workers=0, pin_memory=True, collate_fn=collate_fn,
     )
-
     preds    = []
     unknowns = 0
     total    = len(samples)
@@ -152,8 +179,8 @@ def run_batched_inference(model, samples, label):
     print(f"\nRunning inference: {label}")
     with torch.no_grad():
         for i, batch in enumerate(dataloader):
-            batch      = {k: v.to("cuda") for k, v in batch.items()}
-            input_len  = batch["input_ids"].shape[1]
+            batch     = {k: v.to("cuda") for k, v in batch.items()}
+            input_len = batch["input_ids"].shape[1]
             out = model.generate(
                 **batch,
                 max_new_tokens=MAX_NEW_TOKENS,
@@ -168,64 +195,98 @@ def run_batched_inference(model, samples, label):
                 if verdict == "UNKNOWN":
                     unknowns += 1
                 preds.append(verdict)
-
-            done = min((i + 1) * BATCH_SIZE, total)
-            print(f"  {done}/{total}...", end="\r")
+            print(f"  {min((i+1)*BATCH_SIZE, total)}/{total}...", end="\r")
 
     print()
     return preds, unknowns
 
-# ── Report ────────────────────────────────────────────────────────────────────
-def print_report(preds, samples, label, unknowns):
+# ── Reporting ─────────────────────────────────────────────────────────────────
+def compute_metrics(preds, samples, unknowns):
+    truths     = [s["ground_truth"] for s in samples]
+    labels     = ["ATTACK", "FALSE POSITIVE"]
+    attack_idx = [i for i, t in enumerate(truths) if t == "ATTACK"]
+    benign_idx = [i for i, t in enumerate(truths) if t == "FALSE POSITIVE"]
+
+    acc        = sum(t == p for t, p in zip(truths, preds)) / len(truths)
+    atk_recall = sum(preds[i] == "ATTACK"         for i in attack_idx) / max(len(attack_idx), 1)
+    ben_recall = sum(preds[i] == "FALSE POSITIVE" for i in benign_idx) / max(len(benign_idx), 1)
+    fmt_fail   = unknowns / len(truths)
+
+    # MCC: handles class imbalance correctly — ranges from -1 (perfect inverse)
+    # to +1 (perfect), 0 = random. Better single metric than accuracy for IDS.
+    mcc_preds  = [1 if p == "ATTACK" else 0 for p in preds]
+    mcc_truths = [1 if t == "ATTACK" else 0 for t in truths]
+    mcc        = matthews_corrcoef(mcc_truths, mcc_preds)
+
+    return {
+        "accuracy":    acc,
+        "atk_recall":  atk_recall,
+        "ben_recall":  ben_recall,
+        "fmt_fail":    fmt_fail,
+        "mcc":         mcc,
+        "truths":      truths,
+        "preds":       preds,
+    }
+
+def print_report(preds, samples, label, unknowns, out_lines):
     truths = [s["ground_truth"] for s in samples]
     labels = ["ATTACK", "FALSE POSITIVE"]
+    mcc    = matthews_corrcoef(
+        [1 if t == "ATTACK" else 0 for t in truths],
+        [1 if p == "ATTACK" else 0 for p in preds],
+    )
 
-    print(f"\n{'='*60}")
-    print(f"  MODEL : {label}")
-    print(f"  Total : {len(samples)} samples")
-    print(f"  Format failures: {unknowns} ({100*unknowns/len(samples):.1f}%)")
-    print(f"{'='*60}")
-    print(classification_report(truths, preds, labels=labels, zero_division=0))
+    lines = []
+    lines.append(f"\n{'='*60}")
+    lines.append(f"  MODEL : {label}")
+    lines.append(f"  Total : {len(samples)} samples")
+    lines.append(f"  Format failures : {unknowns} ({100*unknowns/len(samples):.1f}%)")
+    lines.append(f"  MCC             : {mcc:+.4f}  (range -1 to +1, higher is better)")
+    lines.append(f"{'='*60}")
+    lines.append(classification_report(truths, preds, labels=labels, zero_division=0))
 
-    print("Confusion Matrix  (rows = actual, cols = predicted)")
-    print(f"{'':22s} {'ATTACK':>10} {'FALSE POSITIVE':>15}")
+    lines.append("Confusion Matrix  (rows = actual, cols = predicted)")
+    lines.append(f"{'':22s} {'ATTACK':>10} {'FALSE POSITIVE':>15}")
     cm = confusion_matrix(truths, preds, labels=labels)
     for row_label, row in zip(labels, cm):
-        print(f"  {row_label:20s} {row[0]:>10} {row[1]:>15}")
+        total_row = row.sum()
+        pct = [f"{100*v/total_row:.0f}%" for v in row]
+        lines.append(f"  {row_label:20s} {row[0]:>6} ({pct[0]:>4})  {row[1]:>6} ({pct[1]:>4})")
 
-    print(f"\n--- Per attack type breakdown ---")
+    lines.append(f"\n--- Per attack type breakdown ---")
     for raw in sorted(set(s["raw_label"] for s in samples)):
         idx     = [i for i, s in enumerate(samples) if s["raw_label"] == raw]
         correct = sum(truths[i] == preds[i] for i in idx)
-        print(f"  {raw:42s} {correct}/{len(idx)} ({100*correct/len(idx):.0f}%)")
+        lines.append(f"  {raw:44s} {correct:>3}/{len(idx):<3} ({100*correct/len(idx):>3.0f}%)")
 
-    return truths
+    lines.append(f"\n--- Per CSV file breakdown ---")
+    for fpath in sorted(set(s["source_file"] for s in samples)):
+        idx     = [i for i, s in enumerate(samples) if s["source_file"] == fpath]
+        correct = sum(truths[i] == preds[i] for i in idx)
+        lines.append(f"  {os.path.basename(fpath):55s} {correct:>3}/{len(idx):<3} ({100*correct/len(idx):>3.0f}%)")
 
-# ── Load model helper ─────────────────────────────────────────────────────────
-def load_model(path, is_finetuned=False):
+    for line in lines:
+        print(line)
+    out_lines.extend(lines)
+
+# ── Model loading ─────────────────────────────────────────────────────────────
+def load_model(path, is_finetuned):
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
         bnb_4bit_compute_dtype=torch.bfloat16,
     )
-
     if is_finetuned:
-        print(f"Loading base model + LoRA adapter from {path} ...")
-        base = AutoModelForCausalLM.from_pretrained(
-            BASE_MODEL,
-            quantization_config=bnb_config,
-            device_map="cuda",
+        print(f"Loading base + LoRA adapter from {path} ...")
+        base  = AutoModelForCausalLM.from_pretrained(
+            BASE_MODEL, quantization_config=bnb_config, device_map="cuda"
         )
         model = PeftModel.from_pretrained(base, path)
-        print("  Loaded adapter via PeftModel.from_pretrained")
     else:
         print(f"Loading vanilla model: {path} ...")
         model = AutoModelForCausalLM.from_pretrained(
-            path,
-            quantization_config=bnb_config,
-            device_map="cuda",
+            path, quantization_config=bnb_config, device_map="cuda"
         )
-
     model.eval()
     return model
 
@@ -234,44 +295,103 @@ if __name__ == "__main__":
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.benchmark        = True
 
-    # Load or generate benchmark samples
     if os.path.exists(BENCHMARK_CACHE):
         print(f"[CACHE] Loading existing samples from {BENCHMARK_CACHE}")
         with open(BENCHMARK_CACHE) as f:
             samples = json.load(f)
+        # Fix any encoding artifacts in cached samples
+        for s in samples:
+            s["raw_label"] = fix_label(s["raw_label"])
         print(f"  {len(samples)} samples loaded")
     else:
         samples = generate_benchmark_samples()
 
-    # Tokenizer is shared — both models use the same Qwen2.5 vocabulary
     _tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, padding_side="left")
     if _tokenizer.pad_token is None:
         _tokenizer.pad_token = _tokenizer.eos_token
 
-    # ── Fine-tuned model ──────────────────────────────────────────────────────
-    model = load_model(FINETUNED_MODEL, is_finetuned=True)
-    preds, unknowns = run_batched_inference(
-        model, samples, "Fine-tuned Qwen2.5-1.5B (v5)"
-    )
-    print_report(preds, samples, "Fine-tuned Qwen2.5-1.5B (v5)", unknowns)
-    del model
-    torch.cuda.empty_cache()
+    out_lines = [
+        f"BENCHMARK REPORT — {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        f"Samples: {len(samples)} | Dataset: CICIDS2017 | Seed: {RANDOM_SEED}",
+    ]
 
-    # ── Summary ───────────────────────────────────────────────────────────────
-    truths     = [s["ground_truth"] for s in samples]
-    attack_idx = [i for i, t in enumerate(truths) if t == "ATTACK"]
-    benign_idx = [i for i, t in enumerate(truths) if t == "FALSE POSITIVE"]
+    results     = []
+    json_output = {"timestamp": datetime.now().isoformat(), "samples": len(samples), "models": []}
 
-    acc         = sum(t == p for t, p in zip(truths, preds)) / len(truths)
-    atk_recall  = sum(preds[i] == "ATTACK"         for i in attack_idx) / len(attack_idx)
-    ben_recall  = sum(preds[i] == "FALSE POSITIVE" for i in benign_idx) / len(benign_idx)
-    fmt_fail    = sum(p == "UNKNOWN" for p in preds) / len(truths)
+    for label, path, is_finetuned in MODELS:
+        if is_finetuned and not os.path.isdir(path):
+            print(f"\n[SKIP] {label} — adapter not found at {path}")
+            continue
 
-    print(f"\n{'='*60}")
-    print(f"  SUMMARY")
-    print(f"{'='*60}")
-    print(f"  {'Overall accuracy':40s} {acc:>9.1%}")
-    print(f"  {'Attack recall (catch rate)':40s} {atk_recall:>9.1%}")
-    print(f"  {'Benign recall (false pos rate)':40s} {ben_recall:>9.1%}")
-    print(f"  {'Format failure rate':40s} {fmt_fail:>9.1%}")
-    print(f"{'='*60}")
+        model           = load_model(path, is_finetuned)
+        preds, unknowns = run_batched_inference(model, samples, label)
+        print_report(preds, samples, label, unknowns, out_lines)
+        m               = compute_metrics(preds, samples, unknowns)
+        results.append((label, m))
+
+        json_output["models"].append({
+            "label":      label,
+            "accuracy":   round(m["accuracy"],   4),
+            "atk_recall": round(m["atk_recall"], 4),
+            "ben_recall": round(m["ben_recall"], 4),
+            "fmt_fail":   round(m["fmt_fail"],   4),
+            "mcc":        round(m["mcc"],         4),
+        })
+
+        del model
+        torch.cuda.empty_cache()
+
+    # ── Comparison table ──────────────────────────────────────────────────────
+    if len(results) > 1:
+        header = [
+            f"\n{'='*80}",
+            f"  COMPARISON SUMMARY",
+            f"{'='*80}",
+            f"  {'Model':<26} {'Accuracy':>9} {'Atk Recall':>11} {'FP Recall':>10} {'MCC':>7} {'Fmt Fail':>9}",
+            f"  {'-'*26} {'-'*9} {'-'*11} {'-'*10} {'-'*7} {'-'*9}",
+        ]
+        rows = []
+        for label, m in results:
+            rows.append(
+                f"  {label:<26} {m['accuracy']:>9.1%} {m['atk_recall']:>11.1%}"
+                f" {m['ben_recall']:>10.1%} {m['mcc']:>+7.3f} {m['fmt_fail']:>9.1%}"
+            )
+
+        # Delta row: v6 vs v4 (if both present)
+        labels = [r[0] for r in results]
+        if "v4 Fine-tuned" in labels and "v6 Fine-tuned" in labels:
+            v4 = dict(results)[  "v4 Fine-tuned"]
+            v6 = dict(results)[  "v6 Fine-tuned"]
+            delta = (
+                f"  {'v6 delta vs v4':<26}"
+                f" {v6['accuracy']-v4['accuracy']:>+9.1%}"
+                f" {v6['atk_recall']-v4['atk_recall']:>+11.1%}"
+                f" {v6['ben_recall']-v4['ben_recall']:>+10.1%}"
+                f" {v6['mcc']-v4['mcc']:>+7.3f}"
+                f" {v6['fmt_fail']-v4['fmt_fail']:>+9.1%}"
+            )
+            rows.append(f"  {'-'*26} {'-'*9} {'-'*11} {'-'*10} {'-'*7} {'-'*9}")
+            rows.append(delta)
+
+        footer = [
+            f"{'='*80}",
+            "",
+            "  Atk Recall = % of actual attacks correctly caught (sensitivity)",
+            "  FP Recall  = % of benign flows correctly identified (higher = fewer false alarms)",
+            "  MCC        = Matthews Correlation Coefficient — best single metric for",
+            "               imbalanced binary classification (range -1 to +1)",
+            "  Fmt Fail   = % of outputs where no VERDICT line was found",
+        ]
+
+        for line in header + rows + footer:
+            print(line)
+        out_lines.extend(header + rows + footer)
+
+    # ── Save outputs ──────────────────────────────────────────────────────────
+    with open(REPORT_TXT, "w") as f:
+        f.write("\n".join(out_lines))
+    with open(RESULTS_JSON, "w") as f:
+        json.dump(json_output, f, indent=2)
+
+    print(f"\n✅ Report saved to {REPORT_TXT}")
+    print(f"✅ Results saved to {RESULTS_JSON}")

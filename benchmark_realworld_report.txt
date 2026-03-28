@@ -1,0 +1,110 @@
+REAL-WORLD ZEEK BENCHMARK — 2026-03-28 16:39
+Sources: IoT-23, CTU-13, UWF-ZeekData24, CTU-Normal
+Samples: 2100 total (900 attacks / 1200 benign) | Seed: 42
+
+======================================================================
+  MODEL  : v4 Fine-tuned
+  Samples: 2100  (attacks: 900, benign: 1200)
+  Format failures : 0 (0.0%)
+  MCC             : +0.5965  (-1 to +1, higher is better)
+======================================================================
+                precision    recall  f1-score   support
+
+        ATTACK       0.83      0.67      0.75       900
+FALSE POSITIVE       0.79      0.90      0.84      1200
+
+      accuracy                           0.80      2100
+     macro avg       0.81      0.79      0.79      2100
+  weighted avg       0.81      0.80      0.80      2100
+
+Confusion Matrix  (rows = actual, cols = predicted)
+                           ATTACK  FALSE POSITIVE
+  ATTACK                  607 ( 67%)     293 ( 33%)
+  FALSE POSITIVE          121 ( 10%)    1079 ( 90%)
+
+--- Per source ---
+  Source                               Atk  Recall     Ben  Recall      Acc
+  ---------------------------------- ----- -------   ----- -------   ------
+  CTU-13        (binetflow)            300   98.0%     300   94.7%    96.3%
+  CTU-Normal    (Zeek conn.log)          0    0.0%     300   86.7%    86.7%
+  IoT-23        (Zeek conn.log)        300  100.0%     300   90.3%    95.2%
+  UWF-ZeekData24(Zeek conn.log)        300    4.3%     300   88.0%    46.2%
+
+--- Per label (attacks only) ---
+  Credential Access                             13/300 (  4%)
+  PartOfAHorizontalPortScan                    300/300 (100%)
+  flow=From-Botnet-V45-TCP-Attempt               3/3   (100%)
+  flow=From-Botnet-V45-TCP-CC106-IRC-Not-Encrypted   0/1   (  0%)
+  flow=From-Botnet-V45-TCP-Established-HTTP-Ad-15   1/1   (100%)
+  flow=From-Botnet-V45-TCP-Established-HTTP-Ad-4   1/1   (100%)
+  flow=From-Botnet-V45-TCP-Established-HTTP-Ad-62   1/1   (100%)
+  flow=From-Botnet-V45-TCP-HTTP-Google-Net-Established-6   0/1   (  0%)
+  flow=From-Botnet-V45-UDP-Attempt             275/275 (100%)
+  flow=From-Botnet-V45-UDP-DNS                  13/17  ( 76%)
+
+======================================================================
+  MODEL  : v6 Fine-tuned
+  Samples: 2100  (attacks: 900, benign: 1200)
+  Format failures : 0 (0.0%)
+  MCC             : +0.3363  (-1 to +1, higher is better)
+======================================================================
+                precision    recall  f1-score   support
+
+        ATTACK       0.60      0.67      0.64       900
+FALSE POSITIVE       0.73      0.67      0.70      1200
+
+      accuracy                           0.67      2100
+     macro avg       0.67      0.67      0.67      2100
+  weighted avg       0.68      0.67      0.67      2100
+
+Confusion Matrix  (rows = actual, cols = predicted)
+                           ATTACK  FALSE POSITIVE
+  ATTACK                  604 ( 67%)     296 ( 33%)
+  FALSE POSITIVE          398 ( 33%)     802 ( 67%)
+
+--- Per source ---
+  Source                               Atk  Recall     Ben  Recall      Acc
+  ---------------------------------- ----- -------   ----- -------   ------
+  CTU-13        (binetflow)            300   99.3%     300   97.7%    98.5%
+  CTU-Normal    (Zeek conn.log)          0    0.0%     300   18.3%    18.3%
+  IoT-23        (Zeek conn.log)        300  100.0%     300   90.3%    95.2%
+  UWF-ZeekData24(Zeek conn.log)        300    2.0%     300   61.0%    31.5%
+
+--- Per label (attacks only) ---
+  Credential Access                              6/300 (  2%)
+  PartOfAHorizontalPortScan                    300/300 (100%)
+  flow=From-Botnet-V45-TCP-Attempt               3/3   (100%)
+  flow=From-Botnet-V45-TCP-CC106-IRC-Not-Encrypted   0/1   (  0%)
+  flow=From-Botnet-V45-TCP-Established-HTTP-Ad-15   1/1   (100%)
+  flow=From-Botnet-V45-TCP-Established-HTTP-Ad-4   1/1   (100%)
+  flow=From-Botnet-V45-TCP-Established-HTTP-Ad-62   1/1   (100%)
+  flow=From-Botnet-V45-TCP-HTTP-Google-Net-Established-6   1/1   (100%)
+  flow=From-Botnet-V45-UDP-Attempt             275/275 (100%)
+  flow=From-Botnet-V45-UDP-DNS                  16/17  ( 94%)
+
+==========================================================================
+  v4 vs v6 — REAL-WORLD ZEEK COMPARISON
+==========================================================================
+  Model                 Accuracy  Atk Recall  FP Recall     MCC  Fmt Fail
+  -------------------- --------- ----------- ---------- ------- ---------
+  v4 Fine-tuned            80.3%       67.4%      89.9%  +0.596      0.0%
+  v6 Fine-tuned            67.0%       67.1%      66.8%  +0.336      0.0%
+  -------------------- --------- ----------- ---------- ------- ---------
+  delta (v6 - v4)         -13.3%       -0.3%     -23.1%  -0.260     +0.0%
+==========================================================================
+
+  Atk Recall = % of actual attacks caught (sensitivity / TPR)
+  FP Recall  = % of benign flows correctly identified (specificity)
+  MCC        = Matthews Correlation Coefficient (-1 to +1)
+  Fmt Fail   = % of outputs missing VERDICT line
+
+  Sources: IoT-23 + CTU-13 + UWF-ZeekData24 + CTU-Normal
+  (native Zeek conn.log — NO synthetic field mapping)
+
+--- Per-source delta (v6 - v4) ---
+  Source                Δ Accuracy  Δ Atk Recall  Δ FP Recall
+  -------------------- ----------- ------------- ------------
+  IoT-23        (Zeek conn.log)            +0.0%         +0.0%        +0.0%
+  CTU-13        (binetflow)                +2.2%         +1.3%        +3.0%
+  UWF-ZeekData24(Zeek conn.log)           -14.7%         -2.3%       -27.0%
+  CTU-Normal    (Zeek conn.log)           -68.3%         +0.0%       -68.3%

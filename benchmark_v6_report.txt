@@ -1,0 +1,106 @@
+v4 vs v6 BENCHMARK — 2026-03-28 04:44
+Samples: 736 | Dataset: CICIDS2017 | Seed: 42
+
+==============================================================
+  MODEL : v4 Fine-tuned
+  Total : 736 samples
+  Format failures : 0 (0.0%)
+  MCC             : +0.6432  (range -1 to +1, higher is better)
+==============================================================
+                precision    recall  f1-score   support
+
+        ATTACK       0.88      0.71      0.78       336
+FALSE POSITIVE       0.79      0.92      0.85       400
+
+      accuracy                           0.82       736
+     macro avg       0.83      0.81      0.82       736
+  weighted avg       0.83      0.82      0.82       736
+
+Confusion Matrix  (rows = actual, cols = predicted)
+                           ATTACK  FALSE POSITIVE
+  ATTACK                  238 ( 71%)      98 ( 29%)
+  FALSE POSITIVE           34 (  8%)     366 ( 92%)
+
+--- Per attack type ---
+  BENIGN                                       366/400 ( 92%)
+  Bot                                           28/50  ( 56%)
+  DDoS                                          50/50  (100%)
+  DoS GoldenEye                                  0/2   (  0%)
+  DoS Hulk                                       1/48  (  2%)
+  FTP-Patator                                   27/27  (100%)
+  Infiltration                                  19/36  ( 53%)
+  PortScan                                      49/50  ( 98%)
+  SSH-Patator                                   20/23  ( 87%)
+  Web Attack ï¿½ Brute Force                    33/38  ( 87%)
+  Web Attack ï¿½ Sql Injection                   0/1   (  0%)
+  Web Attack ï¿½ XSS                            11/11  (100%)
+
+--- Per CSV file ---
+  Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv         95/100 ( 95%)
+  Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv     99/100 ( 99%)
+  Friday-WorkingHours-Morning.pcap_ISCX.csv                77/100 ( 77%)
+  Monday-WorkingHours.pcap_ISCX.csv                        44/50  ( 88%)
+  Thursday-WorkingHours-Afternoon-Infilteration.pcap_ISCX.csv  57/86  ( 66%)
+  Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv   90/100 ( 90%)
+  Tuesday-WorkingHours.pcap_ISCX.csv                       95/100 ( 95%)
+  Wednesday-workingHours.pcap_ISCX.csv                     47/100 ( 47%)
+
+==============================================================
+  MODEL : v6 Fine-tuned
+  Total : 736 samples
+  Format failures : 0 (0.0%)
+  MCC             : +0.7420  (range -1 to +1, higher is better)
+==============================================================
+                precision    recall  f1-score   support
+
+        ATTACK       0.96      0.74      0.83       336
+FALSE POSITIVE       0.81      0.97      0.89       400
+
+      accuracy                           0.87       736
+     macro avg       0.89      0.86      0.86       736
+  weighted avg       0.88      0.87      0.86       736
+
+Confusion Matrix  (rows = actual, cols = predicted)
+                           ATTACK  FALSE POSITIVE
+  ATTACK                  247 ( 74%)      89 ( 26%)
+  FALSE POSITIVE           10 (  2%)     390 ( 98%)
+
+--- Per attack type ---
+  BENIGN                                       390/400 ( 98%)
+  Bot                                           27/50  ( 54%)
+  DDoS                                          50/50  (100%)
+  DoS GoldenEye                                  0/2   (  0%)
+  DoS Hulk                                       0/48  (  0%)
+  FTP-Patator                                   27/27  (100%)
+  Infiltration                                  26/36  ( 72%)
+  PortScan                                      50/50  (100%)
+  SSH-Patator                                   22/23  ( 96%)
+  Web Attack ï¿½ Brute Force                    34/38  ( 89%)
+  Web Attack ï¿½ Sql Injection                   0/1   (  0%)
+  Web Attack ï¿½ XSS                            11/11  (100%)
+
+--- Per CSV file ---
+  Friday-WorkingHours-Afternoon-DDos.pcap_ISCX.csv         99/100 ( 99%)
+  Friday-WorkingHours-Afternoon-PortScan.pcap_ISCX.csv     99/100 ( 99%)
+  Friday-WorkingHours-Morning.pcap_ISCX.csv                76/100 ( 76%)
+  Monday-WorkingHours.pcap_ISCX.csv                        50/50  (100%)
+  Thursday-WorkingHours-Afternoon-Infilteration.pcap_ISCX.csv  74/86  ( 86%)
+  Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv   93/100 ( 93%)
+  Tuesday-WorkingHours.pcap_ISCX.csv                       97/100 ( 97%)
+  Wednesday-workingHours.pcap_ISCX.csv                     49/100 ( 49%)
+
+========================================================================
+  v4 vs v6 COMPARISON
+========================================================================
+  Model                 Accuracy  Atk Recall  FP Recall     MCC  Fmt Fail
+  -------------------- --------- ----------- ---------- ------- ---------
+  v4 Fine-tuned            82.1%       70.8%      91.5%  +0.643      0.0%
+  v6 Fine-tuned            86.5%       73.5%      97.5%  +0.742      0.0%
+  -------------------- --------- ----------- ---------- ------- ---------
+  delta (v6 - v4)          +4.5%       +2.7%      +6.0%  +0.099     +0.0%
+========================================================================
+
+  Atk Recall = % of actual attacks correctly caught (sensitivity)
+  FP Recall  = % of benign flows correctly identified (fewer false alarms)
+  MCC        = Matthews Correlation Coefficient (-1 to +1, higher is better)
+  Fmt Fail   = % of outputs with no VERDICT line

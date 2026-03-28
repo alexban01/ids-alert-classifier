@@ -33,7 +33,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.854395\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000006\n  Orig Packets:       1\n  Resp Packets:       1\n  Orig Bytes:         6\n  Resp Bytes:         6\n  Conn State:         -\n  Bytes/sec:          2000000.0\n  Orig Bytes/Pkt:     6.0\n  Resp Bytes/Pkt:     6.0",
@@ -57,7 +57,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.039763\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd XSS"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd XSS"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.053381\n  Orig Packets:       1\n  Resp Packets:       1\n  Orig Bytes:         51\n  Resp Bytes:         99\n  Conn State:         -\n  Bytes/sec:          2810.0\n  Orig Bytes/Pkt:     51.0\n  Resp Bytes/Pkt:     99.0",
@@ -159,7 +159,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       32.918545\n  Orig Packets:       203\n  Resp Packets:       104\n  Orig Bytes:         43951\n  Resp Bytes:         72197\n  Conn State:         -\n  Bytes/sec:          3528.3\n  Orig Bytes/Pkt:     216.5\n  Resp Bytes/Pkt:     694.2",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000053\n  Orig Packets:       1\n  Resp Packets:       1\n  Orig Bytes:         2\n  Resp Bytes:         6\n  Conn State:         -\n  Bytes/sec:          150943.4\n  Orig Bytes/Pkt:     2.0\n  Resp Bytes/Pkt:     6.0",
@@ -213,7 +213,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.361343\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       117.963230\n  Orig Packets:       16\n  Resp Packets:       16\n  Orig Bytes:         1281\n  Resp Bytes:         4636\n  Conn State:         -\n  Bytes/sec:          50.2\n  Orig Bytes/Pkt:     80.1\n  Resp Bytes/Pkt:     289.8",
@@ -363,7 +363,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.637948\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd XSS"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd XSS"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000198\n  Orig Packets:       2\n  Resp Packets:       2\n  Orig Bytes:         96\n  Resp Bytes:         180\n  Conn State:         -\n  Bytes/sec:          1393939.4\n  Orig Bytes/Pkt:     48.0\n  Resp Bytes/Pkt:     90.0",
@@ -711,13 +711,13 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000051\n  Orig Packets:       1\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.336889\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000025\n  Orig Packets:       1\n  Resp Packets:       1\n  Orig Bytes:         6\n  Resp Bytes:         6\n  Conn State:         -\n  Bytes/sec:          480000.0\n  Orig Bytes/Pkt:     6.0\n  Resp Bytes/Pkt:     6.0",
@@ -777,7 +777,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.005388\n  Orig Packets:       5\n  Resp Packets:       3\n  Orig Bytes:         599\n  Resp Bytes:         2021\n  Conn State:         -\n  Bytes/sec:          523.4\n  Orig Bytes/Pkt:     119.8\n  Resp Bytes/Pkt:     673.7",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Sql Injection"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Sql Injection"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000261\n  Orig Packets:       2\n  Resp Packets:       2\n  Orig Bytes:         60\n  Resp Bytes:         344\n  Conn State:         -\n  Bytes/sec:          1547892.7\n  Orig Bytes/Pkt:     30.0\n  Resp Bytes/Pkt:     172.0",
@@ -1083,7 +1083,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000042\n  Orig Packets:       1\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000061\n  Orig Packets:       1\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         6\n  Conn State:         -\n  Bytes/sec:          98360.7\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     6.0",
@@ -1113,7 +1113,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000034\n  Orig Packets:       1\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       4.562428\n  Orig Packets:       3\n  Resp Packets:       4\n  Orig Bytes:         431\n  Resp Bytes:         2267\n  Conn State:         -\n  Bytes/sec:          591.4\n  Orig Bytes/Pkt:     143.7\n  Resp Bytes/Pkt:     566.8",
@@ -1125,7 +1125,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.185197\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       81.929189\n  Orig Packets:       5\n  Resp Packets:       9\n  Orig Bytes:         11607\n  Resp Bytes:         62\n  Conn State:         -\n  Bytes/sec:          142.4\n  Orig Bytes/Pkt:     2321.4\n  Resp Bytes/Pkt:     6.9",
@@ -1137,7 +1137,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.994063\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd XSS"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd XSS"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.804168\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         12\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          2.1\n  Orig Bytes/Pkt:     4.0\n  Resp Bytes/Pkt:     0.0",
@@ -1281,13 +1281,13 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.566776\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000065\n  Orig Packets:       1\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       99.972543\n  Orig Packets:       8\n  Resp Packets:       7\n  Orig Bytes:         370\n  Resp Bytes:         11595\n  Conn State:         -\n  Bytes/sec:          119.7\n  Orig Bytes/Pkt:     46.2\n  Resp Bytes/Pkt:     1656.4",
@@ -1311,7 +1311,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.308282\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd XSS"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd XSS"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       98.331353\n  Orig Packets:       12\n  Resp Packets:       6\n  Orig Bytes:         1376\n  Resp Bytes:         11595\n  Conn State:         -\n  Bytes/sec:          131.9\n  Orig Bytes/Pkt:     114.7\n  Resp Bytes/Pkt:     1932.5",
@@ -1359,7 +1359,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.208050\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000173\n  Orig Packets:       2\n  Resp Packets:       2\n  Orig Bytes:         80\n  Resp Bytes:         336\n  Conn State:         -\n  Bytes/sec:          2404624.3\n  Orig Bytes/Pkt:     40.0\n  Resp Bytes/Pkt:     168.0",
@@ -1443,7 +1443,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.765019\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       119.596321\n  Orig Packets:       23\n  Resp Packets:       23\n  Orig Bytes:         1969\n  Resp Bytes:         9360\n  Conn State:         -\n  Bytes/sec:          94.7\n  Orig Bytes/Pkt:     85.6\n  Resp Bytes/Pkt:     407.0",
@@ -1473,7 +1473,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.808069\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000044\n  Orig Packets:       1\n  Resp Packets:       1\n  Orig Bytes:         2\n  Resp Bytes:         6\n  Conn State:         -\n  Bytes/sec:          181818.2\n  Orig Bytes/Pkt:     2.0\n  Resp Bytes/Pkt:     6.0",
@@ -1503,7 +1503,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.854648\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.064334\n  Orig Packets:       4\n  Resp Packets:       3\n  Orig Bytes:         207\n  Resp Bytes:         134\n  Conn State:         -\n  Bytes/sec:          5300.5\n  Orig Bytes/Pkt:     51.8\n  Resp Bytes/Pkt:     44.7",
@@ -1545,7 +1545,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.778325\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd XSS"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd XSS"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000043\n  Orig Packets:       1\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         6\n  Conn State:         -\n  Bytes/sec:          139534.9\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     6.0",
@@ -1653,7 +1653,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.170798\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000099\n  Orig Packets:       1\n  Resp Packets:       2\n  Orig Bytes:         6\n  Resp Bytes:         12\n  Conn State:         -\n  Bytes/sec:          181818.2\n  Orig Bytes/Pkt:     6.0\n  Resp Bytes/Pkt:     6.0",
@@ -1665,7 +1665,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.221641\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd XSS"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd XSS"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000042\n  Orig Packets:       1\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         6\n  Conn State:         -\n  Bytes/sec:          142857.1\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     6.0",
@@ -1683,7 +1683,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.959897\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       101.039258\n  Orig Packets:       26\n  Resp Packets:       26\n  Orig Bytes:         5810\n  Resp Bytes:         156\n  Conn State:         -\n  Bytes/sec:          59.0\n  Orig Bytes/Pkt:     223.5\n  Resp Bytes/Pkt:     6.0",
@@ -1857,7 +1857,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.005956\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000159\n  Orig Packets:       2\n  Resp Packets:       2\n  Orig Bytes:         74\n  Resp Bytes:         106\n  Conn State:         -\n  Bytes/sec:          1132075.5\n  Orig Bytes/Pkt:     37.0\n  Resp Bytes/Pkt:     53.0",
@@ -1953,7 +1953,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.760921\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.368873\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         12\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          2.2\n  Orig Bytes/Pkt:     4.0\n  Resp Bytes/Pkt:     0.0",
@@ -1989,7 +1989,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.903500\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       81.810531\n  Orig Packets:       8\n  Resp Packets:       6\n  Orig Bytes:         56\n  Resp Bytes:         11607\n  Conn State:         -\n  Bytes/sec:          142.6\n  Orig Bytes/Pkt:     7.0\n  Resp Bytes/Pkt:     1934.5",
@@ -2415,7 +2415,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       8.560453\n  Orig Packets:       4\n  Resp Packets:       4\n  Orig Bytes:         383\n  Resp Bytes:         370\n  Conn State:         -\n  Bytes/sec:          88.0\n  Orig Bytes/Pkt:     95.8\n  Resp Bytes/Pkt:     92.5",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       8.988083\n  Orig Packets:       14\n  Resp Packets:       9\n  Orig Bytes:         1128\n  Resp Bytes:         158\n  Conn State:         -\n  Bytes/sec:          143.1\n  Orig Bytes/Pkt:     80.6\n  Resp Bytes/Pkt:     17.6",
@@ -2529,7 +2529,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.923668\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000218\n  Orig Packets:       2\n  Resp Packets:       2\n  Orig Bytes:         64\n  Resp Bytes:         120\n  Conn State:         -\n  Bytes/sec:          844036.7\n  Orig Bytes/Pkt:     32.0\n  Resp Bytes/Pkt:     60.0",
@@ -2619,7 +2619,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.890593\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.130989\n  Orig Packets:       4\n  Resp Packets:       2\n  Orig Bytes:         100\n  Resp Bytes:         208\n  Conn State:         -\n  Bytes/sec:          2351.3\n  Orig Bytes/Pkt:     25.0\n  Resp Bytes/Pkt:     104.0",
@@ -2685,7 +2685,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.527422\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       80.261217\n  Orig Packets:       8\n  Resp Packets:       4\n  Orig Bytes:         56\n  Resp Bytes:         11601\n  Conn State:         -\n  Bytes/sec:          145.2\n  Orig Bytes/Pkt:     7.0\n  Resp Bytes/Pkt:     2900.2",
@@ -2709,7 +2709,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       9.816295\n  Orig Packets:       4\n  Resp Packets:       4\n  Orig Bytes:         383\n  Resp Bytes:         370\n  Conn State:         -\n  Bytes/sec:          76.7\n  Orig Bytes/Pkt:     95.8\n  Resp Bytes/Pkt:     92.5",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000064\n  Orig Packets:       1\n  Resp Packets:       1\n  Orig Bytes:         6\n  Resp Bytes:         6\n  Conn State:         -\n  Bytes/sec:          187500.0\n  Orig Bytes/Pkt:     6.0\n  Resp Bytes/Pkt:     6.0",
@@ -2739,7 +2739,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.425231\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000074\n  Orig Packets:       1\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
@@ -2769,7 +2769,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.682524\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000075\n  Orig Packets:       1\n  Resp Packets:       1\n  Orig Bytes:         2\n  Resp Bytes:         6\n  Conn State:         -\n  Bytes/sec:          106666.7\n  Orig Bytes/Pkt:     2.0\n  Resp Bytes/Pkt:     6.0",
@@ -2835,7 +2835,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.151518\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd XSS"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd XSS"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000014\n  Orig Packets:       1\n  Resp Packets:       1\n  Orig Bytes:         6\n  Resp Bytes:         6\n  Conn State:         -\n  Bytes/sec:          857142.9\n  Orig Bytes/Pkt:     6.0\n  Resp Bytes/Pkt:     6.0",
@@ -2931,7 +2931,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       8.797556\n  Orig Packets:       4\n  Resp Packets:       4\n  Orig Bytes:         602\n  Resp Bytes:         364\n  Conn State:         -\n  Bytes/sec:          109.8\n  Orig Bytes/Pkt:     150.5\n  Resp Bytes/Pkt:     91.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       119.973135\n  Orig Packets:       4376\n  Resp Packets:       4374\n  Orig Bytes:         2321478\n  Resp Bytes:         26244\n  Conn State:         -\n  Bytes/sec:          19568.7\n  Orig Bytes/Pkt:     530.5\n  Resp Bytes/Pkt:     6.0",
@@ -2967,7 +2967,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.472760\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd XSS"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd XSS"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000152\n  Orig Packets:       2\n  Resp Packets:       2\n  Orig Bytes:         88\n  Resp Bytes:         188\n  Conn State:         -\n  Bytes/sec:          1815789.5\n  Orig Bytes/Pkt:     44.0\n  Resp Bytes/Pkt:     94.0",
@@ -3033,13 +3033,13 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.609658\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.879299\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       18.897509\n  Orig Packets:       8\n  Resp Packets:       0\n  Orig Bytes:         7366\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          389.8\n  Orig Bytes/Pkt:     920.8\n  Resp Bytes/Pkt:     0.0",
@@ -3141,7 +3141,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.175414\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd XSS"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd XSS"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000480\n  Orig Packets:       1\n  Resp Packets:       1\n  Orig Bytes:         56\n  Resp Bytes:         72\n  Conn State:         -\n  Bytes/sec:          266666.7\n  Orig Bytes/Pkt:     56.0\n  Resp Bytes/Pkt:     72.0",
@@ -3189,7 +3189,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.700606\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.064688\n  Orig Packets:       1\n  Resp Packets:       1\n  Orig Bytes:         43\n  Resp Bytes:         171\n  Conn State:         -\n  Bytes/sec:          3308.2\n  Orig Bytes/Pkt:     43.0\n  Resp Bytes/Pkt:     171.0",
@@ -3297,7 +3297,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000031\n  Orig Packets:       1\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       115.545457\n  Orig Packets:       16\n  Resp Packets:       14\n  Orig Bytes:         374\n  Resp Bytes:         1328\n  Conn State:         -\n  Bytes/sec:          14.7\n  Orig Bytes/Pkt:     23.4\n  Resp Bytes/Pkt:     94.9",
@@ -3369,7 +3369,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.303380\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.048652\n  Orig Packets:       2\n  Resp Packets:       2\n  Orig Bytes:         70\n  Resp Bytes:         254\n  Conn State:         -\n  Bytes/sec:          6659.5\n  Orig Bytes/Pkt:     35.0\n  Resp Bytes/Pkt:     127.0",
@@ -3399,7 +3399,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.310210\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.932321\n  Orig Packets:       2\n  Resp Packets:       7\n  Orig Bytes:         20\n  Resp Bytes:         11601\n  Conn State:         -\n  Bytes/sec:          12464.6\n  Orig Bytes/Pkt:     10.0\n  Resp Bytes/Pkt:     1657.3",
@@ -3459,7 +3459,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000079\n  Orig Packets:       1\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000126\n  Orig Packets:       1\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
@@ -3531,7 +3531,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.097882\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000049\n  Orig Packets:       1\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         6\n  Conn State:         -\n  Bytes/sec:          122449.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     6.0",
@@ -3543,7 +3543,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.334912\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd XSS"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd XSS"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.000004\n  Orig Packets:       2\n  Resp Packets:       0\n  Orig Bytes:         14\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          3500000.0\n  Orig Bytes/Pkt:     7.0\n  Resp Bytes/Pkt:     0.0",
@@ -3705,13 +3705,13 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.872821\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.458024\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd XSS"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd XSS"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       2.126396\n  Orig Packets:       5\n  Resp Packets:       3\n  Orig Bytes:         423\n  Resp Bytes:         6\n  Conn State:         -\n  Bytes/sec:          201.7\n  Orig Bytes/Pkt:     84.6\n  Resp Bytes/Pkt:     2.0",
@@ -3813,7 +3813,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.215215\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       115.191195\n  Orig Packets:       22\n  Resp Packets:       21\n  Orig Bytes:         3749\n  Resp Bytes:         4383\n  Conn State:         -\n  Bytes/sec:          70.6\n  Orig Bytes/Pkt:     170.4\n  Resp Bytes/Pkt:     208.7",
@@ -4305,7 +4305,7 @@
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       5.819593\n  Orig Packets:       3\n  Resp Packets:       1\n  Orig Bytes:         0\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          0.0\n  Orig Bytes/Pkt:     0.0\n  Resp Bytes/Pkt:     0.0",
     "ground_truth": "ATTACK",
     "source_file": "Thursday-WorkingHours-Morning-WebAttacks.pcap_ISCX.csv",
-    "raw_label": "Web Attack \ufffd Brute Force"
+    "raw_label": "Web Attack \u00ef\u00bf\u00bd Brute Force"
   },
   {
     "prompt": "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n\n  Proto:              unknown\n  Duration (s):       0.003992\n  Orig Packets:       3\n  Resp Packets:       0\n  Orig Bytes:         43\n  Resp Bytes:         0\n  Conn State:         -\n  Bytes/sec:          10771.5\n  Orig Bytes/Pkt:     14.3\n  Resp Bytes/Pkt:     0.0",

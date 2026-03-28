@@ -1,0 +1,22 @@
+{
+  "timestamp": "2026-03-28T04:44:37.119112",
+  "samples": 736,
+  "models": [
+    {
+      "label": "v4 Fine-tuned",
+      "accuracy": 0.8207,
+      "atk_recall": 0.7083,
+      "ben_recall": 0.915,
+      "fmt_fail": 0.0,
+      "mcc": 0.6432
+    },
+    {
+      "label": "v6 Fine-tuned",
+      "accuracy": 0.8655,
+      "atk_recall": 0.7351,
+      "ben_recall": 0.975,
+      "fmt_fail": 0.0,
+      "mcc": 0.742
+    }
+  ]
+}
