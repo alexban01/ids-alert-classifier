@@ -64,12 +64,12 @@ trainer = SFTTrainer(
     args=SFTConfig(
         output_dir=OUTPUT_DIR,
         # ── Batch size ────────────────────────────────────────────────────
-        per_device_train_batch_size=4,
-        per_device_eval_batch_size=4,
-        gradient_accumulation_steps=6,  # effective batch = 24
+        per_device_train_batch_size=48,
+        per_device_eval_batch_size=48,
+        gradient_accumulation_steps=1,  # effective batch = 24
         optim="paged_adamw_8bit",
         # ── Precision ────────────────────────────────────────────────────
-        gradient_checkpointing=True,
+        gradient_checkpointing=False,
         bf16=True,
         # ── Schedule ─────────────────────────────────────────────────────
         num_train_epochs=3,
@@ -79,8 +79,8 @@ trainer = SFTTrainer(
         warmup_ratio=0.03,
         weight_decay=0.01,
         # ── Data loading ─────────────────────────────────────────────────
-        dataloader_pin_memory=True,
-        dataloader_num_workers=4,
+        dataloader_pin_memory=True,  # False local - True on RunPod (no multiprocessing issues there)
+        dataloader_num_workers=4,     # 0 local - 4 on RunPod (CUDA+fork works fine on single-GPU pod)
         # ── Eval & saving ────────────────────────────────────────────────
         logging_steps=250,
         eval_strategy="epoch",

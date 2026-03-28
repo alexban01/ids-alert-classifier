@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-03-28T16:39:12.486144",
+  "timestamp": "2026-03-29T00:29:18.432119",
   "samples": 2100,
   "sources": {
     "iot23": 600,
@@ -9,12 +9,12 @@
   },
   "models": [
     {
-      "label": "v4 Fine-tuned",
-      "accuracy": 0.8029,
-      "atk_recall": 0.6744,
-      "ben_recall": 0.8992,
+      "label": "v7.1 Fine-tuned",
+      "accuracy": 0.8281,
+      "atk_recall": 0.65,
+      "ben_recall": 0.9617,
       "fmt_fail": 0.0,
-      "mcc": 0.5965,
+      "mcc": 0.6602,
       "per_source": {
         "iot23": {
           "n": 600,
@@ -24,55 +24,21 @@
         },
         "ctu13": {
           "n": 600,
-          "accuracy": 0.9633,
-          "atk_recall": 0.98,
-          "ben_recall": 0.9467
+          "accuracy": 0.9617,
+          "atk_recall": 0.95,
+          "ben_recall": 0.9733
         },
         "uwf": {
           "n": 600,
-          "accuracy": 0.4617,
-          "atk_recall": 0.0433,
-          "ben_recall": 0.88
+          "accuracy": 0.4983,
+          "atk_recall": 0.0,
+          "ben_recall": 0.9967
         },
         "ctu_normal": {
           "n": 300,
-          "accuracy": 0.8667,
+          "accuracy": 0.9733,
           "atk_recall": 0.0,
-          "ben_recall": 0.8667
-        }
-      }
-    },
-    {
-      "label": "v6 Fine-tuned",
-      "accuracy": 0.6695,
-      "atk_recall": 0.6711,
-      "ben_recall": 0.6683,
-      "fmt_fail": 0.0,
-      "mcc": 0.3363,
-      "per_source": {
-        "iot23": {
-          "n": 600,
-          "accuracy": 0.9517,
-          "atk_recall": 1.0,
-          "ben_recall": 0.9033
-        },
-        "ctu13": {
-          "n": 600,
-          "accuracy": 0.985,
-          "atk_recall": 0.9933,
-          "ben_recall": 0.9767
-        },
-        "uwf": {
-          "n": 600,
-          "accuracy": 0.315,
-          "atk_recall": 0.02,
-          "ben_recall": 0.61
-        },
-        "ctu_normal": {
-          "n": 300,
-          "accuracy": 0.1833,
-          "atk_recall": 0.0,
-          "ben_recall": 0.1833
+          "ben_recall": 0.9733
         }
       }
     }

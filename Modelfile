@@ -1,4 +1,4 @@
-FROM ./v6-ids.gguf
+FROM ./v7.1-ids.gguf
 
 TEMPLATE """{{ if .System }}<|im_start|>system
 {{ .System }}<|im_end|>

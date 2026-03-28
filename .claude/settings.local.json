@@ -39,7 +39,9 @@
       "Bash(.venv/bin/python -c \"import ast; ast.parse\\(open\\(''benchmark_realworld.py''\\).read\\(\\)\\); print\\(''OK''\\)\")",
       "Bash(.venv/bin/python -c \"import ast; ast.parse\\(open\\(''benchmark_ollama.py''\\).read\\(\\)\\); print\\(''OK''\\)\")",
       "Bash(.venv/bin/python -c \"import ast; ast.parse\\(open\\(''preprocess_zeek.py''\\).read\\(\\)\\); ast.parse\\(open\\(''train.py''\\).read\\(\\)\\); print\\(''OK''\\)\")",
-      "Bash(.venv/bin/python -:*)"
+      "Bash(.venv/bin/python -:*)",
+      "Bash(scp -P 14460 -i ~/.ssh/id_ed25519 train.py setup_runpod.sh prompt_utils.py zeek_dataset.jsonl zeek_dataset_eval.jsonl root@74.2.96.39:/workspace/)",
+      "Bash(.venv/bin/python test_novel_cases.py)"
     ]
   }
 }
