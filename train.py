@@ -12,8 +12,8 @@ torch.backends.cudnn.benchmark        = True
 MODEL        = "Qwen/Qwen2.5-1.5B-Instruct"
 DATASET      = "zeek_dataset.jsonl"       # train split from preprocess_zeek.py
 EVAL_DATASET = "zeek_dataset_eval.jsonl"  # held-out eval split (source-stratified)
-OUTPUT_DIR   = "./v7-ids-model"           # training checkpoints
-ADAPTER_DIR  = "./v7-ids-lora-adapter"    # final adapter
+OUTPUT_DIR   = "./v7.1-ids-model"           # training checkpoints
+ADAPTER_DIR  = "./v7.1-ids-lora-adapter"    # final adapter
 
 # ── 4-bit quantization ──────────────────────────────────────────────────────
 # QLoRA: 4-bit base model stays the same — adapter output is hardware-agnostic.
@@ -53,12 +53,9 @@ train_dataset = load_dataset("json", data_files=DATASET)["train"]
 eval_dataset  = load_dataset("json", data_files=EVAL_DATASET)["train"]
 
 # ── Training ─────────────────────────────────────────────────────────────────
-# Targeting RTX 3090 (24 GB VRAM) on RunPod.
-# Key differences from v5 (RTX 5090, 32 GB):
-#   - batch_size 16→12 (conservative for 24 GB incl. VRAM spikes)
-#   - gradient_checkpointing stays ON (essential at 24 GB)
-#   - new data sources: UWF-ZeekData24 + CTU-Normal (real-world benign patterns)
-#   - fixed prompt pipeline: N/A propagation, IoT-23 dash fix
+# RTX 3070 (8 GB VRAM) — local machine.
+# 4-bit weights dequantize to BF16 during the forward pass, spiking VRAM.
+# batch_size=4 + accumulation=6 keeps effective batch=24 (same as 3090 config).
 trainer = SFTTrainer(
     model=model,
     peft_config=lora_config,
@@ -67,9 +64,9 @@ trainer = SFTTrainer(
     args=SFTConfig(
         output_dir=OUTPUT_DIR,
         # ── Batch size ────────────────────────────────────────────────────
-        per_device_train_batch_size=24,
-        per_device_eval_batch_size=24,
-        gradient_accumulation_steps=1,  # effective batch = 24
+        per_device_train_batch_size=4,
+        per_device_eval_batch_size=4,
+        gradient_accumulation_steps=6,  # effective batch = 24
         optim="paged_adamw_8bit",
         # ── Precision ────────────────────────────────────────────────────
         gradient_checkpointing=True,

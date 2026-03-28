@@ -29,9 +29,9 @@ SAMPLES_PER_CLASS_PER_FILE = 50
 RANDOM_SEED     = 42
 
 MODELS = [
-    ("v4 Fine-tuned", "./v4-ids-lora-adapter"),
-    ("v6 Fine-tuned", "./v6-ids-lora-adapter"),
-    ("v7 Fine-tuned", "./v7-ids-lora-adapter"),
+    ("v4 Fine-tuned",   "./v4-ids-lora-adapter"),
+    ("v6 Fine-tuned",   "./v6-ids-lora-adapter"),
+    ("v7.1 Fine-tuned", "./v7.1-ids-lora-adapter"),
 ]
 
 CSV_FILES = [
@@ -108,7 +108,7 @@ def generate_benchmark_samples():
 
             samples.append({
                 "prompt":       build_prompt(proto_num, duration, orig_pkts, resp_pkts,
-                                            orig_bytes, resp_bytes, "-"),
+                                            orig_bytes, resp_bytes, "-", "-"),
                 "ground_truth": label_to_verdict(row["Label"]),
                 "source_file":  os.path.basename(fpath),
                 "raw_label":    fix_label(row["Label"]),

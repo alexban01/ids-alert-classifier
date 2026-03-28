@@ -42,9 +42,9 @@ CAP            = 300      # max samples per (source, class)
 RANDOM_SEED    = 42
 
 MODELS = [
-    ("v4 Fine-tuned", "./v4-ids-lora-adapter"),
-    ("v6 Fine-tuned", "./v6-ids-lora-adapter"),
-    ("v7 Fine-tuned", "./v7-ids-lora-adapter"),
+    ("v4 Fine-tuned",   "./v4-ids-lora-adapter"),
+    ("v6 Fine-tuned",   "./v6-ids-lora-adapter"),
+    ("v7.1 Fine-tuned", "./v7.1-ids-lora-adapter"),
 ]
 
 DATASETS = {
@@ -57,10 +57,10 @@ DATASETS = {
 # ── Sample helpers ──────────────────────────────────────────────────────────────
 def make_sample(proto, duration, orig_pkts, resp_pkts,
                 orig_bytes, resp_bytes, conn_state,
-                ground_truth, source, raw_label):
+                ground_truth, source, raw_label, service="-"):
     return {
         "prompt":       build_prompt(proto, duration, orig_pkts, resp_pkts,
-                                     orig_bytes, resp_bytes, conn_state),
+                                     orig_bytes, resp_bytes, conn_state, service),
         "ground_truth": ground_truth,
         "source":       source,
         "raw_label":    raw_label,
@@ -126,6 +126,7 @@ def load_iot23(archive_path):
                         ground_truth = verdict,
                         source     = "iot23",
                         raw_label  = raw_label,
+                        service    = parts[7],
                     ))
                 except IndexError:
                     continue
@@ -208,6 +209,7 @@ def load_ctu13(archive_path):
                     ground_truth = verdict,
                     source     = "ctu13",
                     raw_label  = label.strip(),
+                    service    = "-",  # binetflow has no app-layer service field
                 ))
 
     atk = len(buckets["ATTACK"])
@@ -269,6 +271,7 @@ def load_uwf(dataset_dir):
                 s = str(val).strip()
                 return "" if s in ("nan", "None", "NaN") else s
 
+            svc = _clean(row.get("service", "-")) or "-"
             buckets[verdict].append(make_sample(
                 proto      = _clean(row.get("proto", "unknown")),
                 duration   = _clean(row.get("duration", "")),
@@ -280,6 +283,7 @@ def load_uwf(dataset_dir):
                 ground_truth = verdict,
                 source     = "uwf",
                 raw_label  = raw_label,
+                service    = svc,
             ))
 
     atk = len(buckets["ATTACK"])
@@ -325,6 +329,7 @@ def load_ctu_normal(dataset_dir):
                     ground_truth = "FALSE POSITIVE",
                     source     = "ctu_normal",
                     raw_label  = "Benign",
+                    service    = parts[7],
                 ))
 
     print(f"  CTU-Normal: 0 attacks, {len(samples)} benign")

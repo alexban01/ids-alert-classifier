@@ -118,7 +118,7 @@ def generate_benchmark_samples():
             conn_state = "-"
 
             prompt = build_prompt(proto_num, duration, orig_pkts, resp_pkts,
-                                  orig_bytes, resp_bytes, conn_state)
+                                  orig_bytes, resp_bytes, conn_state, "-")
             samples.append({
                 "prompt":       prompt,
                 "ground_truth": label_to_verdict(row["Label"]),

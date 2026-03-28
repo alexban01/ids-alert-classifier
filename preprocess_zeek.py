@@ -14,7 +14,7 @@ Outputs:
   zeek_dataset_eval.jsonl  — held-out eval samples (~10% per source, stratified)
 
 Zeek conn.log feature set used across all sources:
-  proto, duration, orig_pkts, resp_pkts, orig_bytes, resp_bytes,
+  proto, service, duration, orig_pkts, resp_pkts, orig_bytes, resp_bytes,
   conn_state, bytes_per_sec, orig_bytes_per_pkt, resp_bytes_per_pkt
 """
 
@@ -32,18 +32,21 @@ from prompt_utils import SYSTEM_PROMPT, build_prompt
 # ── Config ────────────────────────────────────────────────────────────────────
 TRAIN_FILE    = "zeek_dataset.jsonl"
 EVAL_FILE     = "zeek_dataset_eval.jsonl"
-RANDOM_SEED   = 42
+RANDOM_SEED   = 43
 EVAL_FRAC     = 0.10            # fraction of each source held out for eval
 
-MAX_PER_SOURCE_CLASS = 80_000   # default cap per (source, class)
-IOT23_BENIGN_CAP     = 20_000   # IoT-23 benign is 89% S0-dominated; reduce to avoid
-                                 # "S0 = benign" bias that hurts real-world SF traffic
-CTU_NORMAL_CAP       = 100_000  # increase — only significant SF benign source
+# This is for fast training on my 3070
+TRAINING_FACTOR = 0.1
+
+MAX_PER_SOURCE_CLASS = int(80_000 * TRAINING_FACTOR)   # default cap per (source, class)
+IOT23_BENIGN_CAP     = int(20_000 * TRAINING_FACTOR)   # IoT-23 benign is 89% S0-dominated; reduce to avoid
+                                   # "S0 = benign" bias that hurts real-world SF traffic
+CTU_NORMAL_CAP       = int(100_000 * TRAINING_FACTOR)  # increase — only significant SF benign source
 
 # v7: 2:1 benign:attack ratio — real networks are overwhelmingly benign,
 # training balanced (1:1) makes the model trigger-happy on real traffic.
-FINAL_BENIGN  = 240_000
-FINAL_ATTACK  = 120_000
+FINAL_BENIGN  = int(240_000 * TRAINING_FACTOR)
+FINAL_ATTACK  = int(120_000 * TRAINING_FACTOR)
 
 DATASETS = {
     "iot23":      "datasets/iot-23/iot_23_datasets_small.tar.gz",
@@ -88,9 +91,9 @@ def pick_reason(verdict):
 
 # ── Sample builder ─────────────────────────────────────────────────────────────
 def make_sample(proto, duration, orig_pkts, resp_pkts,
-                orig_bytes, resp_bytes, conn_state, verdict, source):
+                orig_bytes, resp_bytes, conn_state, verdict, source, service="-"):
     prompt  = build_prompt(proto, duration, orig_pkts, resp_pkts,
-                           orig_bytes, resp_bytes, conn_state)
+                           orig_bytes, resp_bytes, conn_state, service)
     reason  = pick_reason(verdict)
     return {
         "messages": [
@@ -136,6 +139,7 @@ def load_iot23(archive_path):
                     continue
                 try:
                     proto      = parts[6]
+                    service    = parts[7]
                     duration   = parts[8]
                     orig_bytes = parts[9]
                     resp_bytes = parts[10]
@@ -166,7 +170,8 @@ def load_iot23(archive_path):
                 if len(bucket) < cap:
                     bucket.append(make_sample(
                         proto, duration, orig_pkts, resp_pkts,
-                        orig_bytes, resp_bytes, conn_state, verdict, "iot23"
+                        orig_bytes, resp_bytes, conn_state, verdict, "iot23",
+                        service=service,
                     ))
                 lines_read += 1
                 if verdict == "ATTACK":  attacks += 1
@@ -261,7 +266,8 @@ def load_ctu13(archive_path):
                 if len(bucket) < MAX_PER_SOURCE_CLASS:
                     bucket.append(make_sample(
                         proto, duration, half, half,
-                        src_bytes, dst_bytes, conn_state, verdict, "ctu13"
+                        src_bytes, dst_bytes, conn_state, verdict, "ctu13",
+                        service="-",  # binetflow has no app-layer service field
                     ))
                 if verdict == "ATTACK":  attacks += 1
                 else:                    benign  += 1
@@ -316,6 +322,7 @@ def load_unsw(dataset_dir):
         sbytes_col = next((c for c in ["sbytes", "orig_bytes"]       if c in df.columns), None)
         dbytes_col = next((c for c in ["dbytes", "resp_bytes"]       if c in df.columns), None)
         state_col  = next((c for c in ["state", "conn_state"]        if c in df.columns), None)
+        svc_col    = next((c for c in ["service"]                    if c in df.columns), None)
         label_col  = next((c for c in ["binary_label", "label"]      if c in df.columns), None)
 
         if label_col is None:
@@ -346,6 +353,7 @@ def load_unsw(dataset_dir):
                 conn_state = str(row[state_col])  if state_col  else "-",
                 verdict    = verdict,
                 source     = "unsw",
+                service    = str(row[svc_col]).strip() if svc_col else "-",
             ))
             if verdict == "ATTACK": attacks += 1
             else:                   benign  += 1
@@ -488,6 +496,7 @@ def load_uwf(dataset_dir):
             # UWF uses empty strings for missing values — pass through as-is
             # (build_prompt / _safe will convert to N/A)
             proto      = str(row.get("proto", "unknown")).strip()
+            service    = str(row.get("service", "-")).strip()
             duration   = str(row.get("duration", "")).strip()
             orig_pkts  = str(row.get("orig_pkts", "")).strip()
             resp_pkts  = str(row.get("resp_pkts", "")).strip()
@@ -496,15 +505,17 @@ def load_uwf(dataset_dir):
             conn_state = str(row.get("conn_state", "-")).strip()
 
             # pandas converts empty CSV cells to nan
-            if duration in ("nan", "None"):   duration   = ""
-            if orig_pkts in ("nan", "None"):  orig_pkts  = ""
-            if resp_pkts in ("nan", "None"):  resp_pkts  = ""
+            if service    in ("nan", "None"): service    = "-"
+            if duration   in ("nan", "None"): duration   = ""
+            if orig_pkts  in ("nan", "None"): orig_pkts  = ""
+            if resp_pkts  in ("nan", "None"): resp_pkts  = ""
             if orig_bytes in ("nan", "None"): orig_bytes = ""
             if resp_bytes in ("nan", "None"): resp_bytes = ""
 
             bucket.append(make_sample(
                 proto, duration, orig_pkts, resp_pkts,
                 orig_bytes, resp_bytes, conn_state, verdict, "uwf",
+                service=service,
             ))
             if verdict == "ATTACK": attacks += 1
             else:                   benign  += 1
@@ -545,6 +556,7 @@ def load_ctu_normal(dataset_dir):
                     break
 
                 proto      = parts[6]
+                service    = parts[7]
                 duration   = parts[8]
                 orig_bytes = parts[9]
                 resp_bytes = parts[10]
@@ -557,6 +569,7 @@ def load_ctu_normal(dataset_dir):
                     proto, duration, orig_pkts, resp_pkts,
                     orig_bytes, resp_bytes, conn_state,
                     "FALSE POSITIVE", "ctu_normal",
+                    service=service,
                 ))
                 count += 1
 
@@ -576,7 +589,11 @@ if __name__ == "__main__":
     all_samples += load_iot23(DATASETS["iot23"])
     all_samples += load_ctu13(DATASETS["ctu13"])
     all_samples += load_unsw(DATASETS["unsw"])
-    all_samples += load_cicids(DATASETS["cicids"])
+    # CICIDS2017 dropped in v7: CICFlowMeter produces proto="unknown" and
+    # conn_state="-" for every flow — both fields are always missing, so the
+    # model can't learn Zeek-discriminative patterns from this source.
+    # Also has documented label quality issues (~10-15% mislabeled).
+    # all_samples += load_cicids(DATASETS["cicids"])
     all_samples += load_uwf(DATASETS["uwf"])
     all_samples += load_ctu_normal(DATASETS["ctu_normal"])
 
