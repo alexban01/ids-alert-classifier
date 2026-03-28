@@ -34,7 +34,11 @@
       "Bash(wget -q -r -np -nH --cut-dirs=5 -P \"$tactic\" \"https://datasets.uwf.edu/data/UWF-ZeekData24/csv/$tactic/\" --accept=\"*.csv\")",
       "Bash(echo \"  done: $tactic\")",
       "Bash(done)",
-      "Bash(head -5 /home/alex/fine_tunning/datasets/uwf-zeekdata24/Benign/part-00000-*.csv)"
+      "Bash(head -5 /home/alex/fine_tunning/datasets/uwf-zeekdata24/Benign/part-00000-*.csv)",
+      "Bash(.venv/bin/python benchmark.py)",
+      "Bash(.venv/bin/python -c \"import ast; ast.parse\\(open\\(''benchmark_realworld.py''\\).read\\(\\)\\); print\\(''OK''\\)\")",
+      "Bash(.venv/bin/python -c \"import ast; ast.parse\\(open\\(''benchmark_ollama.py''\\).read\\(\\)\\); print\\(''OK''\\)\")",
+      "Bash(.venv/bin/python -c \"import ast; ast.parse\\(open\\(''preprocess_zeek.py''\\).read\\(\\)\\); ast.parse\\(open\\(''train.py''\\).read\\(\\)\\); print\\(''OK''\\)\")"
     ]
   }
 }

@@ -1,6 +1,15 @@
 FROM ./v6-ids.gguf
 
+TEMPLATE """{{ if .System }}<|im_start|>system
+{{ .System }}<|im_end|>
+{{ end }}<|im_start|>user
+{{ .Prompt }}<|im_end|>
+<|im_start|>assistant
+"""
+
 SYSTEM "You are a network security analyst. Always respond with VERDICT: <ATTACK or FALSE POSITIVE> on the first line, followed by REASON: <brief explanation>."
 
 PARAMETER temperature 0
 PARAMETER num_predict 80
+PARAMETER stop "<|im_end|>"
+PARAMETER stop "<|endoftext|>"

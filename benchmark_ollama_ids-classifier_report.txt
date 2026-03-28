@@ -1,0 +1,45 @@
+OLLAMA BENCHMARK — 2026-03-28 21:15
+Model  : ids-classifier
+Cache  : benchmark_realworld_cache.json
+Samples: 2100 (900 attacks / 1200 benign)
+
+======================================================================
+  MODEL  : ids-classifier
+  Samples: 2100  (attacks: 900, benign: 1200)
+  Elapsed: 778.2s  (0.37s/sample)
+  Format failures : 0 (0.0%)
+  MCC             : +0.3080  (-1 to +1, higher is better)
+======================================================================
+                precision    recall  f1-score   support
+
+        ATTACK       0.58      0.67      0.62       900
+FALSE POSITIVE       0.72      0.64      0.68      1200
+
+      accuracy                           0.65      2100
+     macro avg       0.65      0.66      0.65      2100
+  weighted avg       0.66      0.65      0.66      2100
+
+Confusion Matrix  (rows = actual, cols = predicted)
+                           ATTACK  FALSE POSITIVE
+  ATTACK                  601 ( 67%)     299 ( 33%)
+  FALSE POSITIVE          428 ( 36%)     772 ( 64%)
+
+--- Per source ---
+  Source                                   Atk  Recall     Ben  Recall      Acc
+  -------------------------------------- ----- -------   ----- -------   ------
+  CTU-13        (binetflow)                300   98.3%     300   98.0%    98.2%
+  CTU-Normal    (Zeek conn.log)              0    0.0%     300   10.3%    10.3%
+  IoT-23        (Zeek conn.log)            300  100.0%     300   90.3%    95.2%
+  UWF-ZeekData24(Zeek conn.log)            300    2.0%     300   58.7%    30.3%
+
+--- Per label (attacks only) ---
+  Credential Access                              6/300 (  2%)
+  PartOfAHorizontalPortScan                    300/300 (100%)
+  flow=From-Botnet-V45-TCP-Attempt               3/3   (100%)
+  flow=From-Botnet-V45-TCP-CC106-IRC-Not-Encrypted   0/1   (  0%)
+  flow=From-Botnet-V45-TCP-Established-HTTP-Ad-15   0/1   (  0%)
+  flow=From-Botnet-V45-TCP-Established-HTTP-Ad-4   0/1   (  0%)
+  flow=From-Botnet-V45-TCP-Established-HTTP-Ad-62   1/1   (100%)
+  flow=From-Botnet-V45-TCP-HTTP-Google-Net-Established-6   1/1   (100%)
+  flow=From-Botnet-V45-UDP-Attempt             275/275 (100%)
+  flow=From-Botnet-V45-UDP-DNS                  15/17  ( 88%)

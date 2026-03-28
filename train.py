@@ -9,10 +9,11 @@ import os
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.benchmark        = True
 
-MODEL       = "Qwen/Qwen2.5-1.5B-Instruct"
-DATASET     = "zeek_dataset.jsonl"      # output from preprocess_zeek.py
-OUTPUT_DIR  = "./v6-ids-model"          # training checkpoints
-ADAPTER_DIR = "./v6-ids-lora-adapter"   # final adapter
+MODEL        = "Qwen/Qwen2.5-1.5B-Instruct"
+DATASET      = "zeek_dataset.jsonl"       # train split from preprocess_zeek.py
+EVAL_DATASET = "zeek_dataset_eval.jsonl"  # held-out eval split (source-stratified)
+OUTPUT_DIR   = "./v7-ids-model"           # training checkpoints
+ADAPTER_DIR  = "./v7-ids-lora-adapter"    # final adapter
 
 # ── 4-bit quantization ──────────────────────────────────────────────────────
 # QLoRA: 4-bit base model stays the same — adapter output is hardware-agnostic.
@@ -45,8 +46,11 @@ lora_config = LoraConfig(
 )
 
 # ── Dataset ──────────────────────────────────────────────────────────────────
-dataset = load_dataset("json", data_files=DATASET)["train"]
-dataset = dataset.train_test_split(test_size=0.1, seed=42)
+# Train and eval are pre-split by preprocess_zeek.py using source-stratified
+# sampling (10% per source/class bucket) so eval reflects real-world variety
+# from all sources — not a random slice of the merged pool.
+train_dataset = load_dataset("json", data_files=DATASET)["train"]
+eval_dataset  = load_dataset("json", data_files=EVAL_DATASET)["train"]
 
 # ── Training ─────────────────────────────────────────────────────────────────
 # Targeting RTX 3090 (24 GB VRAM) on RunPod.
@@ -58,8 +62,8 @@ dataset = dataset.train_test_split(test_size=0.1, seed=42)
 trainer = SFTTrainer(
     model=model,
     peft_config=lora_config,
-    train_dataset=dataset["train"],
-    eval_dataset=dataset["test"],
+    train_dataset=train_dataset,
+    eval_dataset=eval_dataset,
     args=SFTConfig(
         output_dir=OUTPUT_DIR,
         # ── Batch size ────────────────────────────────────────────────────
@@ -68,7 +72,7 @@ trainer = SFTTrainer(
         gradient_accumulation_steps=1,  # effective batch = 24
         optim="paged_adamw_8bit",
         # ── Precision ────────────────────────────────────────────────────
-        gradient_checkpointing=True,    # activations too large without it even on 32 GB
+        gradient_checkpointing=True,
         bf16=True,
         # ── Schedule ─────────────────────────────────────────────────────
         num_train_epochs=3,
@@ -97,3 +101,4 @@ trainer.model.save_pretrained(ADAPTER_DIR)
 tokenizer.save_pretrained(ADAPTER_DIR)
 print(f"\n✅ Training complete. Best adapter saved to {ADAPTER_DIR}")
 print("   Download this directory to your local machine for inference/GGUF conversion.")
+print(f"\n   Next: .venv/bin/python benchmark_realworld.py --regen")

@@ -9,7 +9,9 @@ Datasets supported:
   - UWF-ZeekData24: real Zeek conn.log from university cyber range (MITRE labeled)
   - CTU-Normal    : benign-only Zeek conn.log from real user browsing
 
-Output: zeek_dataset.jsonl  (same chat format as ids_dataset.jsonl)
+Outputs:
+  zeek_dataset.jsonl       — training samples (~90% per source)
+  zeek_dataset_eval.jsonl  — held-out eval samples (~10% per source, stratified)
 
 Zeek conn.log feature set used across all sources:
   proto, duration, orig_pkts, resp_pkts, orig_bytes, resp_bytes,
@@ -28,11 +30,20 @@ import pandas as pd
 from prompt_utils import SYSTEM_PROMPT, build_prompt
 
 # ── Config ────────────────────────────────────────────────────────────────────
-OUTPUT_FILE   = "zeek_dataset.jsonl"
+TRAIN_FILE    = "zeek_dataset.jsonl"
+EVAL_FILE     = "zeek_dataset_eval.jsonl"
 RANDOM_SEED   = 42
-MAX_PER_SOURCE_CLASS = 80_000   # cap per (source, class) before merging
-FINAL_BENIGN  = 150_000         # target benign rows in final dataset
-FINAL_ATTACK  = 180_000         # target attack rows
+EVAL_FRAC     = 0.10            # fraction of each source held out for eval
+
+MAX_PER_SOURCE_CLASS = 80_000   # default cap per (source, class)
+IOT23_BENIGN_CAP     = 20_000   # IoT-23 benign is 89% S0-dominated; reduce to avoid
+                                 # "S0 = benign" bias that hurts real-world SF traffic
+CTU_NORMAL_CAP       = 100_000  # increase — only significant SF benign source
+
+# v7: 2:1 benign:attack ratio — real networks are overwhelmingly benign,
+# training balanced (1:1) makes the model trigger-happy on real traffic.
+FINAL_BENIGN  = 240_000
+FINAL_ATTACK  = 120_000
 
 DATASETS = {
     "iot23":      "datasets/iot-23/iot_23_datasets_small.tar.gz",
@@ -150,8 +161,9 @@ def load_iot23(archive_path):
                 else:
                     continue
 
+                cap    = IOT23_BENIGN_CAP if verdict == "FALSE POSITIVE" else MAX_PER_SOURCE_CLASS
                 bucket = samples[verdict]
-                if len(bucket) < MAX_PER_SOURCE_CLASS:
+                if len(bucket) < cap:
                     bucket.append(make_sample(
                         proto, duration, orig_pkts, resp_pkts,
                         orig_bytes, resp_bytes, conn_state, verdict, "iot23"
@@ -169,7 +181,27 @@ def load_iot23(archive_path):
 
 
 def load_ctu13(archive_path):
-    """Read CTU-13 binetflow files from tar.bz2 archive."""
+    """Read CTU-13 binetflow files from tar.bz2 archive.
+
+    Binetflow uses Argus state notation — mapped to Zeek conn_state equivalents
+    so the model only ever sees Zeek states during training.
+    """
+    # Argus binetflow state → Zeek conn_state
+    CTU_STATE_MAP = {
+        "INT":        "S1",    # mid-flow established, no FIN seen
+        "CON":        "SF",    # completed connection
+        "FIN":        "SF",    # completed with FIN
+        "FSPA_FSPA":  "SF",    # FIN bidirectional = completed
+        "FSA_FSA":    "SF",
+        "SPA_FSPA":   "SF",
+        "PA_PA":      "OTH",   # PSH-ACK only, no SYN seen
+        "EST":        "S1",    # established
+        "S_":         "S0",    # SYN only, no response
+        "REQ":        "S0",
+        "SRPA_SPA":   "RSTO",  # RST from originator
+        "SRST":       "RSTO",
+    }
+
     if not os.path.isfile(archive_path):
         print(f"[SKIP] CTU-13 archive not found: {archive_path}")
         return []
@@ -210,7 +242,8 @@ def load_ctu13(archive_path):
 
                 proto      = row.get("Proto", "unknown").strip().lower()
                 duration   = row.get("Dur",   "0").strip()
-                conn_state = row.get("State", "-").strip()
+                raw_state  = row.get("State", "-").strip().upper()
+                conn_state = CTU_STATE_MAP.get(raw_state, "-")
                 tot_pkts   = row.get("TotPkts",  "0").strip()
                 src_bytes  = row.get("SrcBytes",  "0").strip()
                 tot_bytes  = row.get("TotBytes",  "0").strip()
@@ -415,7 +448,11 @@ def load_uwf(dataset_dir):
         print(f"[SKIP] No CSV files found in {dataset_dir}")
         return []
 
-    print(f"[UWF-ZeekData24] Loading {len(csv_files)} CSV(s) from {dataset_dir}")
+    # v7: UWF attacks are 100% "Credential Access" (short SF TCP, ~0.02s) —
+    # indistinguishable from normal web connections at the flow level (2% recall).
+    # Training on them teaches "short SF TCP = ATTACK", causing false positives on
+    # legitimate traffic. Use UWF for benign diversity only.
+    print(f"[UWF-ZeekData24] Loading {len(csv_files)} CSV(s) from {dataset_dir} (benign only)")
     samples = {"ATTACK": [], "FALSE POSITIVE": []}
 
     for fpath in csv_files:
@@ -428,8 +465,6 @@ def load_uwf(dataset_dir):
 
         df.columns = [c.strip() for c in df.columns]
 
-        # UWF-ZeekData24 columns: proto, duration, orig_pkts, resp_pkts,
-        # orig_bytes, resp_bytes, conn_state, label_binary ("True"/"False")
         label_col = next((c for c in ["label_binary", "label_tactic"] if c in df.columns), None)
         if label_col is None:
             print(f"    No label column found, skipping.")
@@ -441,6 +476,10 @@ def load_uwf(dataset_dir):
                 verdict = "ATTACK" if str(row[label_col]).strip() == "True" else "FALSE POSITIVE"
             else:
                 verdict = "ATTACK" if str(row[label_col]).strip() != "none" else "FALSE POSITIVE"
+
+            # Skip attack samples — unlearnable from flow features, harmful to train on
+            if verdict == "ATTACK":
+                continue
 
             bucket = samples[verdict]
             if len(bucket) >= MAX_PER_SOURCE_CLASS:
@@ -502,7 +541,7 @@ def load_ctu_normal(dataset_dir):
                 if len(parts) < 21:
                     continue
 
-                if len(samples) >= MAX_PER_SOURCE_CLASS:
+                if len(samples) >= CTU_NORMAL_CAP:
                     break
 
                 proto      = parts[6]
@@ -530,6 +569,7 @@ def load_ctu_normal(dataset_dir):
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
+    from collections import Counter, defaultdict
     random.seed(RANDOM_SEED)
 
     all_samples = []
@@ -540,30 +580,54 @@ if __name__ == "__main__":
     all_samples += load_uwf(DATASETS["uwf"])
     all_samples += load_ctu_normal(DATASETS["ctu_normal"])
 
-    attacks = [s for s in all_samples if s["verdict"] == "ATTACK"]
-    benign  = [s for s in all_samples if s["verdict"] == "FALSE POSITIVE"]
+    # ── Source-stratified train/eval split ────────────────────────────────────
+    # Hold out EVAL_FRAC from each (source, verdict) bucket so eval distribution
+    # matches the real-world variety of all sources — not just whatever ends up
+    # in a random 10% slice of the merged pool.
+    by_bucket = defaultdict(list)
+    for s in all_samples:
+        by_bucket[(s["source"], s["verdict"])].append(s)
 
-    print(f"\nRaw pool: {len(attacks)} attacks, {len(benign)} benign")
+    train_pool, eval_pool = [], []
+    for bucket_samples in by_bucket.values():
+        random.shuffle(bucket_samples)
+        n_eval = max(1, int(len(bucket_samples) * EVAL_FRAC))
+        eval_pool.extend(bucket_samples[:n_eval])
+        train_pool.extend(bucket_samples[n_eval:])
+
+    # ── Subsample train pool to target ratio ──────────────────────────────────
+    attacks = [s for s in train_pool if s["verdict"] == "ATTACK"]
+    benign  = [s for s in train_pool if s["verdict"] == "FALSE POSITIVE"]
+
+    print(f"\nRaw train pool: {len(attacks)} attacks, {len(benign)} benign")
+    print(f"Eval pool     : {sum(1 for s in eval_pool if s['verdict']=='ATTACK')} attacks, "
+          f"{sum(1 for s in eval_pool if s['verdict']=='FALSE POSITIVE')} benign")
 
     random.shuffle(attacks)
     random.shuffle(benign)
     attacks = attacks[:FINAL_ATTACK]
     benign  = benign[:FINAL_BENIGN]
 
-    final = attacks + benign
-    random.shuffle(final)
+    final_train = attacks + benign
+    random.shuffle(final_train)
+    random.shuffle(eval_pool)
 
-    # Strip internal keys before writing
-    with open(OUTPUT_FILE, "w") as f:
-        for s in final:
-            out = {"messages": s["messages"]}
-            f.write(json.dumps(out) + "\n")
+    def write_jsonl(path, samples):
+        with open(path, "w") as f:
+            for s in samples:
+                f.write(json.dumps({"messages": s["messages"]}) + "\n")
 
-    print(f"\n✅ {len(final)} samples written to {OUTPUT_FILE}")
-    print(f"   Attacks: {len(attacks)}  |  Benign: {len(benign)}")
+    write_jsonl(TRAIN_FILE, final_train)
+    write_jsonl(EVAL_FILE,  eval_pool)
 
-    # Source breakdown
-    from collections import Counter
-    sources = Counter(s["source"] for s in final)
+    print(f"\n✅ {len(final_train)} train samples → {TRAIN_FILE}")
+    print(f"   Attacks: {len(attacks):>7,}  |  Benign: {len(benign):>7,}  "
+          f"(ratio 1:{len(benign)/max(len(attacks),1):.1f})")
+    print(f"✅ {len(eval_pool)} eval samples  → {EVAL_FILE}")
+
+    print(f"\n   Train source breakdown:")
+    sources = Counter(s["source"] for s in final_train)
     for src, n in sorted(sources.items()):
-        print(f"   {src:12s}: {n:>7,}")
+        a = sum(1 for s in final_train if s["source"] == src and s["verdict"] == "ATTACK")
+        b = sum(1 for s in final_train if s["source"] == src and s["verdict"] == "FALSE POSITIVE")
+        print(f"   {src:12s}: {n:>7,}  (atk {a:>6,} / ben {b:>6,})")
