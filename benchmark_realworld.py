@@ -42,8 +42,8 @@ CAP            = 300      # max samples per (source, class)
 RANDOM_SEED    = 42
 
 MODELS = [
-    ("v4 Fine-tuned",   "./v4-ids-lora-adapter"),
-    ("v6 Fine-tuned",   "./v6-ids-lora-adapter"),
+    # ("v4 Fine-tuned",   "./v4-ids-lora-adapter"),
+    # ("v6 Fine-tuned",   "./v6-ids-lora-adapter"),
     ("v7.1 Fine-tuned", "./v7.1-ids-lora-adapter"),
 ]
 
@@ -586,23 +586,39 @@ if __name__ == "__main__":
         torch.cuda.empty_cache()
 
     # ── Comparison table ─────────────────────────────────────────────────────────
-    if len(results) == 2:
-        (l4, m4), (l6, m6) = results
+    if len(results) >= 2:
+        labels_str = " vs ".join(lbl for lbl, _ in results)
         summary = [
             f"\n{'='*74}",
-            f"  v4 vs v6 — REAL-WORLD ZEEK COMPARISON",
+            f"  REAL-WORLD ZEEK COMPARISON — {labels_str}",
             f"{'='*74}",
             f"  {'Model':<20} {'Accuracy':>9} {'Atk Recall':>11} {'FP Recall':>10} {'MCC':>7} {'Fmt Fail':>9}",
             f"  {'-'*20} {'-'*9} {'-'*11} {'-'*10} {'-'*7} {'-'*9}",
-            f"  {l4:<20} {m4['accuracy']:>9.1%} {m4['atk_recall']:>11.1%} {m4['ben_recall']:>10.1%} {m4['mcc']:>+7.3f} {m4['fmt_fail']:>9.1%}",
-            f"  {l6:<20} {m6['accuracy']:>9.1%} {m6['atk_recall']:>11.1%} {m6['ben_recall']:>10.1%} {m6['mcc']:>+7.3f} {m6['fmt_fail']:>9.1%}",
-            f"  {'-'*20} {'-'*9} {'-'*11} {'-'*10} {'-'*7} {'-'*9}",
-            f"  {'delta (v6 - v4)':<20}"
-            f" {m6['accuracy']-m4['accuracy']:>+9.1%}"
-            f" {m6['atk_recall']-m4['atk_recall']:>+11.1%}"
-            f" {m6['ben_recall']-m4['ben_recall']:>+10.1%}"
-            f" {m6['mcc']-m4['mcc']:>+7.3f}"
-            f" {m6['fmt_fail']-m4['fmt_fail']:>+9.1%}",
+        ]
+        for lbl, m in results:
+            summary.append(
+                f"  {lbl:<20} {m['accuracy']:>9.1%} {m['atk_recall']:>11.1%}"
+                f" {m['ben_recall']:>10.1%} {m['mcc']:>+7.3f} {m['fmt_fail']:>9.1%}"
+            )
+
+        # Delta rows: each version vs the previous
+        summary.append(f"  {'-'*20} {'-'*9} {'-'*11} {'-'*10} {'-'*7} {'-'*9}")
+        for i in range(1, len(results)):
+            l_prev, m_prev = results[i - 1]
+            l_cur,  m_cur  = results[i]
+            short_prev = l_prev.split()[0]  # e.g. "v4"
+            short_cur  = l_cur.split()[0]   # e.g. "v6"
+            delta_label = f"delta ({short_cur} - {short_prev})"
+            summary.append(
+                f"  {delta_label:<20}"
+                f" {m_cur['accuracy']   - m_prev['accuracy']:>+9.1%}"
+                f" {m_cur['atk_recall'] - m_prev['atk_recall']:>+11.1%}"
+                f" {m_cur['ben_recall'] - m_prev['ben_recall']:>+10.1%}"
+                f" {m_cur['mcc']        - m_prev['mcc']:>+7.3f}"
+                f" {m_cur['fmt_fail']   - m_prev['fmt_fail']:>+9.1%}"
+            )
+
+        summary += [
             f"{'='*74}",
             "",
             "  Atk Recall = % of actual attacks caught (sensitivity / TPR)",
@@ -614,23 +630,25 @@ if __name__ == "__main__":
             "  (native Zeek conn.log — NO synthetic field mapping)",
         ]
 
-        # Per-source delta table
-        if (len(json_output["models"]) == 2 and
+        # Per-source delta table (last model vs first)
+        if (len(json_output["models"]) >= 2 and
                 "per_source" in json_output["models"][0] and
-                "per_source" in json_output["models"][1]):
-            ps4 = json_output["models"][0]["per_source"]
-            ps6 = json_output["models"][1]["per_source"]
+                "per_source" in json_output["models"][-1]):
+            ps_first = json_output["models"][0]["per_source"]
+            ps_last  = json_output["models"][-1]["per_source"]
+            l_first  = json_output["models"][0]["label"].split()[0]
+            l_last   = json_output["models"][-1]["label"].split()[0]
             summary += [
-                f"\n--- Per-source delta (v6 - v4) ---",
-                f"  {'Source':<20} {'Δ Accuracy':>11} {'Δ Atk Recall':>13} {'Δ FP Recall':>12}",
-                f"  {'-'*20} {'-'*11} {'-'*13} {'-'*12}",
+                f"\n--- Per-source delta ({l_last} - {l_first}) ---",
+                f"  {'Source':<34} {'Δ Accuracy':>11} {'Δ Atk Recall':>13} {'Δ FP Recall':>12}",
+                f"  {'-'*34} {'-'*11} {'-'*13} {'-'*12}",
             ]
             for src in ["iot23", "ctu13", "uwf", "ctu_normal"]:
-                if src not in ps4 or src not in ps6:
+                if src not in ps_first or src not in ps_last:
                     continue
-                da  = ps6[src]["accuracy"]   - ps4[src]["accuracy"]
-                dar = ps6[src]["atk_recall"] - ps4[src]["atk_recall"]
-                dbr = ps6[src]["ben_recall"] - ps4[src]["ben_recall"]
+                da  = ps_last[src]["accuracy"]   - ps_first[src]["accuracy"]
+                dar = ps_last[src]["atk_recall"] - ps_first[src]["atk_recall"]
+                dbr = ps_last[src]["ben_recall"] - ps_first[src]["ben_recall"]
                 name = SOURCE_NAMES.get(src, src)
                 summary.append(
                     f"  {name:<34} {da:>+11.1%} {dar:>+13.1%} {dbr:>+12.1%}"

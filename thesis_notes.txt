@@ -279,6 +279,7 @@ Accuracy:   ~82% on CICIDS2017 benchmark
 LoRA:       r=8, lora_alpha=16
 Epochs:     1
 Hardware:   Local RTX 3070
+DURATION: 11 hours
 
 Why the step down from 89% to 82%:
 - The new prompt uses Zeek-native fields only. CICIDS2017 has no conn_state
@@ -320,6 +321,7 @@ LoRA:       r=16, lora_alpha=32 (doubled adapter capacity vs v4)
 Epochs:     3 (vs 1 in v4)
 Hardware:   RunPod RTX 5090 (32 GB VRAM), $0.90/hr
 Estimated training cost: ~$5-6
+DURATION: ~5 hours
 
 Key changes from v4 and why:
 
@@ -669,17 +671,152 @@ v6 result: 67% overall accuracy on real-world Zeek benchmark (2100 samples).
 v7 result: TBD — pending training.
 
 ================================================================================
+V7.1 BENCHMARK RESULTS
+================================================================================
+
+Training: RunPod RTX 5090 (32 GB VRAM), same config as v7.
+DURATION: 45 mins
+Adapter:  v7.1-ids-lora-adapter/
+Benchmark: benchmark_realworld.py (cached 2100-sample real-world set,
+           no regeneration — same samples as all prior runs for comparability)
+
+--------------------------------------------------------------------------------
+Real-world Zeek benchmark (benchmark_realworld.py)
+--------------------------------------------------------------------------------
+
+2100 samples — IoT-23, CTU-13, UWF-ZeekData24, CTU-Normal (300 per source/class)
+
+  Model          Accuracy  Atk Recall  FP Recall     MCC   Fmt Fail
+  ------------ --------- ----------- ----------  ------  ---------
+  v4            80.3%       67.4%      89.9%      +0.596      0.0%
+  v6            67.0%       67.1%      66.8%      +0.336      0.0%
+  v7.1          83.0%       65.0%      96.0%      +0.660      0.0%
+
+The headline attack recall of 65% is misleading — it includes 300 UWF Credential
+Access samples that were intentionally excluded from training (see V7 CHANGES,
+Change 2). Excluding UWF attacks: 585/600 = 97.5% attack recall on learnable
+attack types. This is the more meaningful figure.
+
+Per-source breakdown (v7.1):
+  Source                     Attacks  Atk Recall   Benign   FP Recall    Acc
+  ----------------------- ---------  ---------- --------- -----------  -----
+  IoT-23  (Zeek)               300     100.0%       300      90.3%     95.2%
+  CTU-13  (binetflow)          300      95.0%       300      97.3%     96.2%
+  UWF-ZeekData24 (Zeek)        300       0.0%       300      99.7%     49.8%  †
+  CTU-Normal (Zeek)              0         —        300      97.3%     97.3%
+
+† UWF attack recall of 0% is expected and by design. See root cause analysis.
+
+Per-label attack breakdown (v7.1):
+  PartOfAHorizontalPortScan  300/300  (100%)  — IoT-23 UDP horizontal scan
+  From-Botnet UDP-Attempt    275/275  (100%)  — IoT-23 UDP botnet
+  From-Botnet TCP-Attempt      3/3    (100%)
+  CTU-13 Botnet flows         ~95%            — CTU-13 Botnet* labels
+  DNS botnet flows              6/17   (35%)  — DNS looks like normal DNS
+  Credential Access             0/300   (0%)  — UWF, by design
+
+Key improvements over v6:
+  - FP recall: 66.8% → 96.0%  (+29.2pp) — the 2:1 ratio and CTU-Normal cap fix worked
+  - CTU-Normal FP recall: 18% → 97.3%   (+79.3pp) — critical recovery
+  - UWF FP recall: 61% → 99.7%          (+38.7pp) — UWF benign now well-classified
+  - IoT-23 attack recall: maintained 100%
+  - 0 format failures across all versions — output format is stable
+
+v7.1 resolves the v6 real-world failure. The primary deployment concern (high false
+positive rate on normal traffic) is addressed. The residual "miss" on UWF Credential
+Access remains an open problem acknowledged at design time.
+
+================================================================================
+FINDING: MODEL OVER-RELIANCE ON CONN_STATE — NOVEL TEST CASES (2026-03-29)
+================================================================================
+
+After v7.1 was benchmarked on known datasets, a set of 16 hand-crafted novel test
+cases was constructed and run against the Ollama-deployed ids-classifier (test_novel_cases.py).
+Cases were chosen to be explicitly outside the training distribution: no IoT-23
+botnet flows, no CTU-13 binetflow patterns, no UWF or CTU-Normal flows.
+
+Results:
+  Overall  : 9/16 correct  (56%)
+  Attacks  : 1/8  correct  (12%)
+  Benign   : 8/8  correct  (100%)
+
+Attack cases tested and results:
+  UDP flood (DDoS)                 — MISSED (predicted FALSE POSITIVE)
+  SSH brute force (RSTO)           — MISSED
+  DNS tunneling (oversized queries)— MISSED
+  SMB exploit (EternalBlue-style)  — MISSED
+  Slow Loris HTTP DoS (S1, 300s)   — MISSED
+  ICMP ping flood (OTH)            — MISSED
+  Data exfiltration (12 MB upload) — MISSED
+  SYN port scan (S0, 0 resp_pkts)  — CORRECT ✓
+
+Benign cases tested and results:
+  Video streaming (SF ssl, 18 MB resp)   — CORRECT ✓
+  NTP clock sync (SF udp)                — CORRECT ✓
+  Normal HTTPS browsing (SF ssl)         — CORRECT ✓
+  SSH admin session (SF ssh, 420s)       — CORRECT ✓
+  Software update download (SF ssl)      — CORRECT ✓
+  Normal DNS lookup (SF udp dns)         — CORRECT ✓
+  Database health check (SF tcp)         — CORRECT ✓
+  SMTP email delivery (SF tcp)           — CORRECT ✓
+
+Diagnostic finding — generic reason on all misses:
+  Every incorrectly classified attack received the identical reason:
+    "Connection established and closed cleanly; no anomalous volume or timing."
+  This was returned for a 12 MB asymmetric exfiltration, a 5000-packet UDP
+  flood, a 300-second half-open connection, and an ICMP flood alike. The model
+  is not reasoning about the numeric feature values; it is pattern-matching on
+  structural indicators — primarily conn_state.
+
+Root cause:
+  The model learned "SF = completed = benign" as the dominant heuristic. The
+  only attack it caught (SYN scan) had conn_state=S0 with zero response packets,
+  which is an unambiguous S0 signal also present in IoT-23 port scan training data.
+  All other missed attacks had either SF (exfiltration, DNS tunnel, SMB) or OTH
+  (ICMP flood) states that the model associates with benign traffic.
+
+  This is a structural limitation of flow-level classification with only 10
+  features: conn_state, proto, and service carry most of the discriminative signal
+  for the patterns present in training. Duration, byte counts, and packet counts
+  are available but the model does not appear to use them robustly when conn_state
+  contradicts the attack hypothesis.
+
+Implications for thesis:
+
+1. The model generalises well to known attack patterns (those represented in
+   training) but does not generalise to novel attack types that share conn_state
+   and proto with benign traffic.
+
+2. This is an expected limitation of any flow-level classifier — SSH brute force
+   over a real connection (RSTO) and a legitimate failed SSH attempt are nearly
+   indistinguishable without payload inspection or multi-flow correlation.
+
+3. The REASON field reveals the failure mode explicitly: the model says "no
+   anomalous volume or timing" for a 12 MB upload. This is a case where the
+   explainability of the LLM approach is an asset — a classical ML classifier
+   would return a probability score with no indication of which features drove
+   the decision. The model's incorrect reasoning is at least legible and auditable.
+
+4. For the thesis, this finding should be framed as: the model is effective for
+   signature-like attack patterns (known botnet signatures, SYN scans) but not
+   for anomaly-style detection (unusual byte ratios, oversized DNS, slow DoS).
+   These are complementary detection strategies; an LLM-based classifier of this
+   type is a signature learner, not an anomaly detector.
+
+5. A potential thesis extension: incorporate multi-flow features (inter-arrival
+   time, connection frequency per source IP) or add a second pass that re-evaluates
+   individual flows in the context of recent traffic from the same host. This would
+   give the model the contextual signal needed to catch repeated RSTO, large upload
+   outliers, and slow persistent connections.
+
+================================================================================
 TO ADD IN FUTURE ENTRIES
 ================================================================================
 
-- v7 benchmark results once training completes
-  (run: .venv/bin/python benchmark_realworld.py --regen)
-- v7 Ollama deployment results
+- v7.1 Ollama deployment benchmark results
   (run: .venv/bin/python benchmark_ollama.py)
-- Comparison table: v4 vs v6 vs v7 on real-world benchmark
-- Whether 2:1 benign:attack ratio improved FP recall without unacceptable
-  attack recall loss
-- Whether CTU-Normal FP recall recovers (target: >70% from v6's 18%)
 - Vanilla Qwen baseline (no fine-tuning) on real-world benchmark
+- Whether multi-flow context features could address the conn_state over-reliance
+  finding (thesis extension discussion)
 
 ================================================================================

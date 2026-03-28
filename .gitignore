@@ -13,6 +13,7 @@ v5-ids-lora-adapter/
 v6-ids-model/
 v6-ids-lora-adapter/
 *.gguf
+**/model.safetensors
 
 # Benchmark cache (regenerated automatically)
 benchmark_samples*.json
@@ -28,3 +29,4 @@ __pycache__/
 
 # Claude Code
 .claude/
+
