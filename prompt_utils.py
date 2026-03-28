@@ -29,7 +29,7 @@ def _is_na(v):
 
 
 def build_prompt(proto, duration, orig_pkts, resp_pkts,
-                 orig_bytes, resp_bytes, conn_state):
+                 orig_bytes, resp_bytes, conn_state, service="-"):
     """Convert Zeek-native features to model prompt text.
 
     When base fields are unset (-, empty, etc.), derived fields
@@ -79,9 +79,12 @@ def build_prompt(proto, duration, orig_pkts, resp_pkts,
     def _fmt(val, fmt):
         return "N/A" if val is None else format(val, fmt)
 
+    svc = service if service not in _NA_VALUES else "N/A"
+
     lines = [
         "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n",
         f"  Proto:              {proto}",
+        f"  Service:            {svc}",
         f"  Duration (s):       {_safe(duration, '.6f')}",
         f"  Orig Packets:       {_safe(orig_pkts, '.0f')}",
         f"  Resp Packets:       {_safe(resp_pkts, '.0f')}",

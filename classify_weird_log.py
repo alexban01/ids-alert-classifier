@@ -150,7 +150,7 @@ if __name__ == "__main__":
     for w, flow in matched:
         prompts.append(build_prompt(
             flow["proto"], flow["duration"], flow["orig_pkts"], flow["resp_pkts"],
-            flow["orig_bytes"], flow["resp_bytes"], flow["conn_state"],
+            flow["orig_bytes"], flow["resp_bytes"], flow["conn_state"], flow["service"],
         ))
 
     # Load model

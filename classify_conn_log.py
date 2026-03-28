@@ -112,7 +112,7 @@ if __name__ == "__main__":
     for r in rows:
         prompts.append(build_prompt(
             r["proto"], r["duration"], r["orig_pkts"], r["resp_pkts"],
-            r["orig_bytes"], r["resp_bytes"], r["conn_state"],
+            r["orig_bytes"], r["resp_bytes"], r["conn_state"], r["service"],
         ))
 
     # Load model

@@ -38,7 +38,8 @@
       "Bash(.venv/bin/python benchmark.py)",
       "Bash(.venv/bin/python -c \"import ast; ast.parse\\(open\\(''benchmark_realworld.py''\\).read\\(\\)\\); print\\(''OK''\\)\")",
       "Bash(.venv/bin/python -c \"import ast; ast.parse\\(open\\(''benchmark_ollama.py''\\).read\\(\\)\\); print\\(''OK''\\)\")",
-      "Bash(.venv/bin/python -c \"import ast; ast.parse\\(open\\(''preprocess_zeek.py''\\).read\\(\\)\\); ast.parse\\(open\\(''train.py''\\).read\\(\\)\\); print\\(''OK''\\)\")"
+      "Bash(.venv/bin/python -c \"import ast; ast.parse\\(open\\(''preprocess_zeek.py''\\).read\\(\\)\\); ast.parse\\(open\\(''train.py''\\).read\\(\\)\\); print\\(''OK''\\)\")",
+      "Bash(.venv/bin/python -:*)"
     ]
   }
 }

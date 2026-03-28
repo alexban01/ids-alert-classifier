@@ -311,7 +311,7 @@ Time to train: 36 hours
 Hardware = Local RTX 3070
 
 --------------------------------------------------------------------------------
-v6 — TRAINING IN PROGRESS (started 2026-03-28)
+v6 — COMPLETED (training started 2026-03-28)
 --------------------------------------------------------------------------------
 Dataset:    6 sources — IoT-23, CTU-13, UNSW-NB15, CICIDS2017,
             UWF-ZeekData24, CTU-Normal
@@ -405,6 +405,242 @@ Notes on training configuration decisions:
   giving a safe margin while improving throughput.
 
 ================================================================================
+V6 BENCHMARK RESULTS
+================================================================================
+
+Two benchmarks were run against v6: one on CICIDS2017 (same distribution as
+part of training data) and one on real-world Zeek sources (out-of-distribution).
+The divergence between them is the central finding of v6.
+
+--------------------------------------------------------------------------------
+CICIDS2017 benchmark (benchmark_v6.py) — in-distribution
+--------------------------------------------------------------------------------
+
+736 samples (50 per class per CSV, 8 files).
+
+  Model          Accuracy  Atk Recall  FP Recall     MCC
+  ------------ --------- ----------- ----------  ------
+  v4            82.1%       70.8%      91.5%      +0.643
+  v6            86.5%       73.5%      97.5%      +0.742
+  delta (v6-v4) +4.5%       +2.7%      +6.0%      +0.099
+
+On this benchmark v6 looks like a clear improvement. However, CICIDS2017 was
+part of the v6 training set — this result is partially circular.
+
+Notable per-attack-type failures on CICIDS2017:
+  - DoS Hulk:       v4  2% / v6  0%   (both models fail completely)
+  - DoS GoldenEye:  v4  0% / v6  0%
+  - Bot:            v4 56% / v6 54%
+  - Infiltration:   v4 53% / v6 72%
+  - DDoS:           both 100%
+  - PortScan:       both 98-100%
+
+--------------------------------------------------------------------------------
+Real-world Zeek benchmark (benchmark_realworld.py) — out-of-distribution
+--------------------------------------------------------------------------------
+
+2100 samples from native Zeek conn.log sources not synthesised by CICFlowMeter:
+IoT-23, CTU-13, UWF-ZeekData24, CTU-Normal (300 per source per class).
+
+  Model          Accuracy  Atk Recall  FP Recall     MCC
+  ------------ --------- ----------- ----------  ------
+  v4            80.3%       67.4%      89.9%      +0.596
+  v6            67.0%       67.1%      66.8%      +0.336
+  delta (v6-v4) -13.3%      -0.3%     -23.1%      -0.260
+
+v6 is significantly worse than v4 on real-world data. Attack recall is
+essentially unchanged while FP recall collapsed by 23 percentage points.
+The additions intended to fix the real-world FP rate made it worse.
+
+Per-source breakdown (v6):
+  IoT-23        (Zeek):  100% atk recall,  90% FP recall  — good
+  CTU-13        (binetflow): 99% atk recall, 98% FP recall — good
+  UWF-ZeekData24(Zeek):   2% atk recall,  61% FP recall  — failing
+  CTU-Normal    (Zeek):   n/a atk recall,  18% FP recall  — critical failure
+
+The CTU-Normal result is the most alarming: v6 was trained on up to 80k
+CTU-Normal benign samples, yet classifies 82% of CTU-Normal test samples
+as ATTACK. Training on this source actively hurt performance on it.
+
+--------------------------------------------------------------------------------
+Ollama / GGUF deployment benchmark
+--------------------------------------------------------------------------------
+
+After merging the LoRA adapter into the base model (merge_adapter.py),
+converting to GGUF, and serving via Ollama:
+
+  ids-classifier (GGUF, Ollama)  — real-world benchmark:
+    Accuracy  65.0%  (-2.0% vs HF v6)
+    Atk recall 67.0%  (-0.1%)
+    FP recall  64.3%  (-2.5%)
+    MCC       +0.308  (-0.028)
+
+The ~2% accuracy loss from quantization (fp16 → GGUF Q8/Q4) is within
+acceptable range. The fundamental failure modes are identical to HF v6 —
+quantization does not change the model's learned decision boundaries.
+
+Initial deployment failure: the GGUF conversion did not embed the Qwen2.5
+chat template (<|im_start|>/<|im_end|>) in the GGUF metadata, so Ollama
+treated requests as raw text completion and continued the network flow
+description instead of classifying it. Fixed by:
+  1. Adding explicit TEMPLATE block to Modelfile
+  2. Switching benchmark_ollama.py to /api/generate with raw=True and
+     manually formatted Qwen chat template
+
+--------------------------------------------------------------------------------
+100-sample synthetic benchmark (ad hoc, various attack and benign types)
+--------------------------------------------------------------------------------
+
+Manually constructed flows covering TCP SYN scans, UDP floods, botnet C&C,
+SSH brute force, data exfiltration, DNS amplification, ICMP floods, alongside
+HTTPS browsing, DNS lookups, SSH sessions, NTP, API calls, DB queries.
+
+  Overall accuracy: 40%  (40/100)
+  Attack recall:    52%  (26/50)
+  FP recall:        28%  (14/50)
+
+Per-type attack recall:
+  TCP SYN scan:       100%  ✓ (8/8)
+  Port scan REJ:      100%  ✓ (4/4)
+  DNS amplification:  100%  ✓ (4/4)
+  Data exfiltration:  100%  ✓ (4/4)
+  TCP SYN flood:      100%  ✓ (4/4)
+  SSH brute force:     40%  (2/5)
+  UDP flood:           25%  (2/8)
+  C&C beacon:           0%  ✗ (0/6)
+  UDP scan:             0%  ✗ (0/6)
+  ICMP flood:           0%  ✗ (0/3)
+
+Per-type FP false alarm rate (% of benign incorrectly called ATTACK):
+  NTP:              0%  ✓
+  Background UDP:   0%  ✓
+  HTTPS:           80%  ✗
+  HTTP download:   80%  ✗
+  SSH session:     80%  ✗
+  ICMP ping:       75%  ✗
+  DNS:             50%  ✗
+  API calls:      100%  ✗
+  DB queries:     100%  ✗
+
+The model is essentially a "SF TCP detector": it flags short, completed TCP
+connections as ATTACK while missing UDP floods, ICMP floods, and C&C beacons.
+NTP and background UDP (S0) are correctly identified because they match the
+S0-dominated IoT-23 benign pattern the model overtrained on.
+
+================================================================================
+V6 ROOT CAUSE ANALYSIS
+================================================================================
+
+The failure of v6 on real-world data was diagnosed by inspecting the conn_state
+distribution per (source, class) in the benchmark dataset.
+
+Problem 1 — IoT-23 benign dominates the benign class with S0 UDP (89% S0)
+  IoT-23 benign: 268/300 S0, 249/300 UDP
+  At 80k samples it is the largest single benign source. The model learned
+  "S0 UDP = benign". CTU-Normal (94% SF) and UWF benign (76% SF) do not
+  match this pattern, so the model flags them as suspicious.
+
+  Why IoT-23 benign is so S0-heavy: IoT devices (sensors, smart home) mostly
+  send unreplied packets — NTP probes, DNS queries to unreachable servers,
+  SSDP/mDNS broadcasts. These produce many S0 flows. Real user PC browsing
+  produces mostly SF flows (completed TCP connections).
+
+Problem 2 — UWF Credential Access attacks are unlearnable
+  UWF attacks: 100% SF, 100% TCP, mean duration ~0.02s
+  These are credential brute-force flows that look identical to normal short
+  web connections. Training recall is 2% — the model cannot learn to
+  distinguish them from benign traffic using flow-level features alone.
+  Worse, training on them teaches "short SF TCP = ATTACK", which is exactly
+  the pattern of legitimate API calls, DB queries, and HTTPS connections.
+
+Problem 3 — CTU-13 binetflow uses Argus state notation, not Zeek
+  CTU-13 attack conn_states: 92% "INT" (Argus mid-flow state)
+  CTU-13 benign conn_states: 63% "CON", 16% "FSPA_FSPA" (Argus completed)
+  Production Zeek logs never produce INT, CON, FSPA_FSPA, etc. The model
+  was trained on a conn_state vocabulary that does not exist at inference time.
+
+Problem 4 — CICIDS2017 provides 80k samples with two critical features missing
+  All CICIDS2017 samples: conn_state="-", proto="unknown"
+  CICFlowMeter (the tool used to generate CICIDS2017) has no concept of
+  Zeek conn_state. Protocol is numeric (6, 17) and the loader maps unknown
+  values to "unknown". 80k training samples where both the most discriminative
+  features are absent adds noise and teaches the model to classify without them.
+  CICIDS2017 also has documented label quality issues (~10-15% mislabeled flows).
+
+================================================================================
+V7 — CHANGES AND RATIONALE
+================================================================================
+
+v7 directly addresses the four root causes identified above. Dataset: ~360k
+samples (120k attacks, 240k benign). 2:1 benign:attack ratio.
+
+Training: RunPod RTX 3090 (24 GB VRAM) recommended, or local RTX 3070 with
+TRAINING_FACTOR=0.1 for a fast validation run before committing to full cost.
+
+Change 1 — IoT-23 benign cap: 80k → 20k
+  Rationale: At 80k, IoT-23 benign (89% S0 UDP) dominated the benign class
+  and created a "S0 = benign" bias. Reducing to 20k limits its influence
+  while retaining sufficient S0 UDP benign examples for that pattern.
+
+Change 2 — Remove UWF attacks entirely (keep UWF benign)
+  Rationale: All UWF attacks are Credential Access (100% SF TCP, ~0.02s
+  duration, 2% recall). They are unlearnable from flow features and actively
+  teach a harmful pattern (short SF TCP = ATTACK). UWF benign (real Zeek,
+  mixed SF/S0 UDP) is retained as a valuable benign source.
+
+Change 3 — CTU-13 binetflow state mapping to Zeek equivalents
+  Rationale: Production only sees Zeek states. CTU-13 Argus states are
+  meaningless at inference time. Mapped in load_ctu13():
+    INT        → S1   (mid-flow, established, no FIN)
+    CON        → SF   (completed connection)
+    FSPA_FSPA  → SF   (FIN bidirectional = completed)
+    FSA_FSA    → SF
+    PA_PA      → OTH  (PSH-ACK only, no SYN seen)
+    S_         → S0   (SYN only)
+    SRPA_SPA   → RSTO (RST from originator)
+
+Change 4 — CTU-Normal cap: 80k → 100k
+  Rationale: CTU-Normal is the only significant SF benign source (94% SF).
+  Increasing its cap ensures SF benign patterns compete effectively against
+  the remaining S0-dominated sources after IoT-23 reduction.
+
+Change 5 — Drop CICIDS2017 entirely
+  Rationale: Every CICIDS2017 sample has conn_state="-" and proto="unknown"
+  — both critical discriminative features are absent on all 80k samples.
+  CICFlowMeter does not produce Zeek-compatible features. Additionally,
+  documented label accuracy issues (~10-15% mislabeled) add noise.
+  UNSW-NB15 (Bro/Zeek-generated, proper conn_state) covers the attack
+  diversity that CICIDS2017 was intended to provide.
+
+Change 6 — 2:1 benign:attack ratio (120k attacks, 240k benign)
+  Rationale: Real networks are overwhelmingly benign traffic. Training on a
+  1:1 balanced dataset implicitly teaches the model to expect attacks half the
+  time, making it trigger-happy. A 2:1 ratio is a conservative step toward
+  realistic class distribution without sacrificing attack recall severely.
+  The primary complaint about v6 in production is false positives; reducing
+  them justifies some attack recall trade-off.
+
+Change 7 — Source-stratified train/eval split
+  Rationale: The v6 random 90/10 split produced an eval set that mirrored the
+  training distribution. CTU-Normal failures (18% FP recall) were invisible
+  during training because the eval set had the same IoT-23-dominated S0 bias.
+  v7 holds out 10% from each (source, class) bucket independently, so eval_loss
+  reflects performance across all sources from the first epoch.
+
+V7 expected dataset composition (approximate, before EVAL_FRAC holdout):
+  Source         Attacks    Benign   Notes
+  ------------ --------- ---------  -----------------------------------
+  IoT-23        up to 80k    20k    benign capped (was 80k)
+  CTU-13        up to 80k    80k    Argus states mapped to Zeek
+  UNSW-NB15     up to 80k    80k    Bro/Zeek native, attack diversity
+  UWF-ZeekData24       0    80k    attacks dropped (unlearnable)
+  CTU-Normal           0   100k    benign capped up (SF benign source)
+  CICIDS2017    dropped   dropped  conn_state="-", proto="unknown" on all rows
+  ------------ --------- ---------
+  Pool          ~240k      ~360k
+  Final (2:1)   120k       240k    = 360k total
+
+================================================================================
 BENCHMARK METHODOLOGY
 ================================================================================
 
@@ -427,15 +663,23 @@ classify_weird_log.py — cross-references weird.log entries with conn.log
 to enrich them with flow statistics before classification.
 
 v4 result: ~95% FALSE POSITIVE rate on real traffic.
-v6 result: TBD — pending training completion and local deployment.
+v6 result: 67% overall accuracy on real-world Zeek benchmark (2100 samples).
+           CTU-Normal FP recall 18%, UWF FP recall 61% — worse than v4.
+           See V6 BENCHMARK RESULTS section for full analysis.
+v7 result: TBD — pending training.
 
 ================================================================================
 TO ADD IN FUTURE ENTRIES
 ================================================================================
 
-- v6 benchmark results (accuracy, per-class, format failure rate)
-- v6 real-world FP rate vs v4
-- Any v7 changes if v6 results are insufficient
-- Comparison table: vanilla Qwen vs v4 vs v6
+- v7 benchmark results once training completes
+  (run: .venv/bin/python benchmark_realworld.py --regen)
+- v7 Ollama deployment results
+  (run: .venv/bin/python benchmark_ollama.py)
+- Comparison table: v4 vs v6 vs v7 on real-world benchmark
+- Whether 2:1 benign:attack ratio improved FP recall without unacceptable
+  attack recall loss
+- Whether CTU-Normal FP recall recovers (target: >70% from v6's 18%)
+- Vanilla Qwen baseline (no fine-tuning) on real-world benchmark
 
 ================================================================================
