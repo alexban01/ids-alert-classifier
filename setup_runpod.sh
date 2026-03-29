@@ -1,7 +1,7 @@
 #!/bin/bash
 # Run this on the RunPod pod after SSH/terminal access.
 # Assumes the Runpod Pytorch 2.8.0 template (CUDA 12.8, Ubuntu 24.04).
-# Target GPU: RTX 3090 (24 GB VRAM)
+# Target GPU: RTX 5090 (32 GB VRAM)
 #
 # Usage:
 #   1. Upload zeek_dataset.jsonl + train.py to /workspace/

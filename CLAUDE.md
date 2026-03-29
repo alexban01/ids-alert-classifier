@@ -4,7 +4,7 @@ Fine-tune `Qwen/Qwen2.5-1.5B-Instruct` via QLoRA to classify network flows as
 **ATTACK** or **FALSE POSITIVE**, targeting deployment against Zeek conn.log / PCAP captures.
 
 **Local hardware:** Ryzen 7 3700X, 32 GB RAM, RTX 3070 (8 GB VRAM)
-**Training (v7):** RunPod RTX 3090 (24 GB VRAM), ~$0.44/hr on-demand
+**Training (v7):** RunPod RTX 5090 (32 GB VRAM), ~$0.44/hr on-demand
 
 ## Python Environment
 
@@ -19,7 +19,7 @@ Arch Linux managed environment — system `python3`/`pip3` refuse to install pac
 |---|---|
 | `preprocess_zeek.py` | Builds `zeek_dataset.jsonl` + `zeek_dataset_eval.jsonl` (v7: 360k samples, 5 sources) |
 | `prompt_utils.py` | Shared `build_prompt`, `_safe`, `SYSTEM_PROMPT`, `extract_verdict` — single source of truth |
-| `train.py` | QLoRA fine-tuning via SFTTrainer (v7: RunPod 3090 or local 3070), saves adapter to `v7-ids-lora-adapter/` |
+| `train.py` | QLoRA fine-tuning via SFTTrainer (v7: RunPod 5090 or local 3070), saves adapter to `v7-ids-lora-adapter/` |
 | `merge_adapter.py` | Merges LoRA adapter into base model (fp16) for GGUF conversion — required before llama.cpp |
 | `benchmark.py` | Fine-tuned model benchmark on CICIDS2017 samples (Zeek-native prompt) |
 | `benchmark_v6.py` | v4 vs v6 vs v7 comparison on CICIDS2017, batched HuggingFace inference |
@@ -56,7 +56,7 @@ Run on RunPod pod: `python train.py` (after `bash setup_runpod.sh`)
 Train and eval datasets are pre-split by `preprocess_zeek.py` using source-stratified
 sampling (10% per source/class bucket) — `zeek_dataset.jsonl` + `zeek_dataset_eval.jsonl`.
 
-**RTX 3090 (RunPod, 24 GB VRAM) — recommended:**
+**RTX 5090 (RunPod, 24 GB VRAM) — recommended:**
 ```python
 per_device_train_batch_size = 24
 per_device_eval_batch_size  = 24
@@ -91,7 +91,7 @@ dataloader_num_workers = 4
 dataloader_pin_memory = True
 ```
 
-**Time estimate (full dataset, 360k samples):** ~4-5 hours on RTX 3090 (~$2).
+**Time estimate (full dataset, 360k samples):** ~4-5 hours on RTX 5090 (~$2).
 ~15-20 hours on RTX 3070 (local, free but slow — use `TRAINING_FACTOR=0.1` for fast validation runs).
 
 After training, the best adapter (by eval_loss) is saved to `v7-ids-lora-adapter/`.
