@@ -1,9 +1,33 @@
+import argparse
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import LoraConfig
 from trl import SFTTrainer, SFTConfig
 from datasets import load_dataset
 import torch
 import os
+
+# ── Args ──────────────────────────────────────────────────────────────────────
+parser = argparse.ArgumentParser()
+parser.add_argument("--runpod", action="store_true",
+                    help="Use RunPod RTX 5090 settings (batch=24, no grad checkpointing)")
+args = parser.parse_args()
+RUNPOD = args.runpod
+
+if RUNPOD:
+    BATCH                = 24
+    GRAD_ACCUM           = 1      # effective batch = 24
+    GRAD_CHECKPOINTING   = False  # 32 GB has headroom
+    PIN_MEMORY           = True
+    NUM_WORKERS          = 4
+else:
+    BATCH                = 4
+    GRAD_ACCUM           = 6      # effective batch = 24 (4×6)
+    GRAD_CHECKPOINTING   = True   # required for 8 GB VRAM
+    PIN_MEMORY           = False
+    NUM_WORKERS          = 0      # CUDA+fork unstable on local Linux. fork() copies the parent's CUDA context into worker processes — those handles are invalid in the child, causing deadlocks or corruption. spawn would fix it but adds complexity; workers=0 is simpler since the bottleneck is the GPU, not JSONL loading.
+
+print(f"Target: {'RunPod RTX 5090' if RUNPOD else 'Local RTX 3070'}  "
+      f"| batch={BATCH}  accum={GRAD_ACCUM}  effective={BATCH*GRAD_ACCUM}")
 
 # ── Speed ────────────────────────────────────────────────────────────────────
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -53,9 +77,6 @@ train_dataset = load_dataset("json", data_files=DATASET)["train"]
 eval_dataset  = load_dataset("json", data_files=EVAL_DATASET)["train"]
 
 # ── Training ─────────────────────────────────────────────────────────────────
-# RTX 3070 (8 GB VRAM) — local machine.
-# 4-bit weights dequantize to BF16 during the forward pass, spiking VRAM.
-# batch_size=4 + accumulation=6 keeps effective batch=24 (same as 3090 config).
 trainer = SFTTrainer(
     model=model,
     peft_config=lora_config,
@@ -64,12 +85,12 @@ trainer = SFTTrainer(
     args=SFTConfig(
         output_dir=OUTPUT_DIR,
         # ── Batch size ────────────────────────────────────────────────────
-        per_device_train_batch_size=4,
-        per_device_eval_batch_size=4,
-        gradient_accumulation_steps=6, 
+        per_device_train_batch_size=BATCH,
+        per_device_eval_batch_size=BATCH,
+        gradient_accumulation_steps=GRAD_ACCUM,
         optim="paged_adamw_8bit",
         # ── Precision ────────────────────────────────────────────────────
-        gradient_checkpointing=True,
+        gradient_checkpointing=GRAD_CHECKPOINTING,
         bf16=True,
         # ── Schedule ─────────────────────────────────────────────────────
         num_train_epochs=3,
@@ -79,8 +100,8 @@ trainer = SFTTrainer(
         warmup_ratio=0.03,
         weight_decay=0.01,
         # ── Data loading ─────────────────────────────────────────────────
-        dataloader_pin_memory=False,  # False local - True on RunPod (no multiprocessing issues there)
-        dataloader_num_workers=0,     # 0 local - 4 on RunPod (CUDA+fork works fine on single-GPU pod)
+        dataloader_pin_memory=PIN_MEMORY,
+        dataloader_num_workers=NUM_WORKERS,
         # ── Eval & saving ────────────────────────────────────────────────
         logging_steps=250,
         eval_strategy="epoch",
