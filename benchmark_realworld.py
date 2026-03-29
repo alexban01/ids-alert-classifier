@@ -42,10 +42,11 @@ CAP            = 300      # max samples per (source, class)
 RANDOM_SEED    = 42
 
 MODELS = [
-    # ("v4 Fine-tuned",   "./v4-ids-lora-adapter"),
-    # ("v6 Fine-tuned",   "./v6-ids-lora-adapter"),
-    # ("v7.1 Fine-tuned", "./v7.1-ids-lora-adapter"),
-    ("v8 Fine-tuned",   "./v8-ids-lora-adapter"),
+    # ("v4 Fine-tuned",        "./v4-ids-lora-adapter"),
+    # ("v6 Fine-tuned",        "./v6-ids-lora-adapter"),
+    # ("v7.1 Fine-tuned",      "./v7.1-ids-lora-adapter"),
+    # ("v8 ckpt-1500 (ep1)",   "./v8-ids-model/checkpoint-1500"),
+    ("v8.1 Fine-tuned",      "./v8.1-ids-lora-adapter"),
 ]
 
 DATASETS = {
@@ -291,8 +292,8 @@ def load_uwf(dataset_dir):
                 source     = "uwf",
                 raw_label  = raw_label,
                 service    = svc,
-                orig_port  = _clean(row.get("id.orig_p", row.get("orig_p", "-"))) or "-",
-                resp_port  = _clean(row.get("id.resp_p", row.get("resp_p", "-"))) or "-",
+                orig_port  = _clean(row.get("id.orig_p", row.get("orig_p", row.get("src_port_zeek", "-")))) or "-",
+                resp_port  = _clean(row.get("id.resp_p", row.get("resp_p", row.get("dest_port_zeek", "-")))) or "-",
             ))
 
     atk = len(buckets["ATTACK"])

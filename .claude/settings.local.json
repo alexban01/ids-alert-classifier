@@ -51,7 +51,8 @@
       "Bash(.venv/bin/python -c \"import ast; ast.parse\\(open\\(''benchmark_realworld.py''\\).read\\(\\)\\); print\\(''benchmark_realworld.py OK''\\); ast.parse\\(open\\(''train.py''\\).read\\(\\)\\); print\\(''train.py OK''\\)\")",
       "Bash(kill 34962)",
       "Bash(while ps:*)",
-      "Bash(do sleep:*)"
+      "Bash(do sleep:*)",
+      "Bash(.venv/bin/python benchmark_realworld.py --regen)"
     ]
   }
 }
