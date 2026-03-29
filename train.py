@@ -64,8 +64,8 @@ trainer = SFTTrainer(
     args=SFTConfig(
         output_dir=OUTPUT_DIR,
         # ── Batch size ────────────────────────────────────────────────────
-        per_device_train_batch_size=48,
-        per_device_eval_batch_size=48,
+        per_device_train_batch_size=18,
+        per_device_eval_batch_size=18,
         gradient_accumulation_steps=1,  # effective batch = 24
         optim="paged_adamw_8bit",
         # ── Precision ────────────────────────────────────────────────────
