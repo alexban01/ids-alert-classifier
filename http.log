@@ -1,0 +1,29 @@
+#separator \x09
+#set_separator	,
+#empty_field	(empty)
+#unset_field	-
+#path	http
+#open	2026-03-16-18-14-16
+#fields	ts	uid	id.orig_h	id.orig_p	id.resp_h	id.resp_p	trans_depth	method	host	uri	referrer	version	user_agent	origin	request_body_len	response_body_len	status_code	status_msg	info_code	info_msg	tags	username	password	proxied	orig_fuids	orig_filenames	orig_mime_types	resp_fuids	resp_filenames	resp_mime_types
+#types	time	string	addr	port	addr	port	count	string	string	string	string	string	string	string	count	count	count	string	count	string	set[enum]	string	string	set[string]	vector[string]	vector[string]	vector[string]	vector[string]	vector[string]	vector[string]
+1709999912.070000	CG2bpCMMwTgUOHtk	192.168.143.177	49201	185.220.101.34	80	1	GET	secure-docusign-verify.com	/review?token=8F3A2C&user=user@victim.corp	https://mail.victim.corp/webmail/	1.1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36	-	0	0	302	Found	-	-	(empty)	-	-	-	-	-	-	-	-	-
+1709999915.070000	Cohwma3AjHu8SbYB3	192.168.143.177	49202	185.220.101.34	80	1	GET	secure-docusign-verify.com	/portal/login?redirect=/document/8F3A2C	http://secure-docusign-verify.com/review?token=8F3A2C	1.1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36	-	0	1519	200	OK	-	-	(empty)	-	-	-	-	-	-	F3dmb114gIptIASyh3	-	text/html
+1709999915.370000	CDFShu4mhJUxw2Ez66	192.168.143.177	49203	185.220.101.34	80	1	GET	secure-docusign-verify.com	/js/track.js	http://secure-docusign-verify.com/portal/login	1.1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/121.0.0.0	-	0	541	200	OK	-	-	(empty)	-	-	-	-	-	-	FVSJD22UP5FV5g3Kuk	-	text/plain
+1709999918.070000	C7Ky203Mgh37kuiUwd	192.168.143.177	49210	185.220.101.34	80	1	GET	secure-docusign-verify.com	/portal/document/8F3A2C?dl=1	http://secure-docusign-verify.com/portal/login	1.1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36	-	0	4058	200	OK	-	-	(empty)	-	-	-	-	-	-	FfFrfg2k0AYoxgxJEe	invoice_document_8F3A2C.pdf	application/x-dosexec
+1709999922.270000	C7ydHG3nuKIaw9Tno4	192.168.143.177	49220	185.234.219.47	80	1	POST	update-cdn-delivery.com	/api/v1/check	-	1.1	WinHTTP/1.0 (compatible; MSIE 9.0)	-	132	286	200	OK	-	-	(empty)	-	-	-	FrhVEx2PlBzlgoCT3h	-	text/plain	FTsPha1FgPHtYnVti2	-	text/json
+1709999925.070000	C6v2EKB0UZIY9ymK7	192.168.143.177	49230	185.220.101.34	80	1	POST	secure-docusign-verify.com	/portal/auth	http://secure-docusign-verify.com/portal/login	1.1	Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/121.0.0.0 Safari/537.36	http://secure-docusign-verify.com	87	0	302	Found	-	-	(empty)	-	-	-	FNyXdj3iOzPf9ZQeV2	-	text/plain	-	-	-
+1709999970.060000	CS13EG2lKespIoEBYb	192.168.143.10	55200	192.168.143.177	5985	1	POST	192.168.143.177:5985	/wsman	-	1.1	Microsoft WinRM Client	-	561	238	200	OK	-	-	(empty)	-	-	-	FIN90n4q2LyjxvW55	-	text/plain	FcqZi811KiUVqZC7Sh	-	text/plain
+1709999970.260000	CS13EG2lKespIoEBYb	192.168.143.10	55200	192.168.143.177	5985	2	POST	192.168.143.177:5985	/wsman	-	1.1	Microsoft WinRM Client	-	579	238	200	OK	-	-	(empty)	-	-	-	FkbVMkIhnGHqvcVZk	-	text/plain	FkLhJCd0jvqUYh4Gb	-	text/plain
+1709999970.460000	CS13EG2lKespIoEBYb	192.168.143.10	55200	192.168.143.177	5985	3	POST	192.168.143.177:5985	/wsman	-	1.1	Microsoft WinRM Client	-	628	238	200	OK	-	-	(empty)	-	-	-	FucItZh09yW3W56ae	-	text/plain	F4Ycct1DEQzaxqF0bd	-	text/plain
+1709999970.659999	CS13EG2lKespIoEBYb	192.168.143.10	55200	192.168.143.177	5985	4	POST	192.168.143.177:5985	/wsman	-	1.1	Microsoft WinRM Client	-	618	238	200	OK	-	-	(empty)	-	-	-	Fa5LeR1uWY99MOPbb	-	text/plain	FVgYtt4btQPOeF4M98	-	text/plain
+1773344313.076515	CzQVKK2KgfBdCVkys5	2a02:2f08:4802:2400:6cf1:25f0:277f:232b	54056	2600:1901:0:38d7::	80	1	-	-	-	-	1.1	-	-	0	90	200	OK	-	-	(empty)	-	-	-	-	-	-	Ft3B0a9eosDKoItmh	-	text/html
+1773344313.081940	CDVDZW2QfegybdfxX2	192.168.1.3	34686	34.107.221.82	80	1	-	-	-	-	1.1	-	-	0	8	200	OK	-	-	(empty)	-	-	-	-	-	-	FesP0P3Msrxdl08xu1	-	-
+1773344313.084660	CHHzYJeuT5hpWPPeb	2a02:2f08:4802:2400:6cf1:25f0:277f:232b	54046	2600:1901:0:38d7::	80	1	-	-	-	-	1.1	-	-	0	8	200	OK	-	-	(empty)	-	-	-	-	-	-	FZ1AJFa8BD3g83Mcl	-	-
+1773344313.100427	CHhzPrgx1Iymkpbwh	192.168.1.3	34694	34.107.221.82	80	1	-	-	-	-	1.1	-	-	0	8	200	OK	-	-	(empty)	-	-	-	-	-	-	FSJYgb45Nyb0egXlbe	-	-
+1773344313.103363	Ch4peM5QIYkOWxPVf	2a02:2f08:4802:2400:6cf1:25f0:277f:232b	54070	2600:1901:0:38d7::	80	1	-	-	-	-	1.1	-	-	0	8	200	OK	-	-	(empty)	-	-	-	-	-	-	FQzHlU1hpazXLGGQA2	-	-
+1773347016.548572	CQoukE48pUG3Y2DWDj	192.168.1.3	46128	34.107.221.82	80	1	-	-	-	-	1.1	-	-	0	8	200	OK	-	-	(empty)	-	-	-	-	-	-	FJPYjb2Jve9sz0m0n	-	-
+1773347016.550828	CHOO8Ra3jkt1yoZL5	2a02:2f08:4802:2400:6cf1:25f0:277f:232b	50926	2600:1901:0:38d7::	80	1	-	-	-	-	1.1	-	-	0	90	200	OK	-	-	(empty)	-	-	-	-	-	-	FjygM21XavCgi4Ka5f	-	text/html
+1773347016.554734	Cu3Cj03MX722QthpWd	2a02:2f08:4802:2400:6cf1:25f0:277f:232b	50916	2600:1901:0:38d7::	80	1	-	-	-	-	1.1	-	-	0	8	200	OK	-	-	(empty)	-	-	-	-	-	-	FISc2U37I3G6tHDtTh	-	-
+1773347016.564223	CQoukE48pUG3Y2DWDj	192.168.1.3	46128	34.107.221.82	80	2	-	-	-	-	1.1	-	-	0	8	200	OK	-	-	(empty)	-	-	-	-	-	-	FMULkCqHVoYo3tlt5	-	-
+1773347016.575418	C69bXH3XCkw0xTrDog	2a02:2f08:4802:2400:6cf1:25f0:277f:232b	50940	2600:1901:0:38d7::	80	1	-	-	-	-	1.1	-	-	0	8	200	OK	-	-	(empty)	-	-	-	-	-	-	FhXbgMDiwY2SSQ6mk	-	-
+#close	2026-03-16-18-14-18

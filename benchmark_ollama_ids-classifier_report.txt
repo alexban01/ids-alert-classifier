@@ -1,4 +1,4 @@
-OLLAMA BENCHMARK — 2026-03-28 21:15
+OLLAMA BENCHMARK — 2026-03-29 21:12
 Model  : ids-classifier
 Cache  : benchmark_realworld_cache.json
 Samples: 2100 (900 attacks / 1200 benign)
@@ -6,40 +6,40 @@ Samples: 2100 (900 attacks / 1200 benign)
 ======================================================================
   MODEL  : ids-classifier
   Samples: 2100  (attacks: 900, benign: 1200)
-  Elapsed: 778.2s  (0.37s/sample)
+  Elapsed: 809.5s  (0.39s/sample)
   Format failures : 0 (0.0%)
-  MCC             : +0.3080  (-1 to +1, higher is better)
+  MCC             : +0.6664  (-1 to +1, higher is better)
 ======================================================================
                 precision    recall  f1-score   support
 
-        ATTACK       0.58      0.67      0.62       900
-FALSE POSITIVE       0.72      0.64      0.68      1200
+        ATTACK       0.94      0.64      0.76       900
+FALSE POSITIVE       0.78      0.97      0.87      1200
 
-      accuracy                           0.65      2100
-     macro avg       0.65      0.66      0.65      2100
-  weighted avg       0.66      0.65      0.66      2100
+      accuracy                           0.83      2100
+     macro avg       0.86      0.81      0.82      2100
+  weighted avg       0.85      0.83      0.82      2100
 
 Confusion Matrix  (rows = actual, cols = predicted)
                            ATTACK  FALSE POSITIVE
-  ATTACK                  601 ( 67%)     299 ( 33%)
-  FALSE POSITIVE          428 ( 36%)     772 ( 64%)
+  ATTACK                  577 ( 64%)     323 ( 36%)
+  FALSE POSITIVE           35 (  3%)    1165 ( 97%)
 
 --- Per source ---
   Source                                   Atk  Recall     Ben  Recall      Acc
   -------------------------------------- ----- -------   ----- -------   ------
-  CTU-13        (binetflow)                300   98.3%     300   98.0%    98.2%
-  CTU-Normal    (Zeek conn.log)              0    0.0%     300   10.3%    10.3%
+  CTU-13        (binetflow)                300   92.3%     300   98.7%    95.5%
+  CTU-Normal    (Zeek conn.log)              0    0.0%     300   99.7%    99.7%
   IoT-23        (Zeek conn.log)            300  100.0%     300   90.3%    95.2%
-  UWF-ZeekData24(Zeek conn.log)            300    2.0%     300   58.7%    30.3%
+  UWF-ZeekData24(Zeek conn.log)            300    0.0%     300   99.7%    49.8%
 
 --- Per label (attacks only) ---
-  Credential Access                              6/300 (  2%)
+  Credential Access                              0/300 (  0%)
   PartOfAHorizontalPortScan                    300/300 (100%)
   flow=From-Botnet-V45-TCP-Attempt               3/3   (100%)
   flow=From-Botnet-V45-TCP-CC106-IRC-Not-Encrypted   0/1   (  0%)
   flow=From-Botnet-V45-TCP-Established-HTTP-Ad-15   0/1   (  0%)
   flow=From-Botnet-V45-TCP-Established-HTTP-Ad-4   0/1   (  0%)
-  flow=From-Botnet-V45-TCP-Established-HTTP-Ad-62   1/1   (100%)
-  flow=From-Botnet-V45-TCP-HTTP-Google-Net-Established-6   1/1   (100%)
-  flow=From-Botnet-V45-UDP-Attempt             275/275 (100%)
-  flow=From-Botnet-V45-UDP-DNS                  15/17  ( 88%)
+  flow=From-Botnet-V45-TCP-Established-HTTP-Ad-62   0/1   (  0%)
+  flow=From-Botnet-V45-TCP-HTTP-Google-Net-Established-6   0/1   (  0%)
+  flow=From-Botnet-V45-UDP-Attempt             274/275 (100%)
+  flow=From-Botnet-V45-UDP-DNS                   0/17  (  0%)

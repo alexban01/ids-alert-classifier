@@ -48,6 +48,9 @@ CTU_NORMAL_CAP       = int(100_000 * TRAINING_FACTOR)  # increase — only signi
 FINAL_BENIGN  = int(240_000 * TRAINING_FACTOR)
 FINAL_ATTACK  = int(120_000 * TRAINING_FACTOR)
 
+CONN_STATE_MASK_PROB = 0.20   # fraction of samples where conn_state is blanked to "-"
+                              # forces model to learn from numeric features when state is absent
+
 DATASETS = {
     "iot23":      "datasets/iot-23/iot_23_datasets_small.tar.gz",
     "ctu13":      "datasets/ctu-13/CTU-13-Dataset.tar.bz2",
@@ -68,6 +71,14 @@ ATTACK_REASONS = [
     "Flow metrics match botnet C2 communication profiles.",
     "Unidirectional or near-unidirectional flow with anomalous size is suspicious.",
     "Connection terminated abnormally with byte ratios typical of attack traffic.",
+    # Port-aware and byte-ratio-aware reasons (v8)
+    "Destination port 22 with multiple short connections suggests SSH brute force.",
+    "Destination port 445 is associated with SMB exploitation (EternalBlue, ransomware lateral movement).",
+    "Destination port 3389 (RDP) with repeated short SYN-only attempts indicates brute force scanning.",
+    "Large orig_bytes relative to resp_bytes on a high-numbered port suggests a data exfiltration channel.",
+    "Oversized traffic on port 53 with high byte-to-packet ratio suggests DNS tunneling.",
+    "High packet count with minimal response bytes is consistent with a SYN flood or amplification attack.",
+    "Unusually large orig_bytes on an established connection to a non-standard port indicates potential C2 exfiltration.",
 ]
 
 BENIGN_REASONS = [
@@ -81,6 +92,12 @@ BENIGN_REASONS = [
     "Flow characteristics match DNS, HTTP, or routine background communication.",
     "Short-lived connection with small byte counts; consistent with keep-alives or health checks.",
     "No anomalous ratios detected; flow matches baseline for this protocol.",
+    # Port-aware reasons (v8)
+    "Completed HTTPS connection on port 443 with symmetric byte exchange — standard web traffic.",
+    "Short TCP session to port 80 with low byte count consistent with a web API health check.",
+    "DNS query on port 53 with small payload and immediate response is normal resolver traffic.",
+    "SSH session on port 22 with moderate byte exchange and clean SF completion is consistent with legitimate admin access.",
+    "High orig_bytes on port 443 with clean SF completion is consistent with a file download over HTTPS.",
 ]
 
 random.seed(RANDOM_SEED)
@@ -91,9 +108,14 @@ def pick_reason(verdict):
 
 # ── Sample builder ─────────────────────────────────────────────────────────────
 def make_sample(proto, duration, orig_pkts, resp_pkts,
-                orig_bytes, resp_bytes, conn_state, verdict, source, service="-"):
+                orig_bytes, resp_bytes, conn_state, verdict, source,
+                service="-", resp_port="-", orig_port="-"):
+    # Mask conn_state with CONN_STATE_MASK_PROB — forces model to use numeric
+    # features (bytes, packets, port) when state is unavailable or ambiguous.
+    prompt_conn_state = "-" if random.random() < CONN_STATE_MASK_PROB else conn_state
     prompt  = build_prompt(proto, duration, orig_pkts, resp_pkts,
-                           orig_bytes, resp_bytes, conn_state, service)
+                           orig_bytes, resp_bytes, prompt_conn_state, service,
+                           resp_port=resp_port, orig_port=orig_port)
     reason  = pick_reason(verdict)
     return {
         "messages": [
@@ -101,8 +123,9 @@ def make_sample(proto, duration, orig_pkts, resp_pkts,
             {"role": "user",      "content": prompt},
             {"role": "assistant", "content": f"VERDICT: {verdict}\nREASON: {reason}"},
         ],
-        "source":  source,
-        "verdict": verdict,
+        "source":     source,
+        "verdict":    verdict,
+        "conn_state": conn_state,  # original (pre-mask) — used for SF oversampling
     }
 
 # ── Loaders ────────────────────────────────────────────────────────────────────
@@ -138,6 +161,8 @@ def load_iot23(archive_path):
                 if len(parts) < 21:
                     continue
                 try:
+                    orig_port  = parts[3]
+                    resp_port  = parts[5]
                     proto      = parts[6]
                     service    = parts[7]
                     duration   = parts[8]
@@ -171,7 +196,7 @@ def load_iot23(archive_path):
                     bucket.append(make_sample(
                         proto, duration, orig_pkts, resp_pkts,
                         orig_bytes, resp_bytes, conn_state, verdict, "iot23",
-                        service=service,
+                        service=service, resp_port=resp_port, orig_port=orig_port,
                     ))
                 lines_read += 1
                 if verdict == "ATTACK":  attacks += 1
@@ -252,6 +277,8 @@ def load_ctu13(archive_path):
                 tot_pkts   = row.get("TotPkts",  "0").strip()
                 src_bytes  = row.get("SrcBytes",  "0").strip()
                 tot_bytes  = row.get("TotBytes",  "0").strip()
+                orig_port  = row.get("Sport", "-").strip()
+                resp_port  = row.get("Dport", "-").strip()
                 try:
                     dst_bytes = str(float(tot_bytes) - float(src_bytes))
                 except ValueError:
@@ -268,6 +295,7 @@ def load_ctu13(archive_path):
                         proto, duration, half, half,
                         src_bytes, dst_bytes, conn_state, verdict, "ctu13",
                         service="-",  # binetflow has no app-layer service field
+                        resp_port=resp_port, orig_port=orig_port,
                     ))
                 if verdict == "ATTACK":  attacks += 1
                 else:                    benign  += 1
@@ -323,6 +351,8 @@ def load_unsw(dataset_dir):
         dbytes_col = next((c for c in ["dbytes", "resp_bytes"]       if c in df.columns), None)
         state_col  = next((c for c in ["state", "conn_state"]        if c in df.columns), None)
         svc_col    = next((c for c in ["service"]                    if c in df.columns), None)
+        sport_col  = next((c for c in ["sport", "source_port", "orig_p"]       if c in df.columns), None)
+        dport_col  = next((c for c in ["dport", "destination_port", "resp_p"]  if c in df.columns), None)
         label_col  = next((c for c in ["binary_label", "label"]      if c in df.columns), None)
 
         if label_col is None:
@@ -353,7 +383,9 @@ def load_unsw(dataset_dir):
                 conn_state = str(row[state_col])  if state_col  else "-",
                 verdict    = verdict,
                 source     = "unsw",
-                service    = str(row[svc_col]).strip() if svc_col else "-",
+                service    = str(row[svc_col]).strip()  if svc_col    else "-",
+                orig_port  = str(row[sport_col])        if sport_col  else "-",
+                resp_port  = str(row[dport_col])        if dport_col  else "-",
             ))
             if verdict == "ATTACK": attacks += 1
             else:                   benign  += 1
@@ -503,6 +535,8 @@ def load_uwf(dataset_dir):
             orig_bytes = str(row.get("orig_bytes", "")).strip()
             resp_bytes = str(row.get("resp_bytes", "")).strip()
             conn_state = str(row.get("conn_state", "-")).strip()
+            orig_port  = str(row.get("id.orig_p", row.get("orig_p", "-"))).strip()
+            resp_port  = str(row.get("id.resp_p", row.get("resp_p", "-"))).strip()
 
             # pandas converts empty CSV cells to nan
             if service    in ("nan", "None"): service    = "-"
@@ -511,11 +545,13 @@ def load_uwf(dataset_dir):
             if resp_pkts  in ("nan", "None"): resp_pkts  = ""
             if orig_bytes in ("nan", "None"): orig_bytes = ""
             if resp_bytes in ("nan", "None"): resp_bytes = ""
+            if orig_port  in ("nan", "None"): orig_port  = "-"
+            if resp_port  in ("nan", "None"): resp_port  = "-"
 
             bucket.append(make_sample(
                 proto, duration, orig_pkts, resp_pkts,
                 orig_bytes, resp_bytes, conn_state, verdict, "uwf",
-                service=service,
+                service=service, resp_port=resp_port, orig_port=orig_port,
             ))
             if verdict == "ATTACK": attacks += 1
             else:                   benign  += 1
@@ -555,6 +591,8 @@ def load_ctu_normal(dataset_dir):
                 if len(samples) >= CTU_NORMAL_CAP:
                     break
 
+                orig_port  = parts[3]
+                resp_port  = parts[5]
                 proto      = parts[6]
                 service    = parts[7]
                 duration   = parts[8]
@@ -569,7 +607,7 @@ def load_ctu_normal(dataset_dir):
                     proto, duration, orig_pkts, resp_pkts,
                     orig_bytes, resp_bytes, conn_state,
                     "FALSE POSITIVE", "ctu_normal",
-                    service=service,
+                    service=service, resp_port=resp_port, orig_port=orig_port,
                 ))
                 count += 1
 
@@ -620,10 +658,18 @@ if __name__ == "__main__":
     print(f"Eval pool     : {sum(1 for s in eval_pool if s['verdict']=='ATTACK')} attacks, "
           f"{sum(1 for s in eval_pool if s['verdict']=='FALSE POSITIVE')} benign")
 
-    random.shuffle(attacks)
     random.shuffle(benign)
-    attacks = attacks[:FINAL_ATTACK]
-    benign  = benign[:FINAL_BENIGN]
+    benign = benign[:FINAL_BENIGN]
+
+    # SF-state attack oversampling (Change 5): give completed/established attacks
+    # 2× weight to address near-zero recall on SF-state attacks (Credential Access,
+    # novel exfil). S0/SYN attacks keep 1× weight. Uses random.choices (with
+    # replacement) — duplicates are rare since pool >> FINAL_ATTACK.
+    sf_attacks    = [s for s in attacks if s.get("conn_state", "-") in ("SF", "S1", "OTH")]
+    other_attacks = [s for s in attacks if s.get("conn_state", "-") not in ("SF", "S1", "OTH")]
+    weights       = [2.0] * len(sf_attacks) + [1.0] * len(other_attacks)
+    print(f"  SF/S1/OTH attacks (2× weight): {len(sf_attacks):,} | other: {len(other_attacks):,}")
+    attacks       = random.choices(sf_attacks + other_attacks, weights=weights, k=FINAL_ATTACK)
 
     final_train = attacks + benign
     random.shuffle(final_train)

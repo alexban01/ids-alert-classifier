@@ -12,8 +12,8 @@ torch.backends.cudnn.benchmark        = True
 MODEL        = "Qwen/Qwen2.5-1.5B-Instruct"
 DATASET      = "zeek_dataset.jsonl"       # train split from preprocess_zeek.py
 EVAL_DATASET = "zeek_dataset_eval.jsonl"  # held-out eval split (source-stratified)
-OUTPUT_DIR   = "./v7.1-ids-model"           # training checkpoints
-ADAPTER_DIR  = "./v7.1-ids-lora-adapter"    # final adapter
+OUTPUT_DIR   = "./v8-ids-model"             # training checkpoints
+ADAPTER_DIR  = "./v8-ids-lora-adapter"      # final adapter
 
 # ── 4-bit quantization ──────────────────────────────────────────────────────
 # QLoRA: 4-bit base model stays the same — adapter output is hardware-agnostic.
@@ -64,12 +64,12 @@ trainer = SFTTrainer(
     args=SFTConfig(
         output_dir=OUTPUT_DIR,
         # ── Batch size ────────────────────────────────────────────────────
-        per_device_train_batch_size=18,
-        per_device_eval_batch_size=18,
-        gradient_accumulation_steps=1,  # effective batch = 24
+        per_device_train_batch_size=4,
+        per_device_eval_batch_size=4,
+        gradient_accumulation_steps=6, 
         optim="paged_adamw_8bit",
         # ── Precision ────────────────────────────────────────────────────
-        gradient_checkpointing=False,
+        gradient_checkpointing=True,
         bf16=True,
         # ── Schedule ─────────────────────────────────────────────────────
         num_train_epochs=3,
@@ -79,8 +79,8 @@ trainer = SFTTrainer(
         warmup_ratio=0.03,
         weight_decay=0.01,
         # ── Data loading ─────────────────────────────────────────────────
-        dataloader_pin_memory=True,  # False local - True on RunPod (no multiprocessing issues there)
-        dataloader_num_workers=4,     # 0 local - 4 on RunPod (CUDA+fork works fine on single-GPU pod)
+        dataloader_pin_memory=False,  # False local - True on RunPod (no multiprocessing issues there)
+        dataloader_num_workers=0,     # 0 local - 4 on RunPod (CUDA+fork works fine on single-GPU pod)
         # ── Eval & saving ────────────────────────────────────────────────
         logging_steps=250,
         eval_strategy="epoch",

@@ -1,0 +1,11 @@
+#separator \x09
+#set_separator	,
+#empty_field	(empty)
+#unset_field	-
+#path	analyzer
+#open	2026-03-16-18-14-16
+#fields	ts	analyzer_kind	analyzer_name	uid	fuid	id.orig_h	id.orig_p	id.resp_h	id.resp_p	proto	failure_reason	failure_data
+#types	time	string	string	string	string	addr	port	addr	port	enum	string	string
+1709999918.350000	file	PE	C7Ky203Mgh37kuiUwd	FfFrfg2k0AYoxgxJEe	192.168.143.177	49210	185.220.101.34	80	-	Binpac exception: binpac exception: &enforce violation : DOS_Header:AddressOfNewExeHeader	-
+1709999980.130000	protocol	LDAP_TCP	CNr5DbO2GdwNbLOqb	-	192.168.143.10	55300	192.168.143.5	389	tcp	&requires failed: ($$.tag.class == ASN1::ASN1Class::Universal && $$.tag.type_ == ASN1::ASN1Type::Sequence) (/src/zeek/src/analyzer/protocol/ldap/ldap.spicy:303:33-303:130)	0\x80\x02\x01\x02c{\x04\x11DC=VICTIM,DC=CORP\x0a\x01\x02\x0a\x01\x00\x02\x02\x03\xe8\x02\x01\x00\x01
+#close	2026-03-16-18-14-18

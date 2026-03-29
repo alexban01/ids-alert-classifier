@@ -1,0 +1,229 @@
+
+================================================================================
+V8 — PLANNED CHANGES
+================================================================================
+
+Status: PLANNING
+
+v8 targets the conn_state over-reliance finding from v7.1. The model currently
+functions as a signature learner on structural indicators (conn_state, proto)
+rather than an anomaly detector on numeric features (byte ratios, packet counts,
+duration). v8 attempts to break this by: (1) forcing the model to learn from
+numeric features when conn_state is ambiguous, (2) adding destination port as a
+new high-signal feature, (3) expanding the training dataset to better cover
+SF-state attacks, and (4) upgrading the base model.
+
+--------------------------------------------------------------------------------
+Change 1 — Add destination port (resp_p) to prompt
+--------------------------------------------------------------------------------
+
+The current 11-field prompt has no port information. Service captures it
+partially but Zeek only labels well-known services (http, ssl, dns, ssh) —
+custom ports, high ephemeral ports, and C2 channels are left as "-".
+
+Destination port is extremely discriminative for attack classification:
+  Port 22        → SSH (brute force, scanning)
+  Port 3389      → RDP (brute force)
+  Port 445       → SMB (EternalBlue, ransomware lateral movement)
+  Port 80/443    → HTTP/HTTPS (web attacks, exfiltration over TLS)
+  High ports (>1024, random) → reverse shells, C2 callbacks, port knocking
+  Port 53        → DNS (tunneling when queries are oversized)
+  Port 123       → NTP (amplification attacks)
+
+Prompt addition in prompt_utils.py build_prompt():
+  Add resp_port parameter (default "-")
+  Insert "  Dest Port:          {resp_port}" line after Service
+
+Dataset loader changes in preprocess_zeek.py:
+  IoT-23:     parts[4] = id.resp_p (standard Zeek conn.log field index)
+  CTU-13:     row.get("Dport") from binetflow header
+  UNSW-NB15:  row["dport"] column (already present in UNSW parquet)
+  UWF:        row.get("id.resp_p") or row.get("resp_p")
+  CTU-Normal: parts[4] (same standard Zeek format as IoT-23)
+
+This is the single highest-information-gain addition possible without changing
+the fundamental flow-level classification approach.
+
+--------------------------------------------------------------------------------
+Change 2 — Conn_state feature masking (20% of training samples)
+--------------------------------------------------------------------------------
+
+The model over-relies on conn_state because it is always present and strongly
+discriminative. Randomly masking it during training forces the model to learn
+from numeric features (bytes, packets, duration, port) when conn_state is absent
+or ambiguous.
+
+Implementation in preprocess_zeek.py make_sample():
+  CONN_STATE_MASK_PROB = 0.20
+  if random.random() < CONN_STATE_MASK_PROB:
+      conn_state = "-"
+
+Rationale for 20%:
+  - High enough to force learning of secondary features
+  - Low enough that the model still sees real conn_state the majority of the time
+  - Start at 20%, reduce to 10% if attack recall on known types drops significantly
+
+This directly targets the diagnostic finding: every missed novel attack case
+received the reason "Connection established and closed cleanly; no anomalous
+volume or timing" despite anomalous byte counts. The model must be forced to
+look at those byte counts.
+
+--------------------------------------------------------------------------------
+Change 3 — Dataset expansion: add SF-state attack coverage
+--------------------------------------------------------------------------------
+
+Current gap: the model has few examples of SF-state attacks with distinguishable
+numeric features. IoT-23 attacks are mostly S0 UDP (port scans, SYN floods).
+CTU-13 and UNSW-NB15 do contain SF attacks but may be diluted by the 120k cap.
+
+Option A — Increase UNSW-NB15 attack cap (easiest, no new data needed)
+  UNSW-NB15 is Bro/Zeek-native and covers attack categories not in IoT-23:
+  Fuzzers, Analysis, Backdoors, DoS, Exploits, Generic, Reconnaissance,
+  Shellcode, Worms. Many are SF-state with distinctive byte ratios.
+  Current cap: MAX_PER_SOURCE_CLASS = 80k (shared). UNSW-NB15 may not reach
+  this. Audit actual counts: if UNSW-NB15 attacks < 80k, it is already
+  uncapped and the issue is dataset size, not the cap.
+
+Option B — Add NF-UNSW-NB15-v2 or CIC-IDS-2018
+  Both provide attack diversity but require CICFlowMeter or NetFlow mapping.
+  CIC-IDS-2018 has the same conn_state problem as CICIDS2017 — skip.
+  NF-UNSW-NB15-v2 is NetFlow-based (not Zeek) — column mapping needed.
+
+Option C — Additional CTU malware captures (recommended)
+  Stratosphere Lab (CTU) publishes individual malware PCAP captures beyond
+  CTU-13. These can be processed through Zeek to produce native conn.log
+  with authentic Zeek conn_states and protocol names. This is the cleanest
+  source of new labeled data since it stays entirely within the Zeek ecosystem.
+  See: https://www.stratosphereips.org/datasets-malware
+  Download PCAPs, run through Zeek, label all flows as ATTACK.
+
+Option D — Increase benign:attack ratio to 3:1 (360k benign, 120k attack)
+  More benign data reduces false positives further without changing attack
+  recall mechanics. CTU-Normal cap can be raised further; additional benign
+  sources from Stratosphere (CTU-Normal-33 onward) can be added if available.
+  Trade-off: may reduce attack recall on edge cases — validate at TRAINING_FACTOR=0.1.
+
+Recommended for v8: Option A + Option C, stay at 2:1 ratio for now.
+  Audit UNSW-NB15 attack counts first. Add CTU malware PCAPs if UNSW is already
+  uncapped. Only increase to 3:1 if v8 still has FP complaints after option A+C.
+
+--------------------------------------------------------------------------------
+V8 summary of expected prompt format
+--------------------------------------------------------------------------------
+
+  Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.
+
+    Proto:              tcp
+    Service:            ssl
+    Dest Port:          443          ← NEW
+    Duration (s):       1.234567
+    Orig Packets:       10
+    Resp Packets:       8
+    Orig Bytes:         1024
+    Resp Bytes:         512
+    Conn State:         SF           ← may be masked to "-" during training
+    Bytes/sec:          1250.0
+    Orig Bytes/Pkt:     102.4
+    Resp Bytes/Pkt:     64.0
+
+--------------------------------------------------------------------------------
+V8 validation plan
+--------------------------------------------------------------------------------
+
+1. Implement all changes on a branch.
+2. Run preprocess_zeek.py at TRAINING_FACTOR=0.1 (~36k samples). Verify dest
+   port is present in generated JSONL samples.
+3. Train at TRAINING_FACTOR=0.1 on Qwen3-1.7B (~20-30 min, ~$0.20 on RunPod).
+4. Benchmark against benchmark_realworld.py (same cached 2100-sample set).
+5. Success threshold: MCC > +0.700 (vs v7.1's +0.660) AND novel attack test
+   cases (test_novel_cases.py) > 2/8 attack recall (vs 1/8 in v7.1).
+6. If threshold met at 0.1: full run at TRAINING_FACTOR=1.0 (~$2 on RunPod).
+7. If threshold not met: diagnose which change is responsible, adjust, retry.
+
+--------------------------------------------------------------------------------
+Change 4 — Expand REASON pools to reference new features
+--------------------------------------------------------------------------------
+
+The current ATTACK_REASONS and BENIGN_REASONS in preprocess_zeek.py are generic
+("anomalous packet ratio", "normal TCP session"). They do not teach the model to
+reason about destination port or byte ratios explicitly. Since SFTTrainer trains
+the model to reproduce the full response including REASON, the reason pool is a
+direct supervisory signal for which features the model learns to cite.
+
+Without reason-pool expansion, adding dest port to the prompt has limited payoff:
+the model will see port numbers but has no training examples showing how to
+interpret them. Adding port-aware and byte-aware reasons completes the signal.
+
+New ATTACK reasons to add (examples):
+  - "Destination port 22 with multiple short connections suggests SSH brute force."
+  - "Destination port 445 is associated with SMB exploitation (EternalBlue, ransomware lateral movement)."
+  - "Destination port 3389 (RDP) with repeated short SYN-only attempts indicates brute force scanning."
+  - "Large orig_bytes relative to resp_bytes on a high-numbered port suggests data exfiltration channel."
+  - "Oversized DNS-like traffic on port 53 with high byte-to-packet ratio suggests DNS tunneling."
+  - "High packet count with minimal response bytes is consistent with a SYN flood or amplification attack."
+  - "Unusually large orig_bytes on an established connection to a non-standard port indicates potential C2 exfiltration."
+
+New BENIGN reasons to add (examples):
+  - "Completed HTTPS connection on port 443 with symmetric byte exchange — standard web traffic."
+  - "Short TCP session to port 80 with low byte count consistent with a web API health check."
+  - "DNS query on port 53 with small payload and immediate response is normal resolver traffic."
+  - "SSH session on port 22 with moderate byte exchange and clean SF completion is consistent with legitimate admin access."
+  - "High orig_bytes on port 443 with clean SF completion is consistent with a file download over HTTPS."
+
+Implementation: append to ATTACK_REASONS and BENIGN_REASONS lists in preprocess_zeek.py.
+No structural change required — make_sample() already picks randomly from these pools.
+
+--------------------------------------------------------------------------------
+Change 5 — Oversample SF-state attack examples
+--------------------------------------------------------------------------------
+
+Even after adding CTU malware PCAPs (Change 4C), SF-state attacks may still be
+diluted in the final shuffle because the 2:1 benign:attack ratio means each attack
+sample competes in a pool where S0/SYN attacks are the majority.
+
+Implementation: in preprocess_zeek.py, after collecting all attack samples and
+before the final sampling step, give SF-state attack samples weight 2.0 in the
+sampling pool using random.choices(population, weights=weights, k=k).
+
+  sf_attacks  = [s for s in attack_samples if s["conn_state"] in ("SF", "S1", "OTH")]
+  other_attacks = [s for s in attack_samples if s not in sf_attacks]
+  weights = [2.0]*len(sf_attacks) + [1.0]*len(other_attacks)
+  sampled = random.choices(sf_attacks + other_attacks, weights=weights, k=FINAL_ATTACK)
+
+Rationale: directly targets the 0% Credential Access recall and the novel test
+failure (all missed attacks had SF, OTH, or RSTO states). No new data needed.
+Start at 2.0×; reduce to 1.5× if known S0-based attack recall drops significantly.
+
+Validation: check per-label breakdown in benchmark_realworld.py — Credential Access
+recall should rise from 0% toward ≥30%. S0 attack recall (PortScan, UDP botnet)
+should stay ≥95%.
+
+--------------------------------------------------------------------------------
+Change 6 — Add source port (orig_p) to prompt
+--------------------------------------------------------------------------------
+
+Complements destination port (Change 2) with low implementation cost.
+
+Source port carries signal:
+  orig_p < 1024   → well-known service on originator (unusual for clients; potential
+                    spoofing or server-to-server traffic)
+  orig_p 1024–49151 → registered/application ports (some malware uses fixed ports)
+  orig_p > 49151  → ephemeral client port (normal); very high values are common
+                    for both legitimate clients and port-randomising C2 frameworks
+
+By itself source port is weak, but in combination with dest port it helps:
+  orig_p=ephemeral + dest_p=22 → client initiating SSH (brute force candidate)
+  orig_p=ephemeral + dest_p=53 → client DNS query (normal) vs large payload (tunnel)
+  orig_p=53 + dest_p=high → DNS amplification (server spoofed as source)
+
+Implementation:
+  prompt_utils.py: add orig_port parameter (default "-"), insert line after Dest Port
+  preprocess_zeek.py: extract from same field index as resp_p, offset by -1
+    IoT-23:     parts[3] = id.orig_p
+    CTU-13:     row.get("Sport")
+    UNSW-NB15:  row["sport"]
+    UWF:        row.get("id.orig_p") or row.get("orig_p")
+    CTU-Normal: parts[3]
+
+Priority: implement after dest port is confirmed working. Low risk — if source port
+adds noise the model will learn to ignore low-signal values.
