@@ -34,6 +34,96 @@ reasoning. It is intended to support the final master's thesis write-up.
 Never delete — append new entries as the project evolves.
 
 ================================================================================
+RELATED WORK
+================================================================================
+
+The following papers are directly relevant to this thesis and should be cited
+in the literature review. Each is annotated with which section of the thesis
+it supports.
+
+--------------------------------------------------------------------------------
+[1] "Towards Explainable Network Intrusion Detection using Large Language Models"
+    Houssel, Singh, Layeghy, Portmann — 2024
+    https://arxiv.org/abs/2408.04342
+
+    The closest prior work in terms of research question. Investigates whether
+    GPT-4 and Llama3 can serve as NID systems, comparing them against traditional
+    and transformer-based classifiers. Key finding: LLMs "struggle with precise
+    attack detection" but show strong value as explainability tools, particularly
+    when paired with Retrieval Augmented Generation and function-calling. The
+    authors note that current detection systems depend on artificially biased
+    benchmark datasets, making real-world performance unreliable.
+
+    Relevant to: MODEL CHOICE (the explainability argument; LLMs as complement
+    not replacement for classical detection); FINDING: CONN_STATE OVER-RELIANCE
+    (aligns with their observation that LLMs don't generalise to precise numeric
+    thresholds without additional grounding). The RAG finding points toward the
+    multi-flow context extension discussed in this thesis.
+
+--------------------------------------------------------------------------------
+[2] "Lightweight LLMs for Network Attack Detection in IoT Networks"
+    Sudasinghe, Liyanage, Gardiyawasam Pussewalage — 2026
+    https://arxiv.org/abs/2601.15269
+
+    The most directly comparable technical work. Fine-tunes a decoder-only
+    LLaMA-1B model using QLoRA on IoT network traffic, converting flows to
+    natural language prompts — the same approach used in this thesis. Evaluated
+    on CICIoT2023 dataset; the QLoRA-tuned model matches traditional ML baselines
+    on known attacks and achieves 42.63% accuracy on unseen attack types without
+    retraining. Uses retrieval-augmented generation as an optional second pass.
+
+    Relevant to: MODEL CHOICE (validates the QLoRA + small LLM approach);
+    VERSION HISTORY v7.1 (comparable methodology; their 42.63% on unseen attacks
+    aligns with our conn_state over-reliance finding — novel attacks are harder);
+    BENCHMARK METHODOLOGY (CICIoT2023 vs our IoT-23/CTU-13 split is an
+    interesting contrast: CICIoT2023 is IoT-focused, our dataset is more diverse).
+
+--------------------------------------------------------------------------------
+[3] "LLM-Based Cyberattack Detection Using Network Flow Statistics"
+    Gutiérrez-Galeano, Domínguez-Jiménez, Schäfer, Medina-Bulo — 2025
+    https://www.mdpi.com/2076-3417/15/12/6529
+
+    Fine-tunes a T5 encoder-decoder LLM on network flow statistics for
+    anomaly-based attack detection. The key methodological difference from this
+    thesis: features are sourced from CICFlowMeter (CICIDS2017, CSE-CIC-IDS-2018,
+    BCCC-CIC-IDS-2017) rather than Zeek conn.log, and T5 is an encoder-decoder
+    model rather than a decoder-only instruction-tuned model. Reports >99.84%
+    accuracy across all three CICIDS datasets. The approach of converting numeric
+    network flow features into an "abstract artificial language" for LLM input
+    is directly analogous to the Zeek-native prompt used in this thesis.
+
+    Relevant to: MODEL CHOICE (encoder-decoder vs decoder-only comparison; their
+    CICIDS reliance is the exact pitfall this thesis avoids — see V6 ROOT CAUSE
+    ANALYSIS on CICIDS2017 being dropped); BENCHMARK METHODOLOGY (their 99.84%
+    on CICIDS2017 vs our 86.5% is partly explained by CICIDS label quality and
+    the absence of out-of-distribution evaluation in their paper).
+
+--------------------------------------------------------------------------------
+[4] "Comparison of Feature Extraction Tools for Network Traffic Data"
+    Lypa, Horyn, Zagorodna, Tymoshchuk, Lechachenko — 2025
+    https://arxiv.org/abs/2501.13004
+
+    Comparative analysis of feature extraction tools for IDS (CICFlowMeter,
+    Zeek/Bro, Argus, and others), evaluating them on coverage, accuracy,
+    real-time capability, and deployment practicality. Directly addresses the
+    tool selection decision at the heart of dataset construction in this thesis.
+
+    Relevant to: MODEL CHOICE / dataset rationale (justifies choosing Zeek over
+    CICFlowMeter for real-world deployment); V6 ROOT CAUSE ANALYSIS (the
+    CICIDS2017 problem — CICFlowMeter's lack of conn_state equivalent — is
+    framed in literature here); the "why Zeek" argument can cite this paper
+    directly rather than relying solely on first-hand observation.
+
+--------------------------------------------------------------------------------
+[5] Springer chapter — DOI: 10.1007/978-3-032-06155-3_5
+    https://link.springer.com/chapter/10.1007/978-3-032-06155-3_5
+
+    NOTE: This chapter is behind a paywall and could not be accessed for
+    annotation. The book (ISBN 978-3-032-06155-3) is very recent and not yet
+    indexed in public search. Access via institutional subscription and annotate
+    this entry once the content is available.
+
+================================================================================
 MODEL CHOICE
 ================================================================================
 
@@ -578,6 +668,17 @@ samples (120k attacks, 240k benign). 2:1 benign:attack ratio.
 
 Training: RunPod RTX 3090 (24 GB VRAM) recommended, or local RTX 3070 with
 TRAINING_FACTOR=0.1 for a fast validation run before committing to full cost.
+
+TRAINING_FACTOR strategy:
+  TRAINING_FACTOR (default 1.0) scales the dataset proportionally — 0.1 gives
+  ~36k samples instead of 360k and trains in ~20-30 min on RunPod vs 4-5 hours.
+  The policy adopted for this project: always validate a new idea (model swap,
+  dataset change, hyperparameter change) at TRAINING_FACTOR=0.1 first. Only
+  increase to 1.0 if the reduced-data run shows a substantial benchmark
+  improvement (>2pp MCC or accuracy) over the current best model. This keeps
+  iteration cost at ~$0.20-0.30 per experiment vs ~$2 for a full run.
+  A small improvement at 0.1 may or may not hold at full scale, but no
+  improvement at 0.1 is a reliable signal to abandon the idea early.
 
 Change 1 — IoT-23 benign cap: 80k → 20k
   Rationale: At 80k, IoT-23 benign (89% S0 UDP) dominated the benign class
