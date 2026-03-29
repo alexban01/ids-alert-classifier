@@ -41,7 +41,13 @@
       "Bash(.venv/bin/python -c \"import ast; ast.parse\\(open\\(''preprocess_zeek.py''\\).read\\(\\)\\); ast.parse\\(open\\(''train.py''\\).read\\(\\)\\); print\\(''OK''\\)\")",
       "Bash(.venv/bin/python -:*)",
       "Bash(scp -P 14460 -i ~/.ssh/id_ed25519 train.py setup_runpod.sh prompt_utils.py zeek_dataset.jsonl zeek_dataset_eval.jsonl root@74.2.96.39:/workspace/)",
-      "Bash(.venv/bin/python test_novel_cases.py)"
+      "Bash(.venv/bin/python test_novel_cases.py)",
+      "WebFetch(domain:arxiv.org)",
+      "WebFetch(domain:link.springer.com)",
+      "Bash(curl -sI https://link.springer.com/chapter/10.1007/978-3-032-06155-3_5)",
+      "WebFetch(domain:doi.org)",
+      "WebFetch(domain:rodin.uca.es)",
+      "WebFetch(domain:www.unb.ca)"
     ]
   }
 }

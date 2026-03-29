@@ -32,7 +32,7 @@ from prompt_utils import SYSTEM_PROMPT, build_prompt
 # ── Config ────────────────────────────────────────────────────────────────────
 TRAIN_FILE    = "zeek_dataset.jsonl"
 EVAL_FILE     = "zeek_dataset_eval.jsonl"
-RANDOM_SEED   = 43
+RANDOM_SEED   = 42
 EVAL_FRAC     = 0.10            # fraction of each source held out for eval
 
 # This is for fast training on my 3070
