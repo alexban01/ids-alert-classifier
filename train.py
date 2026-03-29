@@ -36,8 +36,8 @@ torch.backends.cudnn.benchmark        = True
 MODEL        = "Qwen/Qwen2.5-1.5B-Instruct"
 DATASET      = "zeek_dataset.jsonl"       # train split from preprocess_zeek.py
 EVAL_DATASET = "zeek_dataset_eval.jsonl"  # held-out eval split (source-stratified)
-OUTPUT_DIR   = "./v8-ids-model"             # training checkpoints
-ADAPTER_DIR  = "./v8-ids-lora-adapter"      # final adapter
+OUTPUT_DIR   = "./v8.1-ids-model"           # training checkpoints
+ADAPTER_DIR  = "./v8.1-ids-lora-adapter"    # final adapter
 
 # ── 4-bit quantization ──────────────────────────────────────────────────────
 # QLoRA: 4-bit base model stays the same — adapter output is hardware-agnostic.
@@ -55,11 +55,11 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL)
 tokenizer.pad_token = tokenizer.eos_token
 
 # ── LoRA ─────────────────────────────────────────────────────────────────────
-# r=16 (up from v4's r=8) — doubles adapter capacity for harder attack types.
-# Negligible VRAM impact at inference (~20 MB more).
+# r=32 (up from v8's r=16) — more capacity for port-aware patterns (Credential Access,
+# Defense Evasion). Negligible VRAM impact at inference (~40 MB more).
 lora_config = LoraConfig(
-    r=16,
-    lora_alpha=32,
+    r=32,
+    lora_alpha=64,
     target_modules=[
         "q_proj", "k_proj", "v_proj", "o_proj",    # all attention
         "gate_proj", "up_proj", "down_proj",        # MLP

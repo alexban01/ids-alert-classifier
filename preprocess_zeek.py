@@ -488,11 +488,13 @@ def load_uwf(dataset_dir):
         print(f"[SKIP] No CSV files found in {dataset_dir}")
         return []
 
-    # v7: UWF attacks are 100% "Credential Access" (short SF TCP, ~0.02s) —
-    # indistinguishable from normal web connections at the flow level (2% recall).
-    # Training on them teaches "short SF TCP = ATTACK", causing false positives on
-    # legitimate traffic. Use UWF for benign diversity only.
-    print(f"[UWF-ZeekData24] Loading {len(csv_files)} CSV(s) from {dataset_dir} (benign only)")
+    # v8.1: Re-enable selected UWF attack tactics now that port data is in the prompt.
+    # Credential Access (port 4848/ssl) and Defense Evasion (port 445/smb) are
+    # distinguishable by dest port — the v7 "indistinguishable" conclusion was wrong
+    # because port extraction was broken. Skip Initial Access (port 80 SF = ambiguous
+    # web traffic) and Exfiltration (23 rows, too small).
+    UWF_ALLOWED_TACTICS = {"Credential Access", "Defense Evasion"}
+    print(f"[UWF-ZeekData24] Loading {len(csv_files)} CSV(s) from {dataset_dir}")
     samples = {"ATTACK": [], "FALSE POSITIVE": []}
 
     for fpath in csv_files:
@@ -517,9 +519,11 @@ def load_uwf(dataset_dir):
             else:
                 verdict = "ATTACK" if str(row[label_col]).strip() != "none" else "FALSE POSITIVE"
 
-            # Skip attack samples — unlearnable from flow features, harmful to train on
+            # Only include attacks from tactics with a real port-based signal.
             if verdict == "ATTACK":
-                continue
+                tactic = str(row.get("label_tactic", "")).strip()
+                if tactic not in UWF_ALLOWED_TACTICS:
+                    continue
 
             bucket = samples[verdict]
             if len(bucket) >= MAX_PER_SOURCE_CLASS:
@@ -535,8 +539,8 @@ def load_uwf(dataset_dir):
             orig_bytes = str(row.get("orig_bytes", "")).strip()
             resp_bytes = str(row.get("resp_bytes", "")).strip()
             conn_state = str(row.get("conn_state", "-")).strip()
-            orig_port  = str(row.get("id.orig_p", row.get("orig_p", "-"))).strip()
-            resp_port  = str(row.get("id.resp_p", row.get("resp_p", "-"))).strip()
+            orig_port  = str(row.get("id.orig_p", row.get("orig_p", row.get("src_port_zeek", "-")))).strip()
+            resp_port  = str(row.get("id.resp_p", row.get("resp_p", row.get("dest_port_zeek", "-")))).strip()
 
             # pandas converts empty CSV cells to nan
             if service    in ("nan", "None"): service    = "-"
