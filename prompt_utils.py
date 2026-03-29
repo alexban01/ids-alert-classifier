@@ -6,7 +6,7 @@ SYSTEM_PROMPT = (
     "followed by REASON: <brief explanation>."
 )
 
-_NA_VALUES = (None, "", "-", "?")
+_NA_VALUES = (None, "", "-", "?", "None", "nan", "NaN")
 
 
 def _safe(v, fmt=".1f"):
@@ -28,8 +28,22 @@ def _is_na(v):
         return True
 
 
+def _fmt_port(v):
+    """Format a port number as integer string, or 'N/A' if unset."""
+    if v in _NA_VALUES:
+        return "N/A"
+    try:
+        return str(int(float(v)))
+    except (ValueError, TypeError):
+        try:
+            return str(int(str(v), 0))  # handles hex strings like "0x50"
+        except (ValueError, TypeError):
+            return "N/A"
+
+
 def build_prompt(proto, duration, orig_pkts, resp_pkts,
-                 orig_bytes, resp_bytes, conn_state, service="-"):
+                 orig_bytes, resp_bytes, conn_state, service="-",
+                 resp_port="-", orig_port="-"):
     """Convert Zeek-native features to model prompt text.
 
     When base fields are unset (-, empty, etc.), derived fields
@@ -85,6 +99,8 @@ def build_prompt(proto, duration, orig_pkts, resp_pkts,
         "Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.\n",
         f"  Proto:              {proto}",
         f"  Service:            {svc}",
+        f"  Dest Port:          {_fmt_port(resp_port)}",
+        f"  Src Port:           {_fmt_port(orig_port)}",
         f"  Duration (s):       {_safe(duration, '.6f')}",
         f"  Orig Packets:       {_safe(orig_pkts, '.0f')}",
         f"  Resp Packets:       {_safe(resp_pkts, '.0f')}",

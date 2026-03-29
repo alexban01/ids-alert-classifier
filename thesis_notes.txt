@@ -909,15 +909,3 @@ Implications for thesis:
    individual flows in the context of recent traffic from the same host. This would
    give the model the contextual signal needed to catch repeated RSTO, large upload
    outliers, and slow persistent connections.
-
-================================================================================
-TO ADD IN FUTURE ENTRIES
-================================================================================
-
-- v7.1 Ollama deployment benchmark results
-  (run: .venv/bin/python benchmark_ollama.py)
-- Vanilla Qwen baseline (no fine-tuning) on real-world benchmark
-- Whether multi-flow context features could address the conn_state over-reliance
-  finding (thesis extension discussion)
-
-================================================================================

@@ -1,12 +1,12 @@
 {
-  "timestamp": "2026-03-28T21:28:00.595874",
+  "timestamp": "2026-03-29T21:25:35.861361",
   "model": "ids-classifier",
   "cache": "benchmark_realworld_cache.json",
   "samples": 2100,
-  "elapsed_s": 778.2,
-  "accuracy": 0.6538,
-  "atk_recall": 0.6678,
-  "ben_recall": 0.6433,
+  "elapsed_s": 809.5,
+  "accuracy": 0.8295,
+  "atk_recall": 0.6411,
+  "ben_recall": 0.9708,
   "fmt_fail": 0.0,
-  "mcc": 0.308
+  "mcc": 0.6664
 }

@@ -44,7 +44,8 @@ RANDOM_SEED    = 42
 MODELS = [
     # ("v4 Fine-tuned",   "./v4-ids-lora-adapter"),
     # ("v6 Fine-tuned",   "./v6-ids-lora-adapter"),
-    ("v7.1 Fine-tuned", "./v7.1-ids-lora-adapter"),
+    # ("v7.1 Fine-tuned", "./v7.1-ids-lora-adapter"),
+    ("v8 Fine-tuned",   "./v8-ids-lora-adapter"),
 ]
 
 DATASETS = {
@@ -57,10 +58,12 @@ DATASETS = {
 # ── Sample helpers ──────────────────────────────────────────────────────────────
 def make_sample(proto, duration, orig_pkts, resp_pkts,
                 orig_bytes, resp_bytes, conn_state,
-                ground_truth, source, raw_label, service="-"):
+                ground_truth, source, raw_label, service="-",
+                resp_port="-", orig_port="-"):
     return {
         "prompt":       build_prompt(proto, duration, orig_pkts, resp_pkts,
-                                     orig_bytes, resp_bytes, conn_state, service),
+                                     orig_bytes, resp_bytes, conn_state, service,
+                                     resp_port=resp_port, orig_port=orig_port),
         "ground_truth": ground_truth,
         "source":       source,
         "raw_label":    raw_label,
@@ -127,6 +130,8 @@ def load_iot23(archive_path):
                         source     = "iot23",
                         raw_label  = raw_label,
                         service    = parts[7],
+                        orig_port  = parts[3],
+                        resp_port  = parts[5],
                     ))
                 except IndexError:
                     continue
@@ -210,6 +215,8 @@ def load_ctu13(archive_path):
                     source     = "ctu13",
                     raw_label  = label.strip(),
                     service    = "-",  # binetflow has no app-layer service field
+                    orig_port  = row.get("Sport", "-").strip(),
+                    resp_port  = row.get("Dport", "-").strip(),
                 ))
 
     atk = len(buckets["ATTACK"])
@@ -284,6 +291,8 @@ def load_uwf(dataset_dir):
                 source     = "uwf",
                 raw_label  = raw_label,
                 service    = svc,
+                orig_port  = _clean(row.get("id.orig_p", row.get("orig_p", "-"))) or "-",
+                resp_port  = _clean(row.get("id.resp_p", row.get("resp_p", "-"))) or "-",
             ))
 
     atk = len(buckets["ATTACK"])
@@ -330,6 +339,8 @@ def load_ctu_normal(dataset_dir):
                     source     = "ctu_normal",
                     raw_label  = "Benign",
                     service    = parts[7],
+                    orig_port  = parts[3],
+                    resp_port  = parts[5],
                 ))
 
     print(f"  CTU-Normal: 0 attacks, {len(samples)} benign")

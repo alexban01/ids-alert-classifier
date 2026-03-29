@@ -23,7 +23,7 @@ from prompt_utils import SYSTEM_PROMPT, build_prompt, extract_verdict
 
 # ── Config ────────────────────────────────────────────────────────────────────
 BASE_MODEL       = "Qwen/Qwen2.5-1.5B-Instruct"
-ADAPTER_DIR      = "./v7.1-ids-lora-adapter"
+ADAPTER_DIR      = "./v8-ids-lora-adapter"
 OLLAMA_MODEL     = "ids-classifier"
 OLLAMA_URL       = "http://localhost:11434/api/generate"
 CONN_LOG         = "conn.log"
@@ -82,6 +82,7 @@ def build_prompts(rows):
         build_prompt(
             r["proto"], r["duration"], r["orig_pkts"], r["resp_pkts"],
             r["orig_bytes"], r["resp_bytes"], r["conn_state"], r["service"],
+            resp_port=r["resp_p"], orig_port=r["orig_p"],
         )
         for r in rows
     ]

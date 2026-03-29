@@ -47,7 +47,11 @@
       "Bash(curl -sI https://link.springer.com/chapter/10.1007/978-3-032-06155-3_5)",
       "WebFetch(domain:doi.org)",
       "WebFetch(domain:rodin.uca.es)",
-      "WebFetch(domain:www.unb.ca)"
+      "WebFetch(domain:www.unb.ca)",
+      "Bash(.venv/bin/python -c \"import ast; ast.parse\\(open\\(''benchmark_realworld.py''\\).read\\(\\)\\); print\\(''benchmark_realworld.py OK''\\); ast.parse\\(open\\(''train.py''\\).read\\(\\)\\); print\\(''train.py OK''\\)\")",
+      "Bash(kill 34962)",
+      "Bash(while ps:*)",
+      "Bash(do sleep:*)"
     ]
   }
 }
