@@ -8,12 +8,12 @@ Usage:
     .venv/bin/python benchmark_ollama.py [MODEL] [--cache FILE]
 
     MODEL        Ollama model name (default: ids-classifier)
-    --cache FILE Sample cache JSON (default: benchmark_realworld_cache.json)
+    --cache FILE Sample cache JSON (default: results/benchmark_realworld_cache.json)
 
 Examples:
     .venv/bin/python benchmark_ollama.py
     .venv/bin/python benchmark_ollama.py ids-classifier
-    .venv/bin/python benchmark_ollama.py ids-classifier --cache benchmark_samples_v4.json
+    .venv/bin/python benchmark_ollama.py ids-classifier --cache results/benchmark_samples_v4.json
 """
 
 import sys
@@ -30,7 +30,7 @@ from prompt_utils import SYSTEM_PROMPT, extract_verdict
 # ── Config ─────────────────────────────────────────────────────────────────────
 OLLAMA_GENERATE_URL = "http://localhost:11434/api/generate"
 DEFAULT_MODEL = "ids-classifier"
-DEFAULT_CACHE = "benchmark_realworld_cache.json"
+DEFAULT_CACHE = "results/benchmark_realworld_cache.json"
 
 SOURCE_NAMES = {
     "iot23":      "IoT-23        (Zeek conn.log)",
@@ -232,8 +232,8 @@ if __name__ == "__main__":
 
     mcc = print_report(preds, samples, model_name, unknowns, elapsed, out_lines)
 
-    report_file  = f"benchmark_ollama_{model_name.replace(':', '_')}_report.txt"
-    results_file = f"benchmark_ollama_{model_name.replace(':', '_')}_results.json"
+    report_file  = f"results/benchmark_ollama_{model_name.replace(':', '_')}_report.txt"
+    results_file = f"results/benchmark_ollama_{model_name.replace(':', '_')}_results.json"
 
     truths = [s["ground_truth"] for s in samples]
     accuracy   = sum(t == p for t, p in zip(truths, preds)) / len(truths)

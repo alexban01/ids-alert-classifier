@@ -1,0 +1,159 @@
+❯ .venv/bin/python classify_conn_log.py real_conn/conn.log.5
+
+Parsing real_conn/conn.log.5 ...
+  2767 connections
+
+Mode: HuggingFace (./v8.1-ids-lora-adapter)
+Loading ./v8.1-ids-lora-adapter ...
+Loading weights: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 338/338 [00:00<00:00, 1100.78it/s]
+The following generation flags are not valid and may be ignored: ['top_k']. Set `TRANSFORMERS_VERBOSITY=info` for more details.
+  2767/2767 classified ...
+
+======================================================================
+  RESULTS: 2767 connections classified
+  Attacks:  70
+  Benign:   2697
+  Unknown:  0 (format failures)
+======================================================================
+
+── ATTACK verdicts ──────────────────────────────────────────────────────
+  [ 296]                               10.0.2.200:49280  → 91.190.216.25:12350   tcp   SF     dur=15.203502  orig=402        resp=143
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [ 354]                               10.0.2.200:49711  → 239.255.255.250:1900    udp   S0     dur=0.000109   orig=265        resp=0
+         Reason: Connection characteristics are inconsistent with normal user activity.
+  [ 442]                               10.0.2.200:34862  → 111.221.77.140:40027   udp   SF     dur=6.287073   orig=130        resp=98
+         Reason: Connection characteristics are inconsistent with normal user activity.
+  [ 443]                               10.0.2.200:34862  → 111.221.77.149:40019   udp   SF     dur=6.287765   orig=66         resp=98
+         Reason: Connection characteristics are inconsistent with normal user activity.
+  [ 498]                               10.0.2.200:60828  → 239.255.255.250:1900    udp   S0     dur=0.000137   orig=265        resp=0
+         Reason: Connection characteristics are inconsistent with normal user activity.
+  [ 500]                               10.0.2.200:60829  → 239.255.255.250:1900    udp   S0     dur=0.000112   orig=265        resp=0
+         Reason: Connection characteristics are inconsistent with normal user activity.
+  [ 522]                               10.0.2.200:34862  → 157.55.235.155:40027   udp   SF     dur=6.098403   orig=1293       resp=17
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [ 523]                               10.0.2.200:34862  → 157.55.56.172:40035   udp   SF     dur=6.177674   orig=1293       resp=17
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [ 524]                               10.0.2.200:34862  → 157.56.52.27:40027   udp   SF     dur=6.227866   orig=1293       resp=17
+         Reason: Connection characteristics are inconsistent with normal user activity.
+  [ 525]                               10.0.2.200:34862  → 111.221.77.155:40009   udp   SF     dur=60.857969  orig=1456       resp=330
+         Reason: Connection characteristics are inconsistent with normal user activity.
+  [ 551]                               10.0.2.200:64101  → 239.255.255.250:1900    udp   S0     dur=0.000112   orig=265        resp=0
+         Reason: Connection terminated abnormally with byte ratios typical of attack traffic.
+  [ 561]                               10.0.2.200:49446  → 91.190.216.23:12350   tcp   SF     dur=15.189972  orig=428        resp=130
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [ 583]                               10.0.2.200:49444  → 111.221.77.144:40012   tcp   SF     dur=31.304265  orig=1022       resp=325
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [ 684]                               10.0.2.200:49499  → 91.190.216.25:12350   tcp   SF     dur=15.187516  orig=430        resp=162
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [ 759]                               10.0.2.200:49461  → 91.190.218.66:12350   tcp   S1     dur=7.453434   orig=708        resp=469
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [1031]                               10.0.2.200:49744  → 209.84.3.70:80      tcp   SF     dur=13.587882  orig=693        resp=28176
+         Reason: Connection terminated abnormally with byte ratios typical of attack traffic.
+  [1032]                               10.0.2.200:49738  → 209.84.3.70:80      tcp   SF     dur=13.749848  orig=693        resp=23078
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [1114]                               10.0.2.200:49832  → 223.165.26.46:80      tcp   SF     dur=10.974130  orig=1856       resp=50870
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [1253]                               10.0.2.200:49876  → 216.52.1.12:80      tcp   SF     dur=9.890144   orig=1885       resp=765
+         Reason: Connection terminated abnormally with byte ratios typical of attack traffic.
+  [1356]                               10.0.2.200:49800  → 23.23.121.113:80      tcp   SF     dur=72.433822  orig=1696       resp=497
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [1392]                               10.0.2.200:49801  → 23.23.121.113:80      tcp   SF     dur=102.444228 orig=6282       resp=1390
+         Reason: Connection terminated abnormally with byte ratios typical of attack traffic.
+  [1393]                               10.0.2.200:49917  → 52.19.10.30:80      tcp   SF     dur=68.659954  orig=424        resp=176
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [1416]                               10.0.2.200:49658  → 172.217.16.98:80      tcp   SF     dur=240.255147 orig=498        resp=51908
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [1640]                               10.0.2.200:50099  → 37.252.170.112:80      tcp   SF     dur=23.391275  orig=5593       resp=1294
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [1655]                               10.0.2.200:50005  → 37.157.6.236:80      tcp   SF     dur=37.306019  orig=2131       resp=98424
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [1658]                               10.0.2.200:50001  → 37.157.4.16:80      tcp   SF     dur=37.816525  orig=2676       resp=5530
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [1742]                               10.0.2.200:50180  → 94.31.29.154:80      tcp   SF     dur=6.910555   orig=454        resp=84286
+         Reason: Connection terminated abnormally with byte ratios typical of attack traffic.
+  [1755]                               10.0.2.200:50163  → 65.156.1.84:80      tcp   SF     dur=20.378439  orig=2300       resp=114159
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [1757]                               10.0.2.200:50170  → 65.156.1.84:80      tcp   SF     dur=17.356244  orig=2611       resp=120997
+         Reason: Connection terminated abnormally with byte ratios typical of attack traffic.
+  [1767]                               10.0.2.200:50164  → 104.16.23.35:80      tcp   SF     dur=50.383234  orig=1214       resp=28387
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [1847]                               10.0.2.200:50189  → 65.156.1.84:80      tcp   SF     dur=20.274745  orig=1885       resp=51985
+         Reason: Connection terminated abnormally with byte ratios typical of attack traffic.
+  [1849]                               10.0.2.200:50190  → 65.156.1.84:80      tcp   SF     dur=20.269599  orig=889        resp=41278
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [1868]                               10.0.2.200:50218  → 65.156.1.84:80      tcp   SF     dur=16.711015  orig=977        resp=26905
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [1887]                               10.0.2.200:50203  → 216.58.209.174:80      tcp   SF     dur=93.805339  orig=2907       resp=1158
+         Reason: Connection terminated abnormally with byte ratios typical of attack traffic.
+  [2055]                               10.0.2.200:50330  → 174.129.224.115:80      tcp   SF     dur=0.611487   orig=361        resp=33224
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [2090]                               10.0.2.200:54102  → 37.252.252.213:1235    udp   SF     dur=2.301252   orig=335        resp=124
+         Reason: Connection characteristics are inconsistent with normal user activity.
+  [2091]                               10.0.2.200:54102  → 37.252.252.212:1234    udp   S0     dur=0.751315   orig=114        resp=0
+         Reason: Connection characteristics are inconsistent with normal user activity.
+  [2312]                               10.0.2.200:50496  → 62.210.79.188:80      tcp   SF     dur=9.186580   orig=543        resp=21491
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [2319]                               10.0.2.200:50497  → 46.228.164.13:80      tcp   SF     dur=10.388800  orig=1648       resp=467
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [2320]                               10.0.2.200:50508  → 185.62.216.50:80      tcp   SF     dur=9.302996   orig=1582       resp=538
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [2323]                               10.0.2.200:50404  → 66.117.29.38:80      tcp   SF     dur=15.876239  orig=3889       resp=2955
+         Reason: Connection terminated abnormally with byte ratios typical of attack traffic.
+  [2329]                               10.0.2.200:50512  → 52.30.118.221:80      tcp   SF     dur=8.937875   orig=1827       resp=540
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [2377]                               10.0.2.200:50427  → 37.252.163.206:80      tcp   SF     dur=24.849976  orig=4099       resp=2589
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [2380]                               10.0.2.200:50494  → 173.192.220.64:80      tcp   SF     dur=20.514619  orig=1612       resp=497
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [2421]                               10.0.2.200:50413  → 173.241.240.212:80      tcp   SF     dur=35.669654  orig=1183       resp=21857
+         Reason: Connection terminated abnormally with byte ratios typical of attack traffic.
+  [2426]                               10.0.2.200:50426  → 173.241.240.143:80      tcp   SF     dur=34.956965  orig=3243       resp=2844
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [2427]                               10.0.2.200:50581  → 62.210.79.188:80      tcp   SF     dur=12.268165  orig=537        resp=27072
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [2432]                               10.0.2.200:50582  → 62.210.79.188:80      tcp   SF     dur=7.241064   orig=535        resp=341475
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [2440]                               10.0.2.200:50504  → 104.16.23.235:80      tcp   SF     dur=49.736618  orig=1829       resp=670
+         Reason: Connection terminated abnormally with byte ratios typical of attack traffic.
+  [2450]                               10.0.2.200:50403  → 54.246.96.138:80      tcp   SF     dur=66.008051  orig=1636       resp=972
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [2459]                               10.0.2.200:50405  → 52.18.40.183:80      tcp   SF     dur=75.827894  orig=2833       resp=305
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [2460]                               10.0.2.200:50470  → 52.18.40.183:80      tcp   SF     dur=71.370100  orig=2836       resp=305
+         Reason: Connection terminated abnormally with byte ratios typical of attack traffic.
+  [2462]                               10.0.2.200:50500  → 54.165.2.230:80      tcp   SF     dur=70.105778  orig=4273       resp=2871
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [2463]                               10.0.2.200:50503  → 52.19.114.209:80      tcp   SF     dur=69.953974  orig=1603       resp=305
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [2469]                               10.0.2.200:50572  → 50.17.248.29:80      tcp   SF     dur=63.470803  orig=2601       resp=4793
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [2476]                               10.0.2.200:50505  → 107.22.190.224:80      tcp   SF     dur=69.729866  orig=7914       resp=860
+         Reason: Connection terminated abnormally with byte ratios typical of attack traffic.
+  [2492]                               10.0.2.200:50400  → 54.192.200.227:80      tcp   SF     dur=126.214755 orig=423        resp=21803
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [2498]                               10.0.2.200:50579  → 54.230.200.89:80      tcp   SF     dur=122.382077 orig=1018       resp=18617
+         Reason: Connection terminated abnormally with byte ratios typical of attack traffic.
+  [2516]                               10.0.2.200:50584  → 54.246.96.138:80      tcp   SF     dur=65.377050  orig=2924       resp=368
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [2532]                               10.0.2.200:50439  → 172.217.16.98:80      tcp   SF     dur=244.735565 orig=2361       resp=1692
+         Reason: Connection terminated abnormally with byte ratios typical of attack traffic.
+  [2556]                               10.0.2.200:50598  → 66.235.138.194:80      tcp   SF     dur=15.451012  orig=2204       resp=721
+         Reason: Connection terminated abnormally with byte ratios typical of attack traffic.
+  [2627]                               10.0.2.200:50601  → 66.235.138.194:80      tcp   SF     dur=19.612306  orig=4598       resp=1442
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [2663]                               10.0.2.200:50620  → 173.241.240.212:80      tcp   SF     dur=38.175059  orig=1559       resp=304
+         Reason: Connection terminated abnormally with byte ratios typical of attack traffic.
+  [2665]                               10.0.2.200:50616  → 173.241.240.143:80      tcp   SF     dur=38.277308  orig=3539       resp=3502
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [2679]                               10.0.2.200:50595  → 54.75.227.252:80      tcp   SF     dur=96.124970  orig=3867       resp=768
+         Reason: Connection terminated abnormally with byte ratios typical of attack traffic.
+  [2693]                               10.0.2.200:50665  → 195.113.214.206:80      tcp   SF     dur=0.064639   orig=661        resp=25472
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [2694]                               10.0.2.200:50666  → 195.113.214.206:80      tcp   SF     dur=0.065116   orig=661        resp=51072
+         Reason: Connection terminated abnormally with byte ratios typical of attack traffic.
+  [2695]                               10.0.2.200:50667  → 195.113.214.206:80      tcp   SF     dur=0.327886   orig=662        resp=102274
+         Reason: Connection terminated abnormally with byte ratios typical of attack traffic.
+  [2696]                               10.0.2.200:50668  → 195.113.214.206:80      tcp   SF     dur=0.617319   orig=663        resp=204675
+         Reason: Connection state and byte counts are inconsistent with legitimate use.
+  [2697]                               10.0.2.200:50669  → 195.113.214.206:80      tcp   SF     dur=0.365514   orig=663        resp=125945
+         Reason: Connection state and byte counts are inconsistent with legitimate use.

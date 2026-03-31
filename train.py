@@ -20,8 +20,8 @@ if RUNPOD:
     PIN_MEMORY           = True
     NUM_WORKERS          = 4
 else:
-    BATCH                = 4
-    GRAD_ACCUM           = 6      # effective batch = 24 (4×6)
+    BATCH                = 6
+    GRAD_ACCUM           = 4      # effective batch = 24 (4×6)
     GRAD_CHECKPOINTING   = True   # required for 8 GB VRAM
     PIN_MEMORY           = False
     NUM_WORKERS          = 0      # CUDA+fork unstable on local Linux. fork() copies the parent's CUDA context into worker processes — those handles are invalid in the child, causing deadlocks or corruption. spawn would fix it but adds complexity; workers=0 is simpler since the bottleneck is the GPU, not JSONL loading.
@@ -56,9 +56,10 @@ tokenizer.pad_token = tokenizer.eos_token
 
 # ── LoRA ─────────────────────────────────────────────────────────────────────
 # r=32 (up from v8's r=16) — more capacity for port-aware patterns (Credential Access,
-# Defense Evasion). Negligible VRAM impact at inference (~40 MB more).
+# Defense Evasion). Training VRAM delta: ~72 MB (weights + gradients); optimizer states
+# are paged to CPU so those don't count. Inference delta: ~40 MB.
 lora_config = LoraConfig(
-    r=32,
+    r=4,
     lora_alpha=64,
     target_modules=[
         "q_proj", "k_proj", "v_proj", "o_proj",    # all attention

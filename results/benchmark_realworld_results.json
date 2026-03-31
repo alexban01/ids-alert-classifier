@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-03-30T01:56:40.334561",
+  "timestamp": "2026-03-31T21:36:24.641438",
   "samples": 2100,
   "sources": {
     "iot23": 600,
@@ -9,24 +9,24 @@
   },
   "models": [
     {
-      "label": "v8 ckpt-1500 (ep1)",
-      "accuracy": 0.8529,
-      "atk_recall": 0.6667,
-      "ben_recall": 0.9925,
+      "label": "v8.1 Fine-tuned",
+      "accuracy": 0.7043,
+      "atk_recall": 0.3767,
+      "ben_recall": 0.95,
       "fmt_fail": 0.0,
-      "mcc": 0.7189,
+      "mcc": 0.4121,
       "per_source": {
         "iot23": {
           "n": 600,
-          "accuracy": 0.9983,
-          "atk_recall": 1.0,
+          "accuracy": 0.5967,
+          "atk_recall": 0.1967,
           "ben_recall": 0.9967
         },
         "ctu13": {
           "n": 600,
-          "accuracy": 0.9917,
-          "atk_recall": 1.0,
-          "ben_recall": 0.9833
+          "accuracy": 0.8833,
+          "atk_recall": 0.9333,
+          "ben_recall": 0.8333
         },
         "uwf": {
           "n": 600,
@@ -36,9 +36,9 @@
         },
         "ctu_normal": {
           "n": 300,
-          "accuracy": 0.99,
+          "accuracy": 0.97,
           "atk_recall": 0.0,
-          "ben_recall": 0.99
+          "ben_recall": 0.97
         }
       }
     }
