@@ -33,9 +33,9 @@ from prompt_utils import SYSTEM_PROMPT, build_prompt, extract_verdict
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 BASE_MODEL   = "Qwen/Qwen2.5-1.5B-Instruct"
-CACHE_FILE   = "benchmark_realworld_cache.json"
-REPORT_TXT   = "benchmark_realworld_report.txt"
-RESULTS_JSON = "benchmark_realworld_results.json"
+CACHE_FILE   = "results/benchmark_realworld_cache.json"
+REPORT_TXT   = "results/benchmark_realworld_report.txt"
+RESULTS_JSON = "results/benchmark_realworld_results.json"
 MAX_NEW_TOKENS = 80
 BATCH_SIZE     = 8
 CAP            = 300      # max samples per (source, class)

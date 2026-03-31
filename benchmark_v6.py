@@ -20,9 +20,9 @@ from prompt_utils import SYSTEM_PROMPT, build_prompt, extract_verdict
 
 # ── Config ────────────────────────────────────────────────────────────────────
 BASE_MODEL      = "Qwen/Qwen2.5-1.5B-Instruct"
-BENCHMARK_CACHE = "benchmark_samples_v4.json"
-REPORT_TXT      = "benchmark_v6_report.txt"
-RESULTS_JSON    = "benchmark_v6_results.json"
+BENCHMARK_CACHE = "results/benchmark_samples_v4.json"
+REPORT_TXT      = "results/benchmark_v6_report.txt"
+RESULTS_JSON    = "results/benchmark_v6_results.json"
 MAX_NEW_TOKENS  = 80
 BATCH_SIZE      = 8
 SAMPLES_PER_CLASS_PER_FILE = 50
