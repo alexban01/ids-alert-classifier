@@ -50,7 +50,7 @@ MODELS = [
     # ("v7.1 Fine-tuned",      "./v7.1-ids-lora-adapter"),
     # ("v8 ckpt-1500 (ep1)",   "./v8-ids-model/checkpoint-1500"),
     # ("v8.1 Fine-tuned",      "./v8.1-ids-lora-adapter"),
-    ("v9.0 Fine-tuned",      "./v9.0-ids-lora-adapter"),
+    ("v9.0 ckpt-1420 (ep1)",   "./v9.0-ids-model/checkpoint-1420"),
 ]
 
 DATASETS = {

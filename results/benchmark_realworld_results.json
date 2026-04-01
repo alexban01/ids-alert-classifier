@@ -1,44 +1,51 @@
 {
-  "timestamp": "2026-04-01T02:11:22.884964",
-  "samples": 2100,
+  "timestamp": "2026-04-01T22:47:42.564754",
+  "samples": 2400,
   "sources": {
     "iot23": 600,
     "ctu13": 600,
     "uwf": 600,
-    "ctu_normal": 300
+    "ctu_normal": 300,
+    "ctu_botnet3": 300
   },
   "models": [
     {
-      "label": "v8.1 Fine-tuned",
-      "accuracy": 0.9971,
-      "atk_recall": 1.0,
-      "ben_recall": 0.995,
+      "label": "v9.0 ckpt-1420 (ep1)",
+      "accuracy": 0.8896,
+      "atk_recall": 0.7892,
+      "ben_recall": 0.99,
       "fmt_fail": 0.0,
-      "mcc": 0.9942,
+      "mcc": 0.7954,
       "per_source": {
         "iot23": {
           "n": 600,
-          "accuracy": 0.9983,
+          "accuracy": 0.99,
           "atk_recall": 1.0,
-          "ben_recall": 0.9967
+          "ben_recall": 0.98
         },
         "ctu13": {
           "n": 600,
-          "accuracy": 0.9917,
-          "atk_recall": 1.0,
-          "ben_recall": 0.9833
+          "accuracy": 0.995,
+          "atk_recall": 0.9967,
+          "ben_recall": 0.9933
         },
         "uwf": {
           "n": 600,
-          "accuracy": 1.0,
+          "accuracy": 0.9967,
           "atk_recall": 1.0,
-          "ben_recall": 1.0
+          "ben_recall": 0.9933
         },
         "ctu_normal": {
           "n": 300,
-          "accuracy": 1.0,
+          "accuracy": 0.9933,
           "atk_recall": 0.0,
-          "ben_recall": 1.0
+          "ben_recall": 0.9933
+        },
+        "ctu_botnet3": {
+          "n": 300,
+          "accuracy": 0.16,
+          "atk_recall": 0.16,
+          "ben_recall": 0.0
         }
       }
     }
