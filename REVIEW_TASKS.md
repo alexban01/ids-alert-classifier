@@ -47,4 +47,3 @@ is accurate.
 ---
 
 ## Completed Tasks
-<!-- TASK-001 through TASK-005 completed in commit 504407c — Codex to move them here in TASK-007 -->
