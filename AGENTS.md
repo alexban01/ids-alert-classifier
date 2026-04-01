@@ -10,7 +10,7 @@ These rules are part of the project contract and apply unless the user explicitl
 ## Active Branch Roles
 
 - **Review branch:** `master`
-- **Implementation branch:** `v9.1`
+- **Implementation branch:** `development`
 
 When the implementation branch changes in the future, update only this section.
 
@@ -33,7 +33,7 @@ When the implementation branch changes in the future, update only this section.
 
 ### Scope
 
-- Codex works **only on the implementation branch**: `v9.1`.
+- Codex works **only on the implementation branch**: `development`.
 - Codex is the **only agent allowed to make routine code changes** by default.
 - Codex may read files across the repository as needed for implementation, but must only edit files relevant to the assigned task.
 
@@ -72,7 +72,7 @@ Codex should report:
 
 - Claude works **only on the review branch**: `master`.
 - Claude is **review-only by default**.
-- Claude should primarily inspect the diff between `master` and `v9.1`.
+- Claude should primarily inspect the diff between `master` and `development`.
 
 ### Allowed by default
 
@@ -141,7 +141,7 @@ Claude should use this structure when writing review tasks:
 
 ## Context
 - Review branch: master
-- Implementation branch: v9.1
+- Implementation branch: development
 - Review date: YYYY-MM-DD
 
 ## Open Tasks
@@ -171,7 +171,7 @@ Examples of valid overrides:
 
 - "Claude may implement this fix directly."
 - "Codex may review instead of changing code for this task."
-- "Use branch `v9.2` instead of `v9.1`."
+- "Use branch `feature-x` instead of `development`."
 
 Overrides should be interpreted narrowly. Do not treat a narrow override as a full suspension of the contract.
 
@@ -182,7 +182,7 @@ Overrides should be interpreted narrowly. Do not treat a narrow override as a fu
 If the instruction is ambiguous:
 
 - Claude should review, not implement.
-- Codex should implement only on `v9.1`.
+- Codex should implement only on `development`.
 - Neither agent should merge.
 - Ask for clarification only if the ambiguity blocks safe progress.
 
