@@ -9,9 +9,10 @@ This is the meaningful test: v4 had ~95% FP rate on real Zeek logs. v6 was
 trained specifically to fix that by adding UWF-ZeekData24 + CTU-Normal.
 
 Usage:
-    .venv/bin/python benchmark_realworld.py [--regen]
+    .venv/bin/python benchmark_realworld.py [--regen] [--no-behavior]
 
-    --regen   Force regeneration of the sample cache even if it exists.
+    --regen         Force regeneration of the sample cache even if it exists.
+    --no-behavior   Keep prompts conn-only (skip [BEHAVIOR] rebuild).
 """
 
 import os
@@ -831,6 +832,7 @@ if __name__ == "__main__":
     torch.backends.cudnn.benchmark        = True
 
     regen = "--regen" in sys.argv
+    no_behavior = "--no-behavior" in sys.argv
 
     if not regen and os.path.exists(CACHE_FILE):
         print(f"[CACHE] Loading {CACHE_FILE}")
@@ -840,7 +842,10 @@ if __name__ == "__main__":
     else:
         samples = generate_samples()
 
-    samples = rebuild_prompts_with_behavior(samples)
+    if no_behavior:
+        print("[MODE] --no-behavior enabled: using conn-only prompts.")
+    else:
+        samples = rebuild_prompts_with_behavior(samples)
 
     _tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, padding_side="left")
     if _tokenizer.pad_token is None:
