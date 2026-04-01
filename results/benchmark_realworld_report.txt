@@ -1,4 +1,4 @@
-REAL-WORLD ZEEK BENCHMARK — 2026-03-31 21:36
+REAL-WORLD ZEEK BENCHMARK — 2026-04-01 02:11
 Sources: IoT-23, CTU-13, UWF-ZeekData24, CTU-Normal
 Samples: 2100 total (900 attacks / 1200 benign) | Seed: 42
 
@@ -6,38 +6,38 @@ Samples: 2100 total (900 attacks / 1200 benign) | Seed: 42
   MODEL  : v8.1 Fine-tuned
   Samples: 2100  (attacks: 900, benign: 1200)
   Format failures : 0 (0.0%)
-  MCC             : +0.4121  (-1 to +1, higher is better)
+  MCC             : +0.9942  (-1 to +1, higher is better)
 ======================================================================
                 precision    recall  f1-score   support
 
-        ATTACK       0.85      0.38      0.52       900
-FALSE POSITIVE       0.67      0.95      0.79      1200
+        ATTACK       0.99      1.00      1.00       900
+FALSE POSITIVE       1.00      0.99      1.00      1200
 
-      accuracy                           0.70      2100
-     macro avg       0.76      0.66      0.65      2100
-  weighted avg       0.75      0.70      0.67      2100
+      accuracy                           1.00      2100
+     macro avg       1.00      1.00      1.00      2100
+  weighted avg       1.00      1.00      1.00      2100
 
 Confusion Matrix  (rows = actual, cols = predicted)
                            ATTACK  FALSE POSITIVE
-  ATTACK                  339 ( 38%)     561 ( 62%)
-  FALSE POSITIVE           60 (  5%)    1140 ( 95%)
+  ATTACK                  900 (100%)       0 (  0%)
+  FALSE POSITIVE            6 (  0%)    1194 (100%)
 
 --- Per source ---
   Source                               Atk  Recall     Ben  Recall      Acc
   ---------------------------------- ----- -------   ----- -------   ------
-  CTU-13        (binetflow)            300   93.3%     300   83.3%    88.3%
-  CTU-Normal    (Zeek conn.log)          0    0.0%     300   97.0%    97.0%
-  IoT-23        (Zeek conn.log)        300   19.7%     300   99.7%    59.7%
-  UWF-ZeekData24(Zeek conn.log)        300    0.0%     300  100.0%    50.0%
+  CTU-13        (binetflow)            300  100.0%     300   98.3%    99.2%
+  CTU-Normal    (Zeek conn.log)          0    0.0%     300  100.0%   100.0%
+  IoT-23        (Zeek conn.log)        300  100.0%     300   99.7%    99.8%
+  UWF-ZeekData24(Zeek conn.log)        300  100.0%     300  100.0%   100.0%
 
 --- Per label (attacks only) ---
-  Credential Access                              0/300 (  0%)
-  PartOfAHorizontalPortScan                     59/300 ( 20%)
+  Credential Access                            300/300 (100%)
+  PartOfAHorizontalPortScan                    300/300 (100%)
   flow=From-Botnet-V45-TCP-Attempt               3/3   (100%)
   flow=From-Botnet-V45-TCP-CC106-IRC-Not-Encrypted   1/1   (100%)
   flow=From-Botnet-V45-TCP-Established-HTTP-Ad-15   1/1   (100%)
-  flow=From-Botnet-V45-TCP-Established-HTTP-Ad-4   0/1   (  0%)
-  flow=From-Botnet-V45-TCP-Established-HTTP-Ad-62   0/1   (  0%)
-  flow=From-Botnet-V45-TCP-HTTP-Google-Net-Established-6   0/1   (  0%)
+  flow=From-Botnet-V45-TCP-Established-HTTP-Ad-4   1/1   (100%)
+  flow=From-Botnet-V45-TCP-Established-HTTP-Ad-62   1/1   (100%)
+  flow=From-Botnet-V45-TCP-HTTP-Google-Net-Established-6   1/1   (100%)
   flow=From-Botnet-V45-UDP-Attempt             275/275 (100%)
-  flow=From-Botnet-V45-UDP-DNS                   0/17  (  0%)
+  flow=From-Botnet-V45-UDP-DNS                  17/17  (100%)

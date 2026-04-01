@@ -59,7 +59,7 @@ tokenizer.pad_token = tokenizer.eos_token
 # Defense Evasion). Training VRAM delta: ~72 MB (weights + gradients); optimizer states
 # are paged to CPU so those don't count. Inference delta: ~40 MB.
 lora_config = LoraConfig(
-    r=4,
+    r=32,
     lora_alpha=64,
     target_modules=[
         "q_proj", "k_proj", "v_proj", "o_proj",    # all attention

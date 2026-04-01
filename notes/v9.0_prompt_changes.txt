@@ -1,0 +1,381 @@
+v9.0 PROMPT CHANGES — preprocess_zeek.py reason pools
+======================================================
+Date: 2026-04-01
+Previous: 17 attack / 15 benign reasons (v8.1)
+Current:  66 attack / 38 benign reasons (v9.0 prep)
+
+All reasons are sampled randomly per training sample (one per sample).
+Reasons describe what is observable in a SINGLE Zeek conn.log flow —
+multi-flow aggregate patterns were intentionally reworded to avoid the
+model citing evidence it cannot actually observe at inference time.
+
+DESIGN RULES APPLIED
+--------------------
+1. Every reason references only features visible in one flow:
+   proto, duration, orig_pkts, resp_pkts, orig_bytes, resp_bytes,
+   conn_state (SF/S0/S1/RSTO/OTH), service, orig_p, resp_p.
+2. Phrases like "many connections", "high volume", "repeated flows"
+   were reworded to single-flow observables (S0 state, zero resp_bytes,
+   near-zero duration, specific port + byte ratio, etc.).
+3. Every high-risk attack reason has a benign complement to prevent
+   the model learning "port X always = ATTACK".
+4. Port 443 + service="-" reason softened (requires "atypical byte
+   ratios" co-signal) to avoid false positives on legitimate QUIC /
+   failed TLS parse / HTTP3.
+
+
+===========================================================================
+ATTACK_REASONS  (66 entries)
+===========================================================================
+
+── Generic flow-level anomalies (carried from v8) ──────────────────────────
+ 1. Traffic pattern matches known malicious behavior with anomalous packet ratios.
+ 2. Connection characteristics are inconsistent with normal user activity.
+ 3. Flow statistics deviate significantly from baseline benign traffic.
+ 4. Short-duration high-volume flow typical of automated attack tooling.
+ 5. Asymmetric byte distribution and connection state indicate hostile intent.
+ 6. Packet timing and volume match scanning or exploitation patterns.
+ 7. Connection state and byte counts are inconsistent with legitimate use.
+ 8. Flow metrics match botnet C2 communication profiles.
+ 9. Unidirectional or near-unidirectional flow with anomalous size is suspicious.
+10. Connection terminated abnormally with byte ratios typical of attack traffic.
+
+── Port scanning — IoT-23 PartOfAHorizontalPortScan, UNSW Reconnaissance/Analysis ──
+11. S0 TCP connection to a common service port with zero resp_bytes indicates
+    the remote host did not respond, consistent with a port scan probe against
+    a closed or filtered port.
+12. S0 connection with zero resp_bytes and sub-millisecond duration is
+    characteristic of a single port scan probe — the originator sent a SYN
+    but received no reply.
+13. Short SYN-only flow (S0 state) with zero resp_bytes and near-zero duration
+    is consistent with automated reconnaissance; a legitimate connection attempt
+    would progress to SF or RSTO.
+14. SYN probe to a high-numbered port with S0 state and zero resp_bytes is
+    consistent with a port sweep looking for open services on non-standard ports.
+
+── DDoS / DoS — IoT-23 DDoS, Ngrbot on-command, UNSW DoS ──────────────────
+15. High packet count with minimal response bytes is consistent with a SYN flood
+    or amplification attack.
+16. Very high UDP packet rate to a single destination with near-zero resp_bytes
+    and large orig_bytes is consistent with a UDP flood DDoS attack.
+17. Large number of short TCP connections to the same destination port in rapid
+    succession with no sustained data exchange indicates an HTTP flood or
+    Layer-7 DDoS.
+18. Many long-duration TCP connections to a web port (80/443) with near-zero
+    data exchange and S1 state suggest a Slowloris-style connection exhaustion
+    attack.
+19. Small UDP orig_bytes with disproportionately large resp_bytes on port 53 or
+    123 indicates DNS or NTP amplification/reflection abuse.
+20. ICMP flows with very high packet count and large orig_bytes but no
+    application payload indicate an ICMP flood attack.
+
+── Brute force — SSH, RDP, VNC, Telnet, DB ─────────────────────────────────
+21. Destination port 22 with many short RSTO or S0 connections in rapid
+    succession suggests automated SSH brute force.
+22. Destination port 3389 (RDP) with repeated short SYN-only or RSTO connections
+    indicates RDP brute force or password spraying.
+23. Destination port 23 (Telnet) with many S0 flows to many unique IPs and zero
+    resp_bytes matches Mirai-style Telnet scanning.
+24. Multiple short RSTO connections to port 5900 (VNC) from the same source
+    indicate remote desktop brute force.
+25. Rapid short connections to database ports (1433 MSSQL, 3306 MySQL, 5432
+    PostgreSQL) with RSTO state suggest credential brute force against a
+    database service.
+26. Many S0 or RSTO flows to port 23 (Telnet) from IoT-class IPs with zero
+    response bytes indicate Mirai or Mirai-variant botnet scanning.
+
+── Exploitation — SMB, GlassFish, Tomcat, EternalBlue ──────────────────────
+27. Destination port 445 is associated with SMB exploitation (EternalBlue/
+    MS17-010, WannaCry, NotPetya lateral movement).
+28. Connection to port 4848 (GlassFish admin console) or 8080/8443/9090
+    (Tomcat, JBoss, WildFly) from an external or untrusted host suggests
+    admin interface exploitation.
+29. RSTO state with asymmetric orig_bytes on a service port (21, 22, 80, 443)
+    is consistent with an exploitation attempt that triggered a server-side
+    reset.
+30. Short TCP connection to a service port that terminates in RSTO state after
+    non-trivial orig_bytes may indicate a failed exploit or shellcode delivery
+    attempt.
+31. Established connection to port 445 with large orig_bytes followed by RSTO
+    suggests SMB exploitation payload delivery.
+
+── Worm / self-propagation — UNSW Worms, Virut via SMB, Mirai spreading ────
+32. S0 TCP connection originating from a workstation-class host to port 445
+    (SMB) on a remote IP with zero resp_bytes is consistent with worm-style
+    lateral movement probing (WannaCry/NotPetya pattern).
+33. S0 TCP probe to port 445 from an internal host with zero resp_bytes suggests
+    unsolicited SMB connection attempt consistent with worm propagation or
+    lateral movement scanning.
+
+── C2: IRC-based — Ngrbot (Botnet-44), Neris, Rbot (CTU-13) ────────────────
+34. Persistent established TCP connection to port 6667 (IRC) from a non-server
+    host is consistent with IRC-based botnet C2.
+35. Long-duration S1 or SF TCP connection to port 6667 with low-rate symmetric
+    byte exchange matches an IRC C2 keep-alive channel.
+
+── C2: HTTP/HTTPS — Zeus (Botnet-78-2), Ramnit (Botnet-42), Htbot (Botnet-52),
+                    Pushdo (Botnet-90), Virut ──────────────────────────────────
+36. Short established HTTP connection with disproportionately small response
+    bytes is consistent with C2 gate polling or command retrieval
+    (Zeus, Ramnit, Virut pattern).
+37. Repeated fixed-size flows to a single remote IP at regular short intervals
+    indicate automated C2 beaconing or heartbeat.
+38. Periodic short HTTPS connections to a single remote IP with consistent
+    minimal byte counts suggest encrypted C2 beaconing (Pushdo pattern).
+39. Short SF TCP connection to port 80 with near-zero resp_bytes and tiny
+    orig_bytes is consistent with an HTTP C2 check-in with no pending command.
+40. Established TCP connection to a non-standard high port with periodic
+    low-volume bidirectional data and no clear application-layer service
+    indicates a custom C2 channel.
+
+── C2: P2P — Kelihos (Botnet-3), NSIS.ay ───────────────────────────────────
+41. Established connections to many unique IPs on non-standard high ports with
+    balanced bidirectional byte exchange indicate P2P botnet communication.
+42. Many short bidirectional UDP flows to random high-numbered ports on many
+    different IPs with uniform packet sizes suggest a P2P botnet overlay.
+
+── Spam — Kelihos (Botnet-3), Neris (CTU-13) ───────────────────────────────
+43. Outbound connections to port 25 (SMTP) from a non-mail-server with large
+    orig_bytes and high connection rate suggest spam bot activity.
+44. Many short SF TCP connections to port 25 from a desktop-class IP with
+    consistent orig_bytes size indicate a spam campaign delivering email
+    payloads.
+
+── Credential / admin interface attacks — UWF Credential Access ─────────────
+45. Connection to port 4848 (GlassFish admin) or similar admin-only port with
+    SSL service from an untrusted source indicates a credential access attack.
+46. Multiple SF TCP connections to an admin-only port with consistent moderate
+    orig_bytes indicate automated credential stuffing or brute force against a
+    management interface.
+
+── Data exfiltration ────────────────────────────────────────────────────────
+47. Large orig_bytes relative to resp_bytes on a high-numbered port suggests an
+    outbound data exfiltration channel.
+48. Unusually large orig_bytes on an established connection to a non-standard
+    port indicates potential C2 exfiltration.
+49. Connection to port 21 (FTP) with large orig_bytes from a workstation-class
+    host suggests credential exfiltration or C2 file staging (Ramnit pattern).
+50. Large outbound byte count on a non-HTTP port to an external IP with no prior
+    inbound connection is consistent with staged data exfiltration.
+
+── DNS / tunneling ──────────────────────────────────────────────────────────
+51. Oversized traffic on port 53 with high byte-to-packet ratio suggests DNS
+    tunneling for data exfiltration or C2.
+52. Very high rate of short UDP flows to port 53 with varying payload sizes from
+    a single host is consistent with DNS-based C2 or data exfiltration.
+
+── Backdoor / persistent access — UNSW Backdoors ───────────────────────────
+53. Long-duration established TCP connection to an unusual port with periodic
+    low-volume bidirectional data and no known application-layer service
+    indicates a backdoor channel.
+54. Established TCP session to a high-numbered non-standard port originating
+    from an external IP with large resp_bytes suggests a reverse shell or
+    backdoor listener.
+
+── Industrial / SCADA — Siemens (Botnet-54) ─────────────────────────────────
+55. Connection to industrial control protocol ports (Modbus 502, Siemens S7
+    102, OPC-UA 4840/4843) from an IT-network or external host is highly
+    suspicious.
+56. TCP connection to port 102 (Siemens S7) or 502 (Modbus) from a host outside
+    the OT network segment indicates a potential ICS/SCADA attack.
+
+── Telnet exploitation / IoT payload delivery — Mirai ───────────────────────
+57. Established Telnet (port 23) connection with large resp_bytes after a
+    scanning phase is consistent with Mirai-style malware binary download to
+    an IoT device.
+
+── Fuzzing — UNSW-NB15 ──────────────────────────────────────────────────────
+58. Many connections with irregular orig_bytes patterns and varied states across
+    many ports from a single source indicate network fuzzing or vulnerability
+    probing.
+59. Connections with unusual flag combinations reflected in RSTO or OTH states
+    across many destination ports suggest packet-level manipulation or fuzzing.
+
+── Pushdo fake-SSL flood (Botnet-90) ────────────────────────────────────────
+    Observable: RSTO + port 443 + near-zero bytes (single-flow signal).
+    Risk note: benign complement added (CDN probe / load balancer reset).
+60. Short RSTO TCP connection to port 443 with near-zero orig_bytes and
+    resp_bytes is consistent with a fake or malformed SSL handshake used by
+    malware to blend C2 traffic among legitimate HTTPS connections.
+
+── Ramnit port-443 non-SSL (Botnet-42) ─────────────────────────────────────
+    Observable: port 443 + service absent + atypical bytes.
+    Risk note: softened with "atypical byte ratios" to avoid flagging
+    every Zeek SSL-parse failure. Benign complement added.
+61. Established TCP connection to port 443 with no identified SSL service and
+    atypical byte ratios may indicate malware using a custom encrypted protocol
+    on the HTTPS port rather than standard TLS.
+
+── IRC C2 on non-standard port (Botnet-90 uses port 2081) ───────────────────
+62. Persistent established TCP connection to an uncommon port (e.g. 2081, 194,
+    531) with low-rate symmetric byte exchange resembling IRC framing may
+    indicate C2 using IRC on an alternate port to evade port-based filters.
+
+── DNS anomaly per-flow — Kelihos DNS flood ─────────────────────────────────
+    Reworded from "high volume" (not observable per flow) to atypically large
+    DNS payload (IS observable per flow).
+63. UDP flow to port 53 with atypically large orig_bytes or resp_bytes relative
+    to a normal DNS query/response may indicate DNS tunneling, oversized TXT
+    record abuse, or botnet DNS flooding behavior.
+
+── Zeus config-download pattern ─────────────────────────────────────────────
+64. Short SF HTTP connection to port 80 with very small orig_bytes and similarly
+    small resp_bytes followed by immediate close is consistent with a malware
+    config or command file fetch (Zeus-style gate check-in).
+
+── S0 SYN probe — scanning / worm discovery ─────────────────────────────────
+65. S0 TCP connection with zero resp_bytes and zero or near-zero duration is
+    consistent with a SYN probe used in port scanning or worm host-discovery;
+    the scanner moved on without completing a handshake.
+
+── HTTP proxy abuse — Htbot (Botnet-52) ─────────────────────────────────────
+66. Established TCP connection to port 8080 or 3128 with moderate bidirectional
+    byte exchange from a host that is not a designated proxy server may indicate
+    HTTP proxy abuse or a proxy-relay botnet node.
+
+
+===========================================================================
+BENIGN_REASONS  (38 entries)
+===========================================================================
+
+── Generic (carried from v8) ────────────────────────────────────────────────
+ 1. Symmetric flow with normal byte and packet ratios consistent with
+    legitimate traffic.
+ 2. Connection established and closed cleanly; no anomalous volume or timing.
+ 3. Packet sizes and counts match expected web or file-transfer activity.
+ 4. Flow duration and byte counts are within normal operational range.
+ 5. Bidirectional exchange with balanced originator/responder bytes; likely
+    benign.
+ 6. Connection state indicates normal handshake and teardown sequence.
+ 7. Traffic volume and protocol use are consistent with standard enterprise
+    behavior.
+ 8. Flow characteristics match DNS, HTTP, or routine background communication.
+ 9. Short-lived connection with small byte counts; consistent with keep-alives
+    or health checks.
+10. No anomalous ratios detected; flow matches baseline for this protocol.
+
+── Web / HTTP / HTTPS ────────────────────────────────────────────────────────
+11. Completed HTTPS connection on port 443 with symmetric byte exchange is
+    consistent with standard web browsing.
+12. Short TCP session to port 80 with low byte count is consistent with a web
+    API health check or lightweight GET request.
+13. High resp_bytes on port 443 with clean SF completion is consistent with a
+    software update or media download over HTTPS.
+14. Large orig_bytes on port 443 with clean SF completion is consistent with a
+    cloud storage upload (Google Drive, OneDrive, S3).
+15. Frequent short HTTP connections to the same endpoint with minimal payload
+    are consistent with API polling, monitoring agents, or load balancer health
+    checks.
+16. Short periodic HTTPS connections to a CDN or vendor endpoint with stable
+    byte counts are consistent with software update checks or telemetry.
+
+── DNS / NTP / ICMP ─────────────────────────────────────────────────────────
+17. DNS query on port 53 with small payload and immediate response is normal
+    resolver traffic.
+18. UDP flow to port 123 (NTP) with tiny symmetric byte counts and sub-second
+    duration is normal time synchronization traffic.
+19. Small bidirectional ICMP flow with short duration and minimal bytes is
+    consistent with a network ping or reachability check.
+
+── SSH / Admin ──────────────────────────────────────────────────────────────
+20. SSH session on port 22 with moderate byte exchange and clean SF completion
+    is consistent with legitimate interactive admin access.
+21. High orig_bytes on port 22 with long duration and SF completion is
+    consistent with a bulk file transfer via SCP or rsync over SSH.
+22. Established TCP connection to an admin port (8080, 8443) from an internal
+    management IP with normal byte exchange indicates authorized web application
+    administration.
+
+── SMTP / FTP ────────────────────────────────────────────────────────────────
+23. SMTP connection from a known mail server IP with large orig_bytes and SF
+    completion indicates normal outbound email delivery.
+24. FTP data transfer with large resp_bytes, clean SF state, and normal packet
+    ratios is consistent with authorized bulk file download.
+25. FTP control session on port 21 with small symmetric byte exchange and SF
+    state is consistent with a routine directory listing or authentication.
+
+── IRC / Chat — complement to IRC C2 attack reasons ────────────────────────
+26. IRC or chat application connection on port 6667 with low-rate symmetric
+    exchange and clean SF completion is consistent with legitimate messaging.
+
+── Streaming / VoIP / P2P ───────────────────────────────────────────────────
+27. High UDP packet rate with large resp_bytes and long duration on a
+    high-numbered port is consistent with video streaming or media delivery.
+28. Bidirectional UDP flows to multiple IPs on high-numbered ports with
+    consistent small packet sizes and long duration are consistent with VoIP
+    or real-time communication.
+29. Many TCP or UDP connections to many IPs on high ports with moderate
+    bidirectional byte exchange are consistent with legitimate BitTorrent or
+    P2P file-sharing activity.
+
+── Database — complement to DB brute force attack reason ─────────────────────
+30. Multiple short SF TCP connections to a database port (1433, 3306, 5432)
+    from an application server IP with moderate bytes are consistent with
+    normal ORM connection pool traffic.
+
+── Industrial — complement to ICS attack reasons ────────────────────────────
+31. TCP connection to Modbus (502) or OPC-UA (4840) from a known engineering
+    workstation IP within the OT network segment is consistent with authorized
+    SCADA operations.
+
+── Background / misc ────────────────────────────────────────────────────────
+32. Short S0 or RSTO connection to a common port with zero bytes is consistent
+    with a firewall probe, NAT keepalive, or connection refused response.
+33. UDP flows with small symmetric byte counts to well-known service ports are
+    consistent with routine background protocol traffic.
+34. Long-duration established TCP connection with very low byte rate is
+    consistent with a persistent application-layer session such as a database
+    connection pool or XMPP stream.
+
+── Complements to new v9 attack reasons ──────────────────────────────────────
+35. Short RSTO TCP connections to port 443 from a load balancer health check or
+    CDN probe are normal and expected for infrastructure monitoring.
+    [Complement to: Pushdo fake-SSL RSTO/443 attack reason]
+
+36. An established TCP connection to port 443 with an unrecognized service field
+    may reflect a non-standard TLS implementation, HTTP/3 negotiation, or
+    proprietary application protocol over the HTTPS port.
+    [Complement to: Ramnit TCP/443 non-SSL attack reason]
+
+37. High-volume DNS queries from an internal resolver or CDN edge node are
+    expected behavior for recursive resolution under load.
+    [Complement to: Kelihos DNS flood attack reason]
+
+38. TCP connections to port 8080 or 3128 from clients to a designated internal
+    proxy or development web server are normal in enterprise and developer
+    environments.
+    [Complement to: Htbot proxy abuse attack reason]
+
+
+===========================================================================
+INFERENCE SAFETY NOTES
+===========================================================================
+
+The following reasons carry higher false-positive risk and were mitigated:
+
+RISK: Port 443 + service="-" → Ramnit
+  Mitigation: Added "atypical byte ratios" as a co-required signal.
+  Without abnormal bytes, TCP/443 with service="-" alone will not trigger.
+
+RISK: "Many short RSTO/443 to many different IPs" (aggregate pattern)
+  Mitigation: Reworded to single-flow signal: RSTO + 443 + near-zero bytes.
+  Benign complement: CDN probe / load balancer reset.
+
+RISK: "High volume of DNS queries" (aggregate pattern)
+  Mitigation: Reworded to per-flow signal: UDP/53 with atypically large bytes.
+  Three existing benign DNS reasons provide strong counter-signal.
+
+RISK: Port scan reasons referencing "many connections"
+  Mitigation: All reworded to describe the single S0 probe (S0 state,
+  zero resp_bytes, zero/near-zero duration) — individually observable.
+
+RISK: Worm reasons referencing "sequential IPs" (not observable per flow)
+  Mitigation: Reworded to S0 + port 445 + zero resp_bytes from internal host.
+
+STILL TO ADD (Phase 3 — when multi-log loader is implemented):
+  - ATTACK: "POST to .php endpoint with minimal response = C2 gate (http.log)"
+  - ATTACK: "Obsolete MSIE 6.0 User-Agent commonly spoofed by malware (http.log)"
+  - ATTACK: "Self-signed certificate with failed validation = C2 over TLS (ssl.log)"
+  - ATTACK: "Domain with high entropy or DGA pattern resolved to botnet IP (dns.log)"
+  - BENIGN: "Standard browser UA with expected HTTP 200 to known CDN (http.log)"
+  - BENIGN: "DNS query resolves to well-known IP range with stable TTL (dns.log)"
