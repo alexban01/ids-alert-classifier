@@ -1,0 +1,753 @@
+================================================================================
+IDS ALERT CLASSIFIER — THESIS DEVELOPMENT NOTES (continued from thesis_notes_2.txt)
+Fine-tuning Qwen2.5-1.5B-Instruct for network intrusion detection
+================================================================================
+
+This file continues from thesis_notes_2.txt (v8 through v8.1 + OOD findings).
+
+================================================================================
+MOTIVATION FOR V9.0 — THE OOD GENERALISATION PROBLEM
+================================================================================
+
+v8.1 achieved MCC +0.9932 on the real-world benchmark (IoT-23, CTU-13,
+UWF-ZeekData24, CTU-Normal). Two OOD tests then revealed that this performance
+does not transfer to unseen capture scenarios:
+
+  OOD test                         MCC       Attack Recall
+  -------------------------------- --------- -------------
+  CTU-Malware-Capture-Botnet-78-2  +0.0448   0.4%  (Zeus)
+  CTU-Malware-Capture-Botnet-3     +0.1674   38%   (Kelihos)
+
+Both captures were excluded from all training versions. The OOD results indicate
+the model has memorised the label conventions and attack signatures of its four
+training sources rather than learning general flow-level anomaly patterns.
+
+The v8.1 root cause analysis (thesis_notes_2.txt) identified two separate
+explanations:
+
+  1. Flow-level indistinguishability: Zeus HTTP C2 is structurally identical to
+     normal web traffic at the conn.log feature level. No flow-level classifier
+     can reliably separate these. This is a feature-set boundary, not a model
+     failure.
+
+  2. Ground truth labelling mismatch: Stratosphere binetflow labels ALL traffic
+     from an infected host as From-Botnet-*, including the host's normal HTTP
+     browsing and DNS queries. The model correctly identifies these normal-looking
+     flows as FALSE POSITIVE, which the evaluation records as misses. The true
+     detection rate for distinctively malicious behaviour (SMTP spam, unusual
+     port probes) within the Kelihos capture is likely higher than 38%.
+
+Despite these nuances, the performance gap is real and consequential. v8.1 cannot
+be claimed to generalise — it classifies well on data similar to its training
+distribution and poorly on novel capture scenarios.
+
+--------------------------------------------------------------------------------
+The case for multi-log enrichment
+--------------------------------------------------------------------------------
+
+The specific limitation of flow-level detection against HTTP C2 is well-known
+in the network security literature. At the conn.log level, a Zeus gate check-in:
+
+  tcp SF dur=0.29 orig=544 resp=632 port=80
+
+is indistinguishable from a normal health check to a CDN endpoint. Both are
+short SF TCP connections to port 80 with similar byte counts.
+
+However, Zeek produces additional logs alongside conn.log that contain
+application-layer signal:
+
+  http.log: method=GET, host=maliciousdomain.ru, uri=/gate.php,
+            user_agent=Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)
+  dns.log:  query=maliciousdomain.ru, answers=185.220.101.50, TTL=60
+  ssl.log:  version=TLSv1.0, cipher=RC4-MD5, validation_status=FAILED
+
+These fields are available in a real Zeek deployment and expose behaviour that
+is not present in conn.log alone:
+
+  - An MSIE 6.0 User-Agent string on a modern OS is either malware or a
+    misconfigured legacy system; no contemporary user generates this UA organically.
+  - POST to a .php file with a minimal response body is a known C2 gate pattern
+    (Zeus, Ramnit, Htbot all use /gate.php or equivalent).
+  - A self-signed certificate with a failed validation chain is a strong indicator
+    of adversary-controlled infrastructure. Legitimate HTTPS uses trusted CAs.
+  - An extremely short TTL (60 seconds) on a domain that is otherwise not well-known
+    is consistent with fast-flux C2 infrastructure.
+
+The v9.0 approach is to teach the model to use this additional context when it
+is available, while preserving performance on conn.log-only inputs (which is the
+common case for data ingested from most SIEM pipelines).
+
+================================================================================
+V9.0 — OVERVIEW
+================================================================================
+
+Goal: Improve OOD generalisation on HTTP C2 and mixed-protocol botnets by:
+
+  1. Adding CTU-Malware-Capture series (7 scenarios) as a new training source.
+     These captures include full Zeek bro/ output including dns/http/ssl.log.
+     They cover botnet families NOT seen in existing training sources.
+
+  2. Extending the prompt format with conditional application-layer context
+     sections ([HTTP], [DNS], [SSL]) derived from the auxiliary Zeek logs.
+     Sections are present only when a uid match exists in the relevant log.
+
+  3. Random context masking (50% per section) during training to prevent the
+     model from using context presence as a shortcut signal.
+
+  4. Increasing max_length from 512 to 1024 tokens to accommodate enriched prompts.
+
+  5. Permanent OOD regression tracking: CTU-Malware-Capture-Botnet-3 (Kelihos)
+     is added to benchmark_realworld.py as a held-out OOD eval source with
+     known baseline MCC +0.06 (v8.1). It remains EXCLUDED from training.
+
+Target metrics:
+  Train-distribution (4 existing sources):  MCC ≥ +0.99 (must not regress)
+  OOD Botnet-3 (Kelihos):                   MCC >  +0.50 (vs +0.06 baseline)
+  OOD Botnet-78-2 (Zeus):                   MCC >  +0.50 (if http.log context)
+  Format failure rate:                        0%
+
+================================================================================
+V9.0 — PROMPT FORMAT EXTENSION
+================================================================================
+
+--------------------------------------------------------------------------------
+Rationale: conditional, uid-joined context sections
+--------------------------------------------------------------------------------
+
+The existing 13-field conn.log prompt is preserved unchanged as the base section.
+Application-layer context is appended as distinct labelled blocks ONLY when:
+
+  (a) The flow has a matching uid in the relevant log (e.g., http.log).
+  (b) The context block was not randomly masked during training sample construction.
+
+At inference time on a live Zeek deployment, all three auxiliary logs are
+available for any HTTP/HTTPS/DNS/TLS flow. For conn.log-only inputs (legacy SIEM,
+or sources that do not export full Zeek output), the prompt degrades gracefully
+to the v8.1 format — no context sections are appended and the model uses
+flow-level features only.
+
+--------------------------------------------------------------------------------
+New prompt format (full example, all three sections present)
+--------------------------------------------------------------------------------
+
+  Analyze this network connection and classify it as ATTACK or FALSE POSITIVE.
+
+    Proto:              tcp
+    Service:            N/A
+    Dest Port:          80
+    Src Port:           54321
+    Duration (s):       0.823000
+    Orig Packets:       6
+    Resp Packets:       4
+    Orig Bytes:         614
+    Resp Bytes:         356
+    Conn State:         SF
+    Bytes/sec:          1178.6
+    Orig Bytes/Pkt:     102.3
+    Resp Bytes/Pkt:     89.0
+
+  [HTTP]
+    Method:     POST
+    Host:       updates.corp-internal.net
+    URI:        /gate.php
+    User-Agent: Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)
+    Status:     200    Response: 48 bytes
+
+  [DNS]
+    Query:    updates.corp-internal.net
+    Answer:   185.220.101.50    Type: A
+    TTL:      60s    NXDOMAIN: No
+
+  [SSL]
+    Version:  TLSv1.0    Cipher: RC4-MD5
+    Issuer:   Self-Signed    Validated: FAILED
+
+--------------------------------------------------------------------------------
+Context fields selected (minimalist — only the most discriminative per log)
+--------------------------------------------------------------------------------
+
+  [HTTP]
+    Method        — GET vs POST matters: C2 often POSTs config/command data
+    Host          — the target domain; enables domain-based reasoning
+    URI           — path; /gate.php, /config.bin, /panel/ are C2 signatures
+    User-Agent    — obsolete UA strings (MSIE 6.0) are strong malware indicators
+    Status code   — 200 on a POST with tiny response = C2 acknowledgement
+    Response body length — near-zero after POST = no command pending (typical C2 check-in)
+
+  [DNS]
+    Query         — domain name; high-entropy or DGA-like names are suspicious
+    Answer        — resolved IP; can intersect with threat intelligence
+    Type          — A, AAAA, TXT; oversized TXT records indicate DNS tunneling
+    TTL           — very short TTL (~60s) = fast-flux C2 infrastructure
+    NXDOMAIN flag — DGA botnets produce many NXDOMAIN responses cycling through domains
+
+  [SSL]
+    Version       — TLSv1.0/SSLv3 = legacy or deliberately downgraded C2
+    Cipher        — RC4-MD5, NULL, EXPORT ciphers = deliberately weak
+    Issuer        — Self-Signed = adversary-controlled cert (no trusted CA)
+    Validation    — FAILED = cert chain broken; OKCHAIN = legitimate
+
+Fields excluded: referrer, MIME type, response headers (too verbose / rarely
+discriminative at this abstraction level), certificate subject (issuer is
+sufficient for self-signed detection), curve, server_name (overlap with dns.query).
+
+--------------------------------------------------------------------------------
+Implementation — prompt_utils.py
+--------------------------------------------------------------------------------
+
+build_prompt() signature extended with three optional keyword arguments:
+
+  def build_prompt(proto, duration, orig_pkts, resp_pkts,
+                   orig_bytes, resp_bytes, conn_state, service="-",
+                   resp_port="-", orig_port="-",
+                   http_ctx=None, dns_ctx=None, ssl_ctx=None):
+
+Each *_ctx argument is a dict of the fields listed above, or None. When None,
+the corresponding section is omitted entirely from the prompt string.
+
+A new helper _sctx(d, key, default="N/A") safely extracts values from context
+dicts, returning the default for None/missing/empty/"-" values. This mirrors the
+existing _safe() and _fmt_port() helpers for conn.log fields.
+
+All existing callers (benchmark_realworld.py, classify_conn_log.py) pass no
+context arguments and therefore generate the same 13-field prompt as v8.1.
+No backward compatibility shims are needed; the new parameters are additive.
+
+================================================================================
+V9.0 — TRAINING DATA: CTU-MALWARE-CAPTURE SERIES
+================================================================================
+
+--------------------------------------------------------------------------------
+Why this source
+--------------------------------------------------------------------------------
+
+The Stratosphere Lab CTU-Malware-Capture series (distinct from CTU-13) provides
+individual infection-level captures of specific malware families. Unlike CTU-13
+(binetflow CSV only), each capture includes a complete bro/ subdirectory with:
+
+  conn.log   dns.log   http.log   ssl.log   (and others)
+
+The binetflow labeled CSV gives per-flow ground truth via 5-tuple matching.
+No pcap reprocessing is required: the Zeek output is pre-generated.
+
+URL pattern: https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-{ID}/
+
+This means flow-label matching (binetflow 5-tuple → conn.log uid) gives access
+to labeled flows with their associated http/dns/ssl log entries — precisely the
+multi-log training data needed.
+
+--------------------------------------------------------------------------------
+Scenarios selected for training (7)
+--------------------------------------------------------------------------------
+
+  Scenario   Family    C2 Type        Reason for inclusion
+  --------- --------- -------------- --------------------------------------------
+  Botnet-42  Ramnit    HTTP C2        Banking trojan; HTTP gate polling; FTP exfil
+  Botnet-44  Ngrbot    IRC C2         IRC C2 on port 6667 and non-standard ports
+  Botnet-52  Htbot     HTTP C2        Proxy relay botnet; port 8080/3128
+  Botnet-54  Siemens   HTTP C2        Industrial malware; ICS-adjacent protocols
+  Botnet-78-2 Zeus     HTTP C2        Previously used for OOD eval; now in training
+  Botnet-90  Pushdo    HTTPS C2       TLS-based C2; tests ssl.log context
+  Botnet-91  Ballpit   HTTP C2        Diverse HTTP botnet; varied URI patterns
+
+Botnet-3 (Kelihos) is intentionally excluded from training. It serves as the
+permanent OOD regression test. Including it in training would make it an
+in-distribution source and eliminate its value as a generalisation probe.
+
+--------------------------------------------------------------------------------
+Label mapping (training, different from benchmark convention)
+--------------------------------------------------------------------------------
+
+  Binetflow label          Training label    Notes
+  ----------------------- --------------- ----------------------------------------
+  flow=From-Botnet-*       ATTACK           Confirmed malicious traffic
+  From-Normal-*            FALSE POSITIVE   Researcher-labeled clean traffic
+  flow=Background-*        SKIP             Unknown provenance — not used
+
+Background flows are skipped (not treated as benign). This differs from
+compare_binetflow.py's OOD evaluation convention (where Background is used as
+FALSE POSITIVE to increase sample size). For training, label noise in the benign
+pool is more damaging than a smaller pool; CTU-Normal already provides 100k clean
+benign samples and background flows are an unnecessary risk.
+
+--------------------------------------------------------------------------------
+5-tuple matching: binetflow → conn.log → uid → context
+--------------------------------------------------------------------------------
+
+The binetflow and conn.log for the same capture describe the same network events
+but in different formats:
+
+  binetflow: SrcAddr, Sport, DstAddr, Dport, Proto, Label
+  conn.log:  uid, id.orig_h, id.orig_p, id.resp_h, id.resp_p, proto, ...
+
+The matching key is a direction-agnostic normalised 5-tuple:
+
+  _norm_key(proto, ip_a, port_a, ip_b, port_b)
+    → sort (ip_a, port_a) and (ip_b, port_b) lexicographically
+    → key = (proto, lo_ip, lo_port, hi_ip, hi_port)
+
+This key is computed for each binetflow row to build a label lookup dict. Each
+conn.log row is then checked against this dict; rows with a label are kept,
+others discarded. The conn.log uid is then used to look up context from the
+auxiliary logs (http/dns/ssl.log), which are also indexed by uid.
+
+This matching strategy was already validated in compare_binetflow.py for the
+Zeus OOD evaluation (thesis_notes_2.txt). v9.0 extends it to build training
+samples rather than just evaluation labels.
+
+A known limitation: binetflow generates one row per conversation (aggregated),
+while conn.log can have multiple rows per conversation for long-lived connections.
+In practice this causes minor label coverage gaps (some conn.log rows have no
+binetflow match) but does not introduce false labels, since unmatched rows are
+simply discarded.
+
+--------------------------------------------------------------------------------
+Cap configuration
+--------------------------------------------------------------------------------
+
+  CTU_MALWARE_CAP = int(8_000 * TRAINING_FACTOR)   per (scenario, class)
+
+At TRAINING_FACTOR=1.0 this allows up to 8,000 attacks and 8,000 benign flows
+per scenario (7 scenarios × 8k × 2 = up to 112k samples total). In practice
+most scenarios have fewer labeled flows than this limit — the cap is a safety
+bound, not an expected count.
+
+The relatively low cap (vs 80k for the existing sources) is intentional:
+the CTU-Malware-Capture source is new and less validated. A smaller contribution
+limits the risk of its label quality affecting the overall training distribution.
+The cap can be raised in v9.1 if the training run validates quality.
+
+================================================================================
+V9.0 — CONTEXT MASKING
+================================================================================
+
+--------------------------------------------------------------------------------
+The overfitting risk: context presence as a shortcut
+--------------------------------------------------------------------------------
+
+If [HTTP], [DNS], and [SSL] sections appear only in attack training samples,
+the model can learn:
+
+  "Has [HTTP] section → likely ATTACK"
+
+rather than reasoning about the content of those sections. This shortcut would:
+
+  1. Cause false positives on any legitimate traffic where Zeek produces http.log
+     entries (virtually all web traffic).
+  2. Fail to generalise to benign traffic with [HTTP] context, since the model
+     never saw such examples during training.
+  3. Produce models that degrade when deployed with full multi-log context vs
+     conn.log-only — the opposite of the intended behaviour.
+
+This is the most significant overfitting risk in v9.0. The mitigation is
+two-pronged:
+
+  Mitigation A (implemented): Random context masking (CONTEXT_MASK_PROB = 0.50)
+  Mitigation B (structural):  The existing benign sources (CTU-Normal, UWF benign)
+                               should also produce http/dns/ssl context where possible.
+                               However, these sources only have conn.log available,
+                               so their benign samples have no context.
+
+Mitigation A alone is not fully sufficient if the benign:http_ctx ratio is near 0%
+while the attack:http_ctx ratio is significant. The model will still see context in
+~50% of attack samples (the unmasked half) with zero context in any benign sample.
+This creates a statistical imbalance even with masking.
+
+After preprocessing, the context coverage check added to __main__ in preprocess_zeek.py
+prints the following diagnostic:
+
+  Context [HTTP]: atk X.X% / ben Y.Y%
+  Context [DNS]:  atk X.X% / ben Y.Y%
+  Context [SSL]:  atk X.X% / ben Y.Y%
+
+If ben% is near zero while atk% is substantial, the shortcut risk is real.
+The model may still learn to reason about context content correctly — but
+this should be verified in the benchmark by comparing performance on:
+
+  (a) Prompts with context sections present
+  (b) The same prompts with context sections stripped
+
+If (a) >> (b), the model is using context beneficially.
+If (a) == (b), context is irrelevant (model ignores it).
+If prompts from (b) show degraded FP rate (flags benign flows when context
+is added), the shortcut has been learned.
+
+This comparison benchmark is not implemented in v9.0 but should be added in v9.1.
+
+--------------------------------------------------------------------------------
+Implementation: make_sample() masking
+--------------------------------------------------------------------------------
+
+Context masking is applied at sample construction time in make_sample(), after
+the existing conn_state masking:
+
+  if http_ctx is not None and random.random() < CONTEXT_MASK_PROB:
+      http_ctx = None
+  if dns_ctx is not None and random.random() < CONTEXT_MASK_PROB:
+      dns_ctx = None
+  if ssl_ctx is not None and random.random() < CONTEXT_MASK_PROB:
+      ssl_ctx = None
+
+Each section is masked independently with 50% probability. This means a sample
+with all three context sections has a 12.5% chance of retaining all three,
+a 37.5% chance of retaining exactly two, etc. The resulting distribution ensures
+the model frequently trains on conn.log-only prompts for flows that have
+application-layer data available in the raw logs.
+
+The 50% probability was chosen as a conservative default. A lower value (e.g. 20%)
+would retain more context per sample but risk the shortcut. A higher value (e.g. 80%)
+would minimise shortcut risk but reduce the model's exposure to multi-log training
+signal. 50% is a balanced starting point; empirical tuning is possible in v9.1.
+
+================================================================================
+V9.0 — REASON POOL EXPANSION (MULTI-LOG AWARE)
+================================================================================
+
+v8.1 expanded the reason pools from 17/15 to 66/38 entries with port-aware and
+protocol-specific patterns (thesis_notes_2.txt does not cover this in detail —
+it is documented in notes/v9.0_prompt_changes.txt). v9.0 adds further entries
+for multi-log signal:
+
+ATTACK reasons added (11 new entries):
+
+  Multi-log HTTP:
+    - "HTTP POST to a .php endpoint with minimal response body is consistent
+      with a C2 gate check-in or command retrieval (Zeus/Ramnit pattern)."
+    - "Obsolete or spoofed User-Agent string (e.g. MSIE 6.0 on a modern OS) in
+      an HTTP request is commonly used by malware to mimic old browsers while
+      communicating with C2 infrastructure."
+    - "HTTP request to an uncommon URI path (e.g. /gate.php, /config.bin,
+      /panel/) with a small symmetric byte exchange is consistent with malware
+      polling a C2 server for commands."
+    - "HTTP response body of zero or very few bytes after a POST request suggests
+      C2 acknowledgement with no payload — the server confirmed receipt but
+      issued no command."
+
+  Multi-log DNS:
+    - "DNS query to a domain with high lexical entropy or random-looking subdomain
+      is consistent with domain generation algorithm (DGA) C2 or DNS tunneling."
+    - "NXDOMAIN response to a DNS query may indicate an active DGA botnet client
+      iterating through generated domains looking for an active C2 server."
+    - "DNS query to a recently registered or low-reputation domain with a very
+      short TTL (< 60 seconds) is consistent with fast-flux C2 infrastructure."
+
+  Multi-log SSL/TLS:
+    - "SSL/TLS connection with a self-signed certificate or failed certificate
+      validation is consistent with malware C2 over HTTPS without a legitimate
+      PKI chain."
+    - "Use of an obsolete TLS version (SSLv3, TLSv1.0) or weak cipher suite
+      (RC4, NULL, EXPORT) in an established connection may indicate legacy
+      malware C2 or an adversary-in-the-middle setup."
+
+BENIGN reasons added (6 new entries):
+  Complements to each of the three multi-log categories — standard browser UA,
+  CDN DNS resolution, modern TLS with valid cert — to prevent the model from
+  associating any HTTP/DNS/SSL presence with attacks.
+
+These reasons serve two purposes:
+  1. They direct the model to cite the specific multi-log signal in its REASON
+     output, making verdicts more interpretable and auditable.
+  2. They create training diversity: a Zeus flow with its http.log context will
+     sometimes receive a C2-gate-specific reason and sometimes a generic flow-level
+     reason (from the existing pool), depending on which reason is randomly sampled.
+     This prevents the model from memorising a fixed pairing of (context, reason).
+
+Total reason counts after v9.0: 77 ATTACK / 44 BENIGN.
+
+================================================================================
+V9.0 — TECHNICAL CHANGES
+================================================================================
+
+--------------------------------------------------------------------------------
+max_length: 512 → 1024 tokens
+--------------------------------------------------------------------------------
+
+The v8.1 max_length of 512 tokens was sufficient for the 13-field conn.log prompt
+(approximately 200-250 tokens including the chat template overhead). A fully
+enriched v9.0 prompt with all three context sections occupies approximately
+400-500 tokens. Including the expected assistant response (VERDICT + REASON,
+~30-50 tokens) the total sequence length approaches 550 tokens — above the
+v8.1 limit.
+
+Setting max_length=1024 provides headroom for:
+  - The full enriched prompt (400-500 tokens)
+  - The assistant response (30-50 tokens)
+  - The Qwen2.5 chat template overhead (~40 tokens)
+  - Edge cases with very long URIs, User-Agent strings, or certificate issuer names
+
+VRAM impact: attention memory in transformers scales with O(n²) in sequence
+length (for non-flash-attention implementations) and O(n) for flash attention.
+QLoRA with gradient checkpointing reduces activation memory substantially.
+The practical impact at max_length=1024 vs 512 on an 8 GB GPU:
+
+  Local RTX 3070: batch size reduced from 6 to 4 (gradient_accumulation_steps
+                  increased from 4 to 6 to maintain effective batch = 24).
+  RunPod RTX 5090: batch=24 retained; 32 GB VRAM has sufficient headroom.
+
+The plan notes that if 95th-percentile prompt lengths after preprocessing are
+≤ 640 tokens, 768 could be used instead to save VRAM. This measurement was not
+taken before implementing 1024. If the local training run shows OOM errors,
+reduce to 768.
+
+--------------------------------------------------------------------------------
+LoRA rank: unchanged at r=32
+--------------------------------------------------------------------------------
+
+v8.1 introduced r=32 (up from v7.1's r=16). v9.0 retains this. The additional
+application-layer reasoning required for multi-log prompts may benefit from the
+higher rank capacity, though this is speculative. The primary motivation for
+keeping r=32 is not to introduce a confounding variable: if v9.0 results are
+compared to v8.1, changing rank alongside the prompt format would make it
+impossible to attribute performance differences to one cause.
+
+--------------------------------------------------------------------------------
+Dataset composition change
+--------------------------------------------------------------------------------
+
+v9.0 adds a sixth training source: CTU-Malware-Capture (7 scenarios).
+The existing five sources (IoT-23, CTU-13, UNSW-NB15, UWF-ZeekData24, CTU-Normal)
+are unchanged. The final 2:1 benign:attack subsampling (FINAL_ATTACK=120k,
+FINAL_BENIGN=240k at TRAINING_FACTOR=1.0) absorbs the new source within the
+existing budget — no total sample count change is intended.
+
+The SF-state oversampling (2× weight for SF/S1/OTH attacks introduced in v8)
+continues to apply. CTU-Malware-Capture attack flows are predominantly SF-state
+(HTTP C2 is established TCP), so they receive the 2× weight — this increases their
+representation in the final training batch.
+
+================================================================================
+V9.0 — IMPLEMENTATION DETAILS
+================================================================================
+
+--------------------------------------------------------------------------------
+Data pipeline: load_ctu_malware_captures() in preprocess_zeek.py
+--------------------------------------------------------------------------------
+
+The function downloads and processes all configured scenarios in sequence. Per
+scenario:
+
+  1. Fetch the Stratosphere capture index page (HTML directory listing) and
+     parse it for a .binetflow.labeled link using a regex:
+       re.findall(r'href="([^"/][^"]*\.binetflow(?:\.labeled)?)"', html)
+     This is more robust than hardcoding filenames (which differ per capture).
+
+  2. Download binetflow, conn.log, and optionally dns.log, http.log, ssl.log
+     to datasets/ctu-malware/{scenario_id}_{filename}. Files are cached by
+     local path; re-runs skip already-downloaded files.
+
+  3. Parse binetflow CSV to build a {norm_5tuple → label} dict. Background
+     flows are skipped; conflicting 5-tuples resolve to ATTACK.
+
+  4. Parse each auxiliary log using _parse_zeek_log(), which handles the
+     Zeek #fields/#separator/#empty_field/#unset_field header convention.
+     Builds uid → {method, host, uri, ...} dicts for http/dns/ssl.
+
+  5. Walk conn.log line-by-line. For each flow, compute the normalised 5-tuple
+     and look up the binetflow label. If found, retrieve context by uid and
+     call make_sample() with context. Cap applied per (scenario, class).
+
+The _parse_zeek_log() function handles the Zeek log format generically: it reads
+the #fields line to determine column names and the #separator line for the
+delimiter (\\x09 = tab is the default but is specified in the header). Unset and
+empty field markers (typically "-" and "(empty)") are mapped to None, which
+becomes "N/A" in the rendered prompt via _sctx().
+
+--------------------------------------------------------------------------------
+Inference pipeline: classify_conn_log.py --http-log / --dns-log / --ssl-log
+--------------------------------------------------------------------------------
+
+The CLI was extended to accept three optional log path arguments:
+
+  .venv/bin/python classify_conn_log.py conn.log \
+      --http-log http.log --dns-log dns.log --ssl-log ssl.log
+
+When these arguments are provided, the corresponding logs are parsed and indexed
+by uid using build_uid_http(), build_uid_dns(), build_uid_ssl() — the same
+logic as the training pipeline. The resulting dicts are passed to build_prompts(),
+which calls build_prompt() with context for each row.
+
+This enables enriched inference on any Zeek deployment that produces full log
+output. A typical Zeek deployment writes conn.log, dns.log, http.log, and ssl.log
+in the same directory — the user only needs to point classify_conn_log.py at the
+relevant paths.
+
+The max_length in classify_hf_batch() was updated from 512 to 1024 to match the
+training configuration. Using a smaller truncation limit at inference than during
+training would silently discard context for long prompts without warning.
+
+--------------------------------------------------------------------------------
+Benchmark: permanent OOD regression test (benchmark_realworld.py)
+--------------------------------------------------------------------------------
+
+CTU-Malware-Capture-Botnet-3 (Kelihos) is added as a sixth benchmark source.
+Unlike the five training-distribution sources, it is clearly labelled as OOD
+in the benchmark output:
+
+  Source                             Atk   Recall   Ben   Recall    Acc
+  -------------------------------- -----  -------  ----  -------  -----
+  IoT-23         (Zeek conn.log)    300    ...      300   ...      ...
+  CTU-13         (binetflow)        300    ...      300   ...      ...
+  UWF-ZeekData24 (Zeek conn.log)    300    ...      300   ...      ...
+  CTU-Normal     (Zeek conn.log)      0     —       300   ...      ...
+  Botnet-3 [OOD] (Kelihos)          300    ...      300   ...      ...
+
+Including it in the benchmark serves three purposes:
+
+  1. Accountability: a visible MCC for Kelihos in every benchmark run makes
+     regression obvious. If a training change degrades OOD performance, it shows.
+
+  2. Progress tracking: the v8.1 baseline (MCC +0.06) becomes a documented
+     starting point. v9.0 should improve it; future versions can continue from
+     the v9.0 result.
+
+  3. Research scope: including an explicit OOD source in the benchmark is a
+     more honest evaluation than reporting only in-distribution accuracy.
+     Thesis examiners are likely to ask "how does the model perform on data it
+     has never seen?" — this answers that question directly.
+
+The load_ctu_botnet3() function uses _find_binetflow_url() to auto-discover
+the binetflow file (avoiding hardcoded filenames that may be wrong), downloads
+both files to the test_captures/ directory (existing convention from
+compare_binetflow.py), and applies the same label mapping as the training pipeline
+(Botnet → ATTACK, Normal → FALSE POSITIVE, Background → skip).
+
+Because Botnet-3 is not in training data, the --regen flag is required the first
+time a user runs benchmark_realworld.py with v9.0 — the cached sample file from
+v8.1 will not contain Botnet-3 entries.
+
+================================================================================
+V9.0 — RISKS AND MITIGATIONS
+================================================================================
+
+--------------------------------------------------------------------------------
+Risk 1: Context presence as shortcut (already discussed above)
+--------------------------------------------------------------------------------
+
+Primary mitigation: 50% random masking per section in make_sample().
+Secondary concern: benign training samples have no context (CTU-Normal and UWF
+benign do not have auxiliary logs). The post-preprocessing coverage diagnostic
+(context [HTTP]: atk X% / ben Y%) should be checked before training.
+
+If atk context% >> ben context% (e.g. atk=40%, ben=0%), consider:
+  - Sourcing benign-with-context examples from public captures (e.g. CTU-Normal
+    scenarios that have a bro/ directory with http.log entries — not all do)
+  - Treating this as an acknowledged limitation and monitoring FP rate on
+    HTTP-rich traffic specifically
+
+--------------------------------------------------------------------------------
+Risk 2: URI/UA string memorisation
+--------------------------------------------------------------------------------
+
+If the model sees /gate.php and MSIE 6.0 from a single Zeus capture, it may
+memorise these specific strings rather than learning the underlying pattern
+(unexpected UA + .php endpoint + small POST response = C2).
+
+Mitigation: multiple captures per botnet family. v9.0 includes Botnet-78-2 plus
+Botnet-42 (Ramnit) and Botnet-52 (Htbot), which also use HTTP C2 with different
+URIs and User-Agents. Diversity across families forces the model to learn the
+structural pattern rather than specific string values.
+
+v9.1 could add more Zeus variants (multiple Botnet-78-* scenarios exist in the
+Stratosphere corpus) to further increase URI diversity.
+
+--------------------------------------------------------------------------------
+Risk 3: max_length increase may cause OOM on local 3070
+--------------------------------------------------------------------------------
+
+Increasing max_length from 512 to 1024 with batch=4 and gradient_checkpointing=True
+may still exceed 8 GB VRAM for some samples if the enriched prompts are significantly
+longer than expected. If OOM occurs during local training:
+
+  Option A: Reduce batch to 2, increase grad_accum to 12 (effective = 24).
+  Option B: Use max_length=768 (covers 95th-percentile enriched prompts
+            but discards the longest ones).
+
+The full RunPod training (32 GB) is not at risk. The local run is used for
+validation only (TRAINING_FACTOR=0.1) — OOM would slow validation but not
+block the full run.
+
+--------------------------------------------------------------------------------
+Risk 4: Ground truth quality of CTU-Malware-Capture (same binetflow issue)
+--------------------------------------------------------------------------------
+
+The Stratosphere binetflow labels are IP-based, not behavior-based (see
+thesis_notes_2.txt). This applies equally to the CTU-Malware-Capture series
+used in v9.0 training. Some attack-labeled conn.log flows may be normal user
+activity from the infected host.
+
+For training, this adds label noise to the ATTACK class. The practical impact
+depends on the proportion of normal-looking flows within each capture's
+ATTACK-labeled set. Ramnit/Htbot/Zeus are HTTP C2 botnets — a significant
+fraction of their ATTACK-labeled flows will be normal web traffic.
+
+Unlike the OOD evaluation (where label noise makes results uninterpretable),
+label noise in training merely adds noisy ATTACK examples that resemble FALSE
+POSITIVE flows. The model must learn to be cautious about these — which
+actually aligns with the target: not flag normal web traffic as ATTACK.
+
+In the worst case, the model learns that some normal-looking flows can be
+ATTACK-labeled, which may increase FP rate slightly. This is monitored via the
+in-distribution FP recall metric (must remain ≥ 99%).
+
+================================================================================
+THESIS IMPLICATIONS OF V9.0
+================================================================================
+
+1. Multi-log enrichment as a research contribution
+
+   The v9.0 multi-log approach is a meaningful extension of the baseline work.
+   Teaching a language model to reason across conn.log, http.log, dns.log, and
+   ssl.log jointly — with conditional section presence and masking — is not a
+   trivial modification. It creates a direct correspondence to how a human analyst
+   would approach a Zeek alert: start with the flow summary (conn.log), then
+   examine application-layer context (http/ssl/dns) to confirm or dismiss.
+
+   The model's reasoning output (REASON field) can then cite multi-log evidence:
+   "POST to /gate.php with MSIE 6.0 User-Agent and minimal response body is
+   consistent with Zeus C2 gate polling" — this is the kind of explanation that
+   is useful to a human analyst reviewing alerts.
+
+2. Explicit scope statement
+
+   The OOD findings from v8.1 (Zeus MCC +0.04, Kelihos MCC +0.17) established
+   that flow-level classification cannot detect stealth HTTP C2. v9.0 does not
+   attempt to contradict this finding at the conn.log level — it addresses it by
+   adding the application-layer signals that make the behaviour visible.
+
+   A precise thesis scope claim:
+     "The model detects network attacks that are distinguishable at the Zeek
+     conn.log feature level, and extends to HTTP C2 and DNS-based attacks when
+     auxiliary Zeek logs (http.log, dns.log, ssl.log) are available from the
+     deployment environment."
+
+3. Honesty of OOD tracking
+
+   Adding Botnet-3 to the benchmark and reporting its MCC alongside
+   in-distribution sources is an intentional methodological decision. Many IDS
+   papers report only in-distribution accuracy (often on CICIDS2017 or a single
+   dataset). Explicitly including an OOD source that the model was never trained
+   on — and showing the performance gap — is a more honest evaluation framework.
+
+   If v9.0 succeeds in improving Botnet-3 MCC from +0.06 to >+0.50, this
+   demonstrates genuine generalisation improvement attributable to the multi-log
+   context, not just additional training data for the same patterns.
+
+   If v9.0 does not improve Botnet-3, this is also a valid thesis result: it
+   demonstrates the limits of the approach and motivates future work on behavioral
+   modeling (temporal periodicity, cross-flow correlation, IP reputation).
+
+4. Note on testing status
+
+   As of this writing (2026-04-01), v9.0 is fully implemented but has not been
+   trained or benchmarked. The expected workflow is:
+
+     a. Set TRAINING_FACTOR=0.1 in preprocess_zeek.py for a local validation run.
+     b. Run preprocess_zeek.py — downloads CTU-Malware captures, builds dataset.
+        Check context coverage diagnostic output.
+     c. Run train.py locally (~20-30 min at TRAINING_FACTOR=0.1).
+     d. Run benchmark_realworld.py --regen (downloads Botnet-3, benchmarks v9.0).
+     e. If validation MCC ≥ v8.1 AND Botnet-3 MCC > +0.20: proceed to full run.
+     f. Set TRAINING_FACTOR=1.0, run on RunPod (~$2, ~4-5 hours).
+     g. Run final benchmark_realworld.py --regen.
+
+   Results will be documented in thesis_notes_4.txt.

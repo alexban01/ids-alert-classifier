@@ -16,18 +16,19 @@ RUNPOD = args.runpod
 if RUNPOD:
     BATCH                = 24
     GRAD_ACCUM           = 1      # effective batch = 24
-    GRAD_CHECKPOINTING   = False  # 32 GB has headroom
+    GRAD_CHECKPOINTING   = False  # 32 GB has headroom even at max_length=1024
     PIN_MEMORY           = True
     NUM_WORKERS          = 4
 else:
-    BATCH                = 6
-    GRAD_ACCUM           = 4      # effective batch = 24 (4×6)
-    GRAD_CHECKPOINTING   = True   # required for 8 GB VRAM
+    BATCH                = 4
+    GRAD_ACCUM           = 6      # effective batch = 24 (6×4)
+    GRAD_CHECKPOINTING   = True   # required for 8 GB VRAM; 1024 tokens needs smaller batch
     PIN_MEMORY           = False
     NUM_WORKERS          = 0      # CUDA+fork unstable on local Linux. fork() copies the parent's CUDA context into worker processes — those handles are invalid in the child, causing deadlocks or corruption. spawn would fix it but adds complexity; workers=0 is simpler since the bottleneck is the GPU, not JSONL loading.
 
 print(f"Target: {'RunPod RTX 5090' if RUNPOD else 'Local RTX 3070'}  "
-      f"| batch={BATCH}  accum={GRAD_ACCUM}  effective={BATCH*GRAD_ACCUM}")
+      f"| batch={BATCH}  accum={GRAD_ACCUM}  effective={BATCH*GRAD_ACCUM}  "
+      f"max_length=1024")
 
 # ── Speed ────────────────────────────────────────────────────────────────────
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -36,8 +37,8 @@ torch.backends.cudnn.benchmark        = True
 MODEL        = "Qwen/Qwen2.5-1.5B-Instruct"
 DATASET      = "zeek_dataset.jsonl"       # train split from preprocess_zeek.py
 EVAL_DATASET = "zeek_dataset_eval.jsonl"  # held-out eval split (source-stratified)
-OUTPUT_DIR   = "./v8.1-ids-model"           # training checkpoints
-ADAPTER_DIR  = "./v8.1-ids-lora-adapter"    # final adapter
+OUTPUT_DIR   = "./v9.0-ids-model"           # training checkpoints
+ADAPTER_DIR  = "./v9.0-ids-lora-adapter"    # final adapter
 
 # ── 4-bit quantization ──────────────────────────────────────────────────────
 # QLoRA: 4-bit base model stays the same — adapter output is hardware-agnostic.
@@ -109,7 +110,7 @@ trainer = SFTTrainer(
         save_strategy="epoch",
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
-        max_length=512,
+        max_length=1024,   # v9.0: extended for multi-log prompts (http/dns/ssl context)
     ),
 )
 
@@ -121,3 +122,4 @@ tokenizer.save_pretrained(ADAPTER_DIR)
 print(f"\n✅ Training complete. Best adapter saved to {ADAPTER_DIR}")
 print("   Download this directory to your local machine for inference/GGUF conversion.")
 print(f"\n   Next: .venv/bin/python benchmark_realworld.py --regen")
+print(f"   OOD check: .venv/bin/python benchmark_realworld.py --ood-only  (Botnet-3 Kelihos)")

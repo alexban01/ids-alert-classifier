@@ -16,10 +16,13 @@ Usage:
 
 import os
 import sys
+import csv
+import re
 import json
 import random
 import tarfile
 import glob
+import urllib.request
 import torch
 import pandas as pd
 from datetime import datetime
@@ -46,7 +49,8 @@ MODELS = [
     # ("v6 Fine-tuned",        "./v6-ids-lora-adapter"),
     # ("v7.1 Fine-tuned",      "./v7.1-ids-lora-adapter"),
     # ("v8 ckpt-1500 (ep1)",   "./v8-ids-model/checkpoint-1500"),
-    ("v8.1 Fine-tuned",      "./v8.1-ids-lora-adapter"),
+    # ("v8.1 Fine-tuned",      "./v8.1-ids-lora-adapter"),
+    ("v9.0 Fine-tuned",      "./v9.0-ids-lora-adapter"),
 ]
 
 DATASETS = {
@@ -55,6 +59,11 @@ DATASETS = {
     "uwf":        "datasets/uwf-zeekdata24/",
     "ctu_normal": "datasets/ctu-normal/",
 }
+
+# OOD regression test — Botnet-3 (Kelihos) is intentionally never in training data.
+# v8.1 baseline: MCC +0.06 (near-random). Target for v9.0: MCC > +0.50.
+CTU_BOTNET3_BASE_URL = "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-3"
+CTU_CAPTURE_DIR      = "test_captures"
 
 # ── Sample helpers ──────────────────────────────────────────────────────────────
 def make_sample(proto, duration, orig_pkts, resp_pkts,
@@ -348,6 +357,170 @@ def load_ctu_normal(dataset_dir):
     return samples
 
 
+# ── CTU-Malware-Botnet-3 (OOD) helpers ─────────────────────────────────────────
+
+def _norm_key(proto, ip_a, port_a, ip_b, port_b):
+    """Direction-agnostic 5-tuple key for binetflow ↔ conn.log matching."""
+    pair_a = (str(ip_a).strip(), str(port_a).strip())
+    pair_b = (str(ip_b).strip(), str(port_b).strip())
+    lo, hi = (pair_a, pair_b) if pair_a <= pair_b else (pair_b, pair_a)
+    return (str(proto).strip().lower(), lo[0], lo[1], hi[0], hi[1])
+
+
+def _bench_download(url, local_path):
+    """Download url to local_path if not already cached."""
+    if os.path.isfile(local_path):
+        print(f"  [cache] {os.path.basename(local_path)}")
+        return local_path
+    os.makedirs(os.path.dirname(local_path) or ".", exist_ok=True)
+    print(f"  Downloading {url} ...")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            with open(local_path, "wb") as f:
+                f.write(resp.read())
+        print(f"    {os.path.getsize(local_path) // 1024} KB → {local_path}")
+        return local_path
+    except Exception as e:
+        if os.path.isfile(local_path):
+            os.remove(local_path)
+        print(f"  [ERROR] Download failed: {e}")
+        return None
+
+
+def _find_binetflow_url(base_url):
+    """Fetch directory listing and return the .binetflow.labeled URL."""
+    try:
+        req = urllib.request.Request(
+            base_url.rstrip("/") + "/", headers={"User-Agent": "Mozilla/5.0"}
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            html = resp.read().decode("utf-8", errors="replace")
+        matches = re.findall(r'href="([^"/][^"]*\.binetflow(?:\.labeled)?)"', html)
+        if matches:
+            rel = matches[0]
+            return (rel if rel.startswith("http")
+                    else base_url.rstrip("/") + "/" + rel.lstrip("/"))
+    except Exception as e:
+        print(f"  [WARN] Cannot fetch index: {e}")
+    return None
+
+
+def load_ctu_botnet3():
+    """Load CTU-Malware-Capture-Botnet-3 (Kelihos) as permanent OOD eval source.
+
+    Downloads conn.log + binetflow from Stratosphere Lab if not cached.
+    Label mapping: Botnet → ATTACK, Normal → FALSE POSITIVE, Background → skip.
+    This scenario is intentionally NEVER included in training data.
+    """
+    print(f"\n[CTU-Botnet-3 OOD / Kelihos]")
+    os.makedirs(CTU_CAPTURE_DIR, exist_ok=True)
+
+    conn_url      = f"{CTU_BOTNET3_BASE_URL}/bro/conn.log"
+    conn_local    = os.path.join(CTU_CAPTURE_DIR, "CTU-Malware-Capture-Botnet-3_conn.log")
+    binetflow_url = _find_binetflow_url(CTU_BOTNET3_BASE_URL)
+
+    conn_path = _bench_download(conn_url, conn_local)
+    if conn_path is None:
+        print("  [SKIP] conn.log download failed")
+        return []
+
+    if binetflow_url is None:
+        print("  [SKIP] Could not find binetflow URL")
+        return []
+    binetflow_local = os.path.join(
+        CTU_CAPTURE_DIR,
+        "CTU-Malware-Capture-Botnet-3_" + binetflow_url.rstrip("/").split("/")[-1],
+    )
+    binetflow_path = _bench_download(binetflow_url, binetflow_local)
+    if binetflow_path is None:
+        print("  [SKIP] binetflow download failed")
+        return []
+
+    # Build binetflow label lookup
+    flow_labels = {}
+    try:
+        with open(binetflow_path, newline="", errors="replace") as f:
+            reader = csv.reader(f)
+            header = None
+            for row in reader:
+                if header is None:
+                    header = [h.strip() for h in row]
+                    idx    = {h: i for i, h in enumerate(header)}
+                    needed = {"Proto", "SrcAddr", "Sport", "DstAddr", "Dport", "Label"}
+                    if not needed.issubset(set(header)):
+                        print(f"  [SKIP] binetflow missing columns: {needed - set(header)}")
+                        return []
+                    continue
+                if len(row) <= max(idx["Label"], idx["Proto"], idx["SrcAddr"],
+                                   idx["Sport"], idx["DstAddr"], idx["Dport"]):
+                    continue
+                raw_label = row[idx["Label"]].strip().lower()
+                if "botnet" in raw_label or "malware" in raw_label:
+                    label = "ATTACK"
+                elif "normal" in raw_label:
+                    label = "FALSE POSITIVE"
+                else:
+                    continue  # Background → skip
+                key = _norm_key(
+                    row[idx["Proto"]],
+                    row[idx["SrcAddr"]], row[idx["Sport"]],
+                    row[idx["DstAddr"]], row[idx["Dport"]],
+                )
+                if key not in flow_labels or label == "ATTACK":
+                    flow_labels[key] = label
+    except Exception as e:
+        print(f"  [SKIP] binetflow parse error: {e}")
+        return []
+
+    atk_n = sum(1 for v in flow_labels.values() if v == "ATTACK")
+    ben_n = sum(1 for v in flow_labels.values() if v == "FALSE POSITIVE")
+    print(f"  binetflow: {atk_n} ATTACK + {ben_n} FALSE POSITIVE labels")
+
+    # Match conn.log flows to binetflow labels
+    buckets = defaultdict(list)
+    try:
+        with open(conn_path, errors="replace") as f:
+            for line in f:
+                if line.startswith("#"):
+                    continue
+                parts = line.strip().split("\t")
+                if len(parts) < 19:
+                    continue
+                proto  = parts[6]
+                orig_h = parts[2]; orig_p = parts[3]
+                resp_h = parts[4]; resp_p = parts[5]
+                key    = _norm_key(proto, orig_h, orig_p, resp_h, resp_p)
+                label  = flow_labels.get(key)
+                if label is None:
+                    continue
+                if len(buckets[label]) >= CAP:
+                    continue
+                buckets[label].append(make_sample(
+                    proto      = proto,
+                    duration   = parts[8],
+                    orig_pkts  = parts[16] if len(parts) > 16 else "-",
+                    resp_pkts  = parts[18] if len(parts) > 18 else "-",
+                    orig_bytes = parts[9],
+                    resp_bytes = parts[10],
+                    conn_state = parts[11],
+                    ground_truth = label,
+                    source     = "ctu_botnet3",
+                    raw_label  = "Kelihos" if label == "ATTACK" else "Benign",
+                    service    = parts[7],
+                    orig_port  = orig_p,
+                    resp_port  = resp_p,
+                ))
+    except Exception as e:
+        print(f"  [SKIP] conn.log parse error: {e}")
+        return []
+
+    atk = len(buckets["ATTACK"])
+    ben = len(buckets["FALSE POSITIVE"])
+    print(f"  Botnet-3 (OOD): {atk} attacks, {ben} benign sampled")
+    return buckets["ATTACK"] + buckets["FALSE POSITIVE"]
+
+
 # ── Sample generation ───────────────────────────────────────────────────────────
 def generate_samples():
     all_samples = []
@@ -355,6 +528,9 @@ def generate_samples():
     all_samples += load_ctu13(DATASETS["ctu13"])
     all_samples += load_uwf(DATASETS["uwf"])
     all_samples += load_ctu_normal(DATASETS["ctu_normal"])
+    # v9.0: CTU-Malware-Botnet-3 (Kelihos) — permanent OOD regression test.
+    # Never in training data. v8.1 MCC baseline: +0.06. Target: > +0.50.
+    all_samples += load_ctu_botnet3()
 
     random.seed(RANDOM_SEED)
     random.shuffle(all_samples)
@@ -420,11 +596,15 @@ def run_inference(model, samples, label):
 
 # ── Reporting ───────────────────────────────────────────────────────────────────
 SOURCE_NAMES = {
-    "iot23":      "IoT-23        (Zeek conn.log)",
-    "ctu13":      "CTU-13        (binetflow)",
-    "uwf":        "UWF-ZeekData24(Zeek conn.log)",
-    "ctu_normal": "CTU-Normal    (Zeek conn.log)",
+    "iot23":       "IoT-23         (Zeek conn.log)",
+    "ctu13":       "CTU-13         (binetflow)",
+    "uwf":         "UWF-ZeekData24 (Zeek conn.log)",
+    "ctu_normal":  "CTU-Normal     (Zeek conn.log)",
+    "ctu_botnet3": "Botnet-3 [OOD] (Kelihos)",
 }
+
+# Sources used in JSON per-source output (training sources + OOD)
+ALL_SOURCES = ["iot23", "ctu13", "uwf", "ctu_normal", "ctu_botnet3"]
 
 
 def compute_metrics(preds, samples, unknowns):
@@ -542,17 +722,18 @@ if __name__ == "__main__":
     ts        = datetime.now().strftime("%Y-%m-%d %H:%M")
     atk_n     = sum(1 for s in samples if s["ground_truth"] == "ATTACK")
     ben_n     = len(samples) - atk_n
+    ood_n     = sum(1 for s in samples if s["source"] == "ctu_botnet3")
     out_lines = [
         f"REAL-WORLD ZEEK BENCHMARK — {ts}",
-        f"Sources: IoT-23, CTU-13, UWF-ZeekData24, CTU-Normal",
-        f"Samples: {len(samples)} total ({atk_n} attacks / {ben_n} benign) | Seed: {RANDOM_SEED}",
+        f"Sources: IoT-23, CTU-13, UWF-ZeekData24, CTU-Normal | OOD: Botnet-3 (Kelihos)",
+        f"Samples: {len(samples)} total ({atk_n} attacks / {ben_n} benign) | OOD: {ood_n} | Seed: {RANDOM_SEED}",
     ]
     results     = []
     json_output = {
         "timestamp": datetime.now().isoformat(),
         "samples":   len(samples),
         "sources":   {src: sum(1 for s in samples if s["source"] == src)
-                      for src in ["iot23", "ctu13", "uwf", "ctu_normal"]},
+                      for src in ALL_SOURCES},
         "models":    [],
     }
 
@@ -569,7 +750,7 @@ if __name__ == "__main__":
 
         # Per-source metrics for JSON
         src_metrics = {}
-        for src in ["iot23", "ctu13", "uwf", "ctu_normal"]:
+        for src in ALL_SOURCES:
             idx   = [i for i, s in enumerate(samples) if s["source"] == src]
             if not idx:
                 continue
@@ -639,6 +820,7 @@ if __name__ == "__main__":
             "  Fmt Fail   = % of outputs missing VERDICT line",
             "",
             "  Sources: IoT-23 + CTU-13 + UWF-ZeekData24 + CTU-Normal",
+            "  OOD    : Botnet-3 (Kelihos) — never in training data",
             "  (native Zeek conn.log — NO synthetic field mapping)",
         ]
 
@@ -655,7 +837,7 @@ if __name__ == "__main__":
                 f"  {'Source':<34} {'Δ Accuracy':>11} {'Δ Atk Recall':>13} {'Δ FP Recall':>12}",
                 f"  {'-'*34} {'-'*11} {'-'*13} {'-'*12}",
             ]
-            for src in ["iot23", "ctu13", "uwf", "ctu_normal"]:
+            for src in ALL_SOURCES:
                 if src not in ps_first or src not in ps_last:
                     continue
                 da  = ps_last[src]["accuracy"]   - ps_first[src]["accuracy"]
