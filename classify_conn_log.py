@@ -26,7 +26,7 @@ BASE_MODEL       = "Qwen/Qwen2.5-1.5B-Instruct"
 ADAPTER_DIR      = "./v8.1-ids-lora-adapter"
 OLLAMA_MODEL     = "ids-classifier"
 OLLAMA_URL       = "http://localhost:11434/api/generate"
-CONN_LOG         = "real_conn/conn.log"
+CONN_LOG         = "real_conn/conn.log.5"
 MAX_NEW_TOKENS   = 80
 BATCH_SIZE       = 8
 
