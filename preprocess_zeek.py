@@ -26,9 +26,7 @@ import random
 import tarfile
 import glob
 import math
-import multiprocessing
 import urllib.request
-from concurrent.futures import ProcessPoolExecutor
 
 import pandas as pd
 
@@ -688,11 +686,7 @@ def _build_ssl_lookup(path):
     return lookup
 
 
-def _run_loader(fn, args, seed):
-    return fn(*args, seed=seed)
-
-
-def load_ctu_malware_captures(seed=RANDOM_SEED):
+def load_ctu_malware_captures():
     """Download and parse CTU-Malware-Capture scenarios from Stratosphere Lab.
 
     For each scenario:
@@ -709,7 +703,6 @@ def load_ctu_malware_captures(seed=RANDOM_SEED):
     Cap: MAX_PER_SOURCE_CLASS (same as CTU-13/IoT-23/UNSW) — same label quality,
     same research group methodology, no reason to under-cap this source.
     """
-    random.seed(seed)
     all_samples = []
 
     for scenario_id, family, base_url in CTU_MALWARE_SCENARIOS:
@@ -849,9 +842,8 @@ def load_ctu_malware_captures(seed=RANDOM_SEED):
 
 # ── Loaders ────────────────────────────────────────────────────────────────────
 
-def load_iot23(archive_path, seed=RANDOM_SEED):
+def load_iot23(archive_path):
     """Read IoT-23 conn.log.labeled files from tar.gz archive."""
-    random.seed(seed)
     if not os.path.isfile(archive_path):
         print(f"[SKIP] IoT-23 archive not found: {archive_path}")
         return []
@@ -963,7 +955,7 @@ def load_iot23(archive_path, seed=RANDOM_SEED):
     return samples["ATTACK"] + samples["FALSE POSITIVE"]
 
 
-def load_ctu13(archive_path, seed=RANDOM_SEED):
+def load_ctu13(archive_path):
     """Read CTU-13 binetflow files from tar.bz2 archive.
 
     Binetflow uses Argus state notation — mapped to Zeek conn_state equivalents
@@ -985,147 +977,83 @@ def load_ctu13(archive_path, seed=RANDOM_SEED):
         "SRST":       "RSTO",
     }
 
-    random.seed(seed)
     if not os.path.isfile(archive_path):
         print(f"[SKIP] CTU-13 archive not found: {archive_path}")
         return []
 
     samples = {"ATTACK": [], "FALSE POSITIVE": []}
-    extracted_dir = archive_path.replace(".tar.bz2", "")
+    print(f"[CTU-13] Opening archive {archive_path} ...")
 
-    if os.path.isdir(extracted_dir):
-        print(f"[CTU-13] Using pre-extracted directory: {extracted_dir}")
-        members = sorted(glob.glob(os.path.join(extracted_dir, "**/*.binetflow"), recursive=True))
+    with tarfile.open(archive_path, "r:bz2") as tf:
+        members = [m for m in tf.getmembers()
+                   if m.name.endswith(".binetflow") and m.isfile()]
         print(f"  Found {len(members)} binetflow files")
 
-        for member_path in members:
+        for member in members:
+            f = tf.extractfile(member)
+            if f is None:
+                continue
             attacks = benign = 0
             header = None
-            with open(member_path, errors="replace") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    if header is None:
-                        header = [c.strip() for c in line.split(",")]
-                        continue
-                    parts = line.split(",")
-                    if len(parts) < len(header):
-                        continue
-                    row = dict(zip(header, parts))
-
-                    label = row.get("Label", "").strip()
-                    if "Botnet" in label:
-                        verdict = "ATTACK"
-                    elif "Normal" in label:
-                        verdict = "FALSE POSITIVE"
-                    else:
-                        continue   # skip Background (unlabeled)
-
-                    proto      = row.get("Proto", "unknown").strip().lower()
-                    duration   = row.get("Dur",   "0").strip()
-                    raw_state  = row.get("State", "-").strip().upper()
-                    conn_state = CTU_STATE_MAP.get(raw_state, "-")
-                    tot_pkts   = row.get("TotPkts",  "0").strip()
-                    src_bytes  = row.get("SrcBytes",  "0").strip()
-                    tot_bytes  = row.get("TotBytes",  "0").strip()
-                    orig_port  = row.get("Sport", "-").strip()
-                    resp_port  = row.get("Dport", "-").strip()
-                    try:
-                        dst_bytes = str(float(tot_bytes) - float(src_bytes))
-                    except ValueError:
-                        dst_bytes = "0"
-                    # binetflow has TotPkts only; split evenly as approximation
-                    try:
-                        half = str(int(float(tot_pkts)) // 2)
-                    except ValueError:
-                        half = "0"
-
-                    bucket = samples[verdict]
-                    if len(bucket) < MAX_PER_SOURCE_CLASS:
-                        bucket.append(make_sample(
-                            proto, duration, half, half,
-                            src_bytes, dst_bytes, conn_state, verdict, "ctu13",
-                            service="-",  # binetflow has no app-layer service field
-                            resp_port=resp_port, orig_port=orig_port,
-                        ))
-                    if verdict == "ATTACK":  attacks += 1
-                    else:                    benign  += 1
-
-            print(f"    {os.path.relpath(member_path, extracted_dir)}: {attacks} attacks, {benign} benign")
-    else:
-        print(f"[CTU-13] Decompressing archive: {archive_path}")
-        with tarfile.open(archive_path, "r:bz2") as tf:
-            members = [m for m in tf.getmembers()
-                       if m.name.endswith(".binetflow") and m.isfile()]
-            print(f"  Found {len(members)} binetflow files")
-
-            for member in members:
-                f = tf.extractfile(member)
-                if f is None:
+            for raw in f:
+                line = raw.decode("utf-8", errors="replace").strip()
+                if not line:
                     continue
-                attacks = benign = 0
-                header = None
-                for raw in f:
-                    line = raw.decode("utf-8", errors="replace").strip()
-                    if not line:
-                        continue
-                    if header is None:
-                        header = [c.strip() for c in line.split(",")]
-                        continue
-                    parts = line.split(",")
-                    if len(parts) < len(header):
-                        continue
-                    row = dict(zip(header, parts))
+                if header is None:
+                    header = [c.strip() for c in line.split(",")]
+                    continue
+                parts = line.split(",")
+                if len(parts) < len(header):
+                    continue
+                row = dict(zip(header, parts))
 
-                    label = row.get("Label", "").strip()
-                    if "Botnet" in label:
-                        verdict = "ATTACK"
-                    elif "Normal" in label:
-                        verdict = "FALSE POSITIVE"
-                    else:
-                        continue   # skip Background (unlabeled)
+                label = row.get("Label", "").strip()
+                if "Botnet" in label:
+                    verdict = "ATTACK"
+                elif "Normal" in label:
+                    verdict = "FALSE POSITIVE"
+                else:
+                    continue   # skip Background (unlabeled)
 
-                    proto      = row.get("Proto", "unknown").strip().lower()
-                    duration   = row.get("Dur",   "0").strip()
-                    raw_state  = row.get("State", "-").strip().upper()
-                    conn_state = CTU_STATE_MAP.get(raw_state, "-")
-                    tot_pkts   = row.get("TotPkts",  "0").strip()
-                    src_bytes  = row.get("SrcBytes",  "0").strip()
-                    tot_bytes  = row.get("TotBytes",  "0").strip()
-                    orig_port  = row.get("Sport", "-").strip()
-                    resp_port  = row.get("Dport", "-").strip()
-                    try:
-                        dst_bytes = str(float(tot_bytes) - float(src_bytes))
-                    except ValueError:
-                        dst_bytes = "0"
-                    # binetflow has TotPkts only; split evenly as approximation
-                    try:
-                        half = str(int(float(tot_pkts)) // 2)
-                    except ValueError:
-                        half = "0"
+                proto      = row.get("Proto", "unknown").strip().lower()
+                duration   = row.get("Dur",   "0").strip()
+                raw_state  = row.get("State", "-").strip().upper()
+                conn_state = CTU_STATE_MAP.get(raw_state, "-")
+                tot_pkts   = row.get("TotPkts",  "0").strip()
+                src_bytes  = row.get("SrcBytes",  "0").strip()
+                tot_bytes  = row.get("TotBytes",  "0").strip()
+                orig_port  = row.get("Sport", "-").strip()
+                resp_port  = row.get("Dport", "-").strip()
+                try:
+                    dst_bytes = str(float(tot_bytes) - float(src_bytes))
+                except ValueError:
+                    dst_bytes = "0"
+                # binetflow has TotPkts only; split evenly as approximation
+                try:
+                    half = str(int(float(tot_pkts)) // 2)
+                except ValueError:
+                    half = "0"
 
-                    bucket = samples[verdict]
-                    if len(bucket) < MAX_PER_SOURCE_CLASS:
-                        bucket.append(make_sample(
-                            proto, duration, half, half,
-                            src_bytes, dst_bytes, conn_state, verdict, "ctu13",
-                            service="-",  # binetflow has no app-layer service field
-                            resp_port=resp_port, orig_port=orig_port,
-                        ))
-                    if verdict == "ATTACK":  attacks += 1
-                    else:                    benign  += 1
+                bucket = samples[verdict]
+                if len(bucket) < MAX_PER_SOURCE_CLASS:
+                    bucket.append(make_sample(
+                        proto, duration, half, half,
+                        src_bytes, dst_bytes, conn_state, verdict, "ctu13",
+                        service="-",  # binetflow has no app-layer service field
+                        resp_port=resp_port, orig_port=orig_port,
+                    ))
+                if verdict == "ATTACK":  attacks += 1
+                else:                    benign  += 1
 
-                print(f"    {member.name}: {attacks} attacks, {benign} benign")
+            print(f"    {member.name}: {attacks} attacks, {benign} benign")
 
     print(f"  CTU-13 total: {len(samples['ATTACK'])} attacks, "
           f"{len(samples['FALSE POSITIVE'])} benign")
     return samples["ATTACK"] + samples["FALSE POSITIVE"]
 
 
-def load_unsw(dataset_dir, seed=RANDOM_SEED):
+def load_unsw(dataset_dir):
     """Read UNSW-NB15 from CSV or parquet files."""
-    random.seed(seed)
     if not os.path.isdir(dataset_dir):
         print(f"[SKIP] UNSW-NB15 directory not found: {dataset_dir}")
         return []
@@ -1185,9 +1113,8 @@ def load_unsw(dataset_dir, seed=RANDOM_SEED):
         rows = []
         buffered_counts = {"ATTACK": 0, "FALSE POSITIVE": 0}
         attacks = benign = 0
-        for row in df.itertuples(index=False):
-            row_dict = row._asdict()
-            lv = row_dict[label_col]
+        for _, row in df.iterrows():
+            lv = row[label_col]
             try:
                 verdict = "ATTACK" if int(float(lv)) == 1 else "FALSE POSITIVE"
             except (ValueError, TypeError):
@@ -1195,19 +1122,19 @@ def load_unsw(dataset_dir, seed=RANDOM_SEED):
 
             buffered_counts[verdict] += 1
             rows.append({
-                "ts":         str(row_dict.get(ts_col)).strip() if ts_col else None,
-                "orig_h":     str(row_dict.get(src_h_col)).strip() if src_h_col else None,
-                "orig_p":     str(row_dict.get(sport_col, "-")).strip() if sport_col else "-",
-                "resp_h":     str(row_dict.get(dst_h_col)).strip() if dst_h_col else None,
-                "resp_p":     str(row_dict.get(dport_col, "-")).strip() if dport_col else "-",
-                "proto":      str(row_dict.get(proto_col, "unknown")).strip() if proto_col else "unknown",
-                "service":    str(row_dict.get(svc_col, "-")).strip() if svc_col else "-",
-                "duration":   str(row_dict.get(dur_col, "0")).strip() if dur_col else "0",
-                "orig_bytes": str(row_dict.get(sbytes_col, "0")).strip() if sbytes_col else "0",
-                "resp_bytes": str(row_dict.get(dbytes_col, "0")).strip() if dbytes_col else "0",
-                "conn_state": str(row_dict.get(state_col, "-")).strip() if state_col else "-",
-                "orig_pkts":  str(row_dict.get(spkts_col, "0")).strip() if spkts_col else "0",
-                "resp_pkts":  str(row_dict.get(dpkts_col, "0")).strip() if dpkts_col else "0",
+                "ts":         str(row[ts_col]).strip() if ts_col else None,
+                "orig_h":     str(row[src_h_col]).strip() if src_h_col else None,
+                "orig_p":     str(row[sport_col]).strip() if sport_col else "-",
+                "resp_h":     str(row[dst_h_col]).strip() if dst_h_col else None,
+                "resp_p":     str(row[dport_col]).strip() if dport_col else "-",
+                "proto":      str(row[proto_col]).strip() if proto_col else "unknown",
+                "service":    str(row[svc_col]).strip() if svc_col else "-",
+                "duration":   str(row[dur_col]).strip() if dur_col else "0",
+                "orig_bytes": str(row[sbytes_col]).strip() if sbytes_col else "0",
+                "resp_bytes": str(row[dbytes_col]).strip() if dbytes_col else "0",
+                "conn_state": str(row[state_col]).strip() if state_col else "-",
+                "orig_pkts":  str(row[spkts_col]).strip() if spkts_col else "0",
+                "resp_pkts":  str(row[dpkts_col]).strip() if dpkts_col else "0",
                 "verdict":    verdict,
             })
 
@@ -1328,9 +1255,8 @@ def load_cicids(base_dir):
     return samples["ATTACK"] + samples["FALSE POSITIVE"]
 
 
-def load_uwf(dataset_dir, seed=RANDOM_SEED):
+def load_uwf(dataset_dir):
     """Read UWF-ZeekData24 CSV files (Spark output, one dir per MITRE tactic)."""
-    random.seed(seed)
     if not os.path.isdir(dataset_dir):
         print(f"[SKIP] UWF-ZeekData24 directory not found: {dataset_dir}")
         return []
@@ -1369,31 +1295,30 @@ def load_uwf(dataset_dir, seed=RANDOM_SEED):
         rows = []
         buffered_counts = {"ATTACK": 0, "FALSE POSITIVE": 0}
         attacks = benign = 0
-        for row in df.itertuples(index=False):
-            row_dict = row._asdict()
+        for _, row in df.iterrows():
             if label_col == "label_binary":
-                verdict = "ATTACK" if str(row_dict.get(label_col)).strip() == "True" else "FALSE POSITIVE"
+                verdict = "ATTACK" if str(row[label_col]).strip() == "True" else "FALSE POSITIVE"
             else:
-                verdict = "ATTACK" if str(row_dict.get(label_col)).strip() != "none" else "FALSE POSITIVE"
+                verdict = "ATTACK" if str(row[label_col]).strip() != "none" else "FALSE POSITIVE"
 
             # Only include attacks from tactics with a real port-based signal.
             if verdict == "ATTACK":
-                tactic = str(row_dict.get("label_tactic", "")).strip()
+                tactic = str(row.get("label_tactic", "")).strip()
                 if tactic not in UWF_ALLOWED_TACTICS:
                     continue
 
             # UWF uses empty strings for missing values — pass through as-is
             # (build_prompt / _safe will convert to N/A)
-            proto      = str(row_dict.get("proto", "unknown")).strip()
-            service    = str(row_dict.get("service", "-")).strip()
-            duration   = str(row_dict.get("duration", "")).strip()
-            orig_pkts  = str(row_dict.get("orig_pkts", "")).strip()
-            resp_pkts  = str(row_dict.get("resp_pkts", "")).strip()
-            orig_bytes = str(row_dict.get("orig_bytes", "")).strip()
-            resp_bytes = str(row_dict.get("resp_bytes", "")).strip()
-            conn_state = str(row_dict.get("conn_state", "-")).strip()
-            orig_port  = str(row_dict.get("id.orig_p", row_dict.get("orig_p", row_dict.get("src_port_zeek", "-")))).strip()
-            resp_port  = str(row_dict.get("id.resp_p", row_dict.get("resp_p", row_dict.get("dest_port_zeek", "-")))).strip()
+            proto      = str(row.get("proto", "unknown")).strip()
+            service    = str(row.get("service", "-")).strip()
+            duration   = str(row.get("duration", "")).strip()
+            orig_pkts  = str(row.get("orig_pkts", "")).strip()
+            resp_pkts  = str(row.get("resp_pkts", "")).strip()
+            orig_bytes = str(row.get("orig_bytes", "")).strip()
+            resp_bytes = str(row.get("resp_bytes", "")).strip()
+            conn_state = str(row.get("conn_state", "-")).strip()
+            orig_port  = str(row.get("id.orig_p", row.get("orig_p", row.get("src_port_zeek", "-")))).strip()
+            resp_port  = str(row.get("id.resp_p", row.get("resp_p", row.get("dest_port_zeek", "-")))).strip()
 
             # pandas converts empty CSV cells to nan
             if service    in ("nan", "None"): service    = "-"
@@ -1405,13 +1330,13 @@ def load_uwf(dataset_dir, seed=RANDOM_SEED):
             if orig_port  in ("nan", "None"): orig_port  = "-"
             if resp_port  in ("nan", "None"): resp_port  = "-"
 
-            ts = str(row_dict.get("ts", row_dict.get("timestamp", ""))).strip()
+            ts = str(row.get("ts", row.get("timestamp", ""))).strip()
             if ts in ("nan", "None", ""):
                 ts = None
-            orig_h = str(row_dict.get("id.orig_h", row_dict.get("orig_h", row_dict.get("src_ip", "")))).strip()
+            orig_h = str(row.get("id.orig_h", row.get("orig_h", row.get("src_ip", "")))).strip()
             if orig_h in ("nan", "None", ""):
                 orig_h = None
-            resp_h = str(row_dict.get("id.resp_h", row_dict.get("resp_h", row_dict.get("dest_ip", "")))).strip()
+            resp_h = str(row.get("id.resp_h", row.get("resp_h", row.get("dest_ip", "")))).strip()
             if resp_h in ("nan", "None", ""):
                 resp_h = None
 
@@ -1463,9 +1388,8 @@ def load_uwf(dataset_dir, seed=RANDOM_SEED):
     return samples["ATTACK"] + samples["FALSE POSITIVE"]
 
 
-def load_ctu_normal(dataset_dir, seed=RANDOM_SEED):
+def load_ctu_normal(dataset_dir):
     """Read CTU-Normal benign Zeek conn.log files (standard 21-field TSV)."""
-    random.seed(seed)
     if not os.path.isdir(dataset_dir):
         print(f"[SKIP] CTU-Normal directory not found: {dataset_dir}")
         return []
@@ -1550,26 +1474,22 @@ def load_ctu_normal(dataset_dir, seed=RANDOM_SEED):
 if __name__ == "__main__":
     from collections import Counter, defaultdict
     random.seed(RANDOM_SEED)
-    loader_args = [
-        (load_iot23, (DATASETS["iot23"],), RANDOM_SEED + 1),
-        (load_ctu13, (DATASETS["ctu13"],), RANDOM_SEED + 2),
-        (load_unsw, (DATASETS["unsw"],), RANDOM_SEED + 3),
-        (load_uwf, (DATASETS["uwf"],), RANDOM_SEED + 4),
-        (load_ctu_normal, (DATASETS["ctu_normal"],), RANDOM_SEED + 5),
-        (load_ctu_malware_captures, (), RANDOM_SEED + 6),
-    ]
 
     all_samples = []
-    with ProcessPoolExecutor(max_workers=4, mp_context=multiprocessing.get_context("fork")) as executor:
-        futures = [executor.submit(_run_loader, fn, args, seed)
-                   for fn, args, seed in loader_args]
-        for f in futures:
-            all_samples += f.result()
+    all_samples += load_iot23(DATASETS["iot23"])
+    all_samples += load_ctu13(DATASETS["ctu13"])
+    all_samples += load_unsw(DATASETS["unsw"])
     # CICIDS2017 dropped in v7: CICFlowMeter produces proto="unknown" and
     # conn_state="-" for every flow — both fields are always missing, so the
     # model can't learn Zeek-discriminative patterns from this source.
     # Also has documented label quality issues (~10-15% mislabeled).
     # all_samples += load_cicids(DATASETS["cicids"])
+    all_samples += load_uwf(DATASETS["uwf"])
+    all_samples += load_ctu_normal(DATASETS["ctu_normal"])
+    # v9.0: CTU-Malware-Capture series — multi-log enriched training samples.
+    # Downloads conn.log + binetflow (for labels) + dns/http/ssl.log (for context).
+    # Botnet-3 (Kelihos) held out as OOD test — not included here.
+    all_samples += load_ctu_malware_captures()
 
     # ── Source-stratified train/eval split ────────────────────────────────────
     # Hold out EVAL_FRAC from each (source, verdict) bucket so eval distribution

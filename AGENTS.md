@@ -24,9 +24,8 @@ When the implementation branch changes in the future, update only this section.
 4. Do not touch unrelated files.
 5. Preserve public behavior unless the task explicitly requires a behavior change.
 6. Run the smallest relevant validation for the change.
-7. Do not execute preprocessing, training, or benchmark entrypoints by default. This includes commands such as `preprocess_zeek.py`, `train.py`, and benchmark scripts unless the user explicitly asks for execution in the current session.
-8. If a rule here conflicts with a direct user instruction in the current session, the direct user instruction wins.
-9. If a requested action would violate this contract, stop and explain why.
+7. If a rule here conflicts with a direct user instruction in the current session, the direct user instruction wins.
+8. If a requested action would violate this contract, stop and explain why.
 
 ---
 
