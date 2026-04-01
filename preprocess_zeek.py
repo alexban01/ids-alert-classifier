@@ -444,18 +444,21 @@ def make_sample(proto, duration, orig_pkts, resp_pkts,
 
     # Per-section context masking (50% chance each section is dropped).
     # Prevents "has http section → ATTACK" shortcut; forces conn.log-only correctness.
+    prompt_behavior_ctx = behavior_ctx
     if http_ctx is not None and random.random() < CONTEXT_MASK_PROB:
         http_ctx = None
     if dns_ctx is not None and random.random() < CONTEXT_MASK_PROB:
         dns_ctx = None
     if ssl_ctx is not None and random.random() < CONTEXT_MASK_PROB:
         ssl_ctx = None
+    if prompt_behavior_ctx is not None and random.random() < CONTEXT_MASK_PROB:
+        prompt_behavior_ctx = None
 
     prompt  = build_prompt(proto, duration, orig_pkts, resp_pkts,
                            orig_bytes, resp_bytes, prompt_conn_state, service,
                            resp_port=resp_port, orig_port=orig_port,
                            http_ctx=http_ctx, dns_ctx=dns_ctx, ssl_ctx=ssl_ctx,
-                           behavior_ctx=behavior_ctx)
+                           behavior_ctx=prompt_behavior_ctx)
     reason  = pick_reason(verdict)
     return {
         "messages": [
@@ -748,6 +751,10 @@ def load_ctu_malware_captures():
 
         # ── 5. Process conn.log ───────────────────────────────────────────────
         buckets = {"ATTACK": [], "FALSE POSITIVE": []}
+        attack_cap = MAX_PER_SOURCE_CLASS
+        benign_cap = MAX_PER_SOURCE_CLASS
+        row_cap = (attack_cap + benign_cap) * 4
+        buffered_counts = {"ATTACK": 0, "FALSE POSITIVE": 0}
         conn_rows = []
         with open(conn_path, errors="replace") as f:
             for line in f:
@@ -756,7 +763,7 @@ def load_ctu_malware_captures():
                 parts = line.strip().split("\t")
                 if len(parts) < 19:
                     continue
-                conn_rows.append({
+                row = {
                     "ts":         parts[0],
                     "uid":        parts[1],
                     "orig_h":     parts[2],
@@ -771,7 +778,23 @@ def load_ctu_malware_captures():
                     "conn_state": parts[11],
                     "orig_pkts":  parts[16] if len(parts) > 16 else "-",
                     "resp_pkts":  parts[18] if len(parts) > 18 else "-",
-                })
+                }
+
+                key = _norm_key(
+                    row["proto"], row["orig_h"], row["orig_p"], row["resp_h"], row["resp_p"]
+                )
+                label = flow_labels.get(key)
+                if label in buffered_counts:
+                    buffered_counts[label] += 1
+
+                conn_rows.append(row)
+
+                if len(conn_rows) >= row_cap:
+                    atk_needed = max(0, attack_cap - len(buckets["ATTACK"]))
+                    ben_needed = max(0, benign_cap - len(buckets["FALSE POSITIVE"]))
+                    if (buffered_counts["ATTACK"] >= atk_needed and
+                            buffered_counts["FALSE POSITIVE"] >= ben_needed):
+                        break
 
         behavior_ctxs = build_behavior_contexts(conn_rows)
         for row, behavior_ctx in zip(conn_rows, behavior_ctxs):
@@ -838,6 +861,8 @@ def load_iot23(archive_path):
             if f is None:
                 continue
             rows = []
+            buffered_counts = {"ATTACK": 0, "FALSE POSITIVE": 0}
+            row_cap = (MAX_PER_SOURCE_CLASS + IOT23_BENIGN_CAP) * 4
             lines_read = attacks = benign = 0
             for raw in f:
                 line = raw.decode("utf-8", errors="replace").strip()
@@ -880,6 +905,7 @@ def load_iot23(archive_path):
                 else:
                     continue
 
+                buffered_counts[verdict] += 1
                 rows.append({
                     "ts":         parts[0],
                     "orig_h":     parts[2],
@@ -900,6 +926,13 @@ def load_iot23(archive_path):
                 lines_read += 1
                 if verdict == "ATTACK":  attacks += 1
                 else:                    benign  += 1
+
+                if len(rows) >= row_cap:
+                    atk_needed = max(0, MAX_PER_SOURCE_CLASS - len(samples["ATTACK"]))
+                    ben_needed = max(0, IOT23_BENIGN_CAP - len(samples["FALSE POSITIVE"]))
+                    if (buffered_counts["ATTACK"] >= atk_needed and
+                            buffered_counts["FALSE POSITIVE"] >= ben_needed):
+                        break
 
             behavior_ctxs = build_behavior_contexts(rows)
             for row, behavior_ctx in zip(rows, behavior_ctxs):
@@ -1040,6 +1073,7 @@ def load_unsw(dataset_dir):
 
     print(f"[UNSW-NB15] Loading {len(files)} file(s) from {dataset_dir}")
     samples = {"ATTACK": [], "FALSE POSITIVE": []}
+    row_cap = (MAX_PER_SOURCE_CLASS + MAX_PER_SOURCE_CLASS) * 4
 
     for fpath in files:
         print(f"  Reading {os.path.basename(fpath)} ...")
@@ -1065,6 +1099,9 @@ def load_unsw(dataset_dir):
         svc_col    = next((c for c in ["service"]                    if c in df.columns), None)
         sport_col  = next((c for c in ["sport", "source_port", "orig_p"]       if c in df.columns), None)
         dport_col  = next((c for c in ["dport", "destination_port", "resp_p"]  if c in df.columns), None)
+        ts_col     = next((c for c in ["ts", "timestamp", "stime", "starttime"] if c in df.columns), None)
+        src_h_col  = next((c for c in ["srcip", "src_ip", "orig_h", "id.orig_h"] if c in df.columns), None)
+        dst_h_col  = next((c for c in ["dstip", "dst_ip", "resp_h", "id.resp_h"] if c in df.columns), None)
         label_col  = next((c for c in ["binary_label", "label"]      if c in df.columns), None)
 
         if label_col is None:
@@ -1073,6 +1110,8 @@ def load_unsw(dataset_dir):
 
         df = df.replace([float("inf"), float("-inf")], float("nan")).dropna(subset=[label_col])
 
+        rows = []
+        buffered_counts = {"ATTACK": 0, "FALSE POSITIVE": 0}
         attacks = benign = 0
         for _, row in df.iterrows():
             lv = row[label_col]
@@ -1081,26 +1120,54 @@ def load_unsw(dataset_dir):
             except (ValueError, TypeError):
                 verdict = "ATTACK" if str(lv).strip() not in ("0", "Normal", "BENIGN") else "FALSE POSITIVE"
 
-            bucket = samples[verdict]
+            buffered_counts[verdict] += 1
+            rows.append({
+                "ts":         str(row[ts_col]).strip() if ts_col else None,
+                "orig_h":     str(row[src_h_col]).strip() if src_h_col else None,
+                "orig_p":     str(row[sport_col]).strip() if sport_col else "-",
+                "resp_h":     str(row[dst_h_col]).strip() if dst_h_col else None,
+                "resp_p":     str(row[dport_col]).strip() if dport_col else "-",
+                "proto":      str(row[proto_col]).strip() if proto_col else "unknown",
+                "service":    str(row[svc_col]).strip() if svc_col else "-",
+                "duration":   str(row[dur_col]).strip() if dur_col else "0",
+                "orig_bytes": str(row[sbytes_col]).strip() if sbytes_col else "0",
+                "resp_bytes": str(row[dbytes_col]).strip() if dbytes_col else "0",
+                "conn_state": str(row[state_col]).strip() if state_col else "-",
+                "orig_pkts":  str(row[spkts_col]).strip() if spkts_col else "0",
+                "resp_pkts":  str(row[dpkts_col]).strip() if dpkts_col else "0",
+                "verdict":    verdict,
+            })
+
+            if len(rows) >= row_cap:
+                atk_needed = max(0, MAX_PER_SOURCE_CLASS - len(samples["ATTACK"]))
+                ben_needed = max(0, MAX_PER_SOURCE_CLASS - len(samples["FALSE POSITIVE"]))
+                if (buffered_counts["ATTACK"] >= atk_needed and
+                        buffered_counts["FALSE POSITIVE"] >= ben_needed):
+                    break
+
+        behavior_ctxs = build_behavior_contexts(rows)
+        for row, behavior_ctx in zip(rows, behavior_ctxs):
+            bucket = samples[row["verdict"]]
             if len(bucket) >= MAX_PER_SOURCE_CLASS:
                 continue
 
             bucket.append(make_sample(
-                proto      = str(row[proto_col])  if proto_col  else "unknown",
-                duration   = str(row[dur_col])    if dur_col    else "0",
-                orig_pkts  = str(row[spkts_col])  if spkts_col  else "0",
-                resp_pkts  = str(row[dpkts_col])  if dpkts_col  else "0",
-                orig_bytes = str(row[sbytes_col]) if sbytes_col else "0",
-                resp_bytes = str(row[dbytes_col]) if dbytes_col else "0",
-                conn_state = str(row[state_col])  if state_col  else "-",
-                verdict    = verdict,
+                proto      = row["proto"],
+                duration   = row["duration"],
+                orig_pkts  = row["orig_pkts"],
+                resp_pkts  = row["resp_pkts"],
+                orig_bytes = row["orig_bytes"],
+                resp_bytes = row["resp_bytes"],
+                conn_state = row["conn_state"],
+                verdict    = row["verdict"],
                 source     = "unsw",
-                service    = str(row[svc_col]).strip()  if svc_col    else "-",
-                orig_port  = str(row[sport_col])        if sport_col  else "-",
-                resp_port  = str(row[dport_col])        if dport_col  else "-",
+                service    = row["service"],
+                orig_port  = row["orig_p"],
+                resp_port  = row["resp_p"],
+                behavior_ctx=behavior_ctx,
             ))
-            if verdict == "ATTACK": attacks += 1
-            else:                   benign  += 1
+            if row["verdict"] == "ATTACK": attacks += 1
+            else:                          benign  += 1
 
         print(f"    {attacks} attacks, {benign} benign")
 
@@ -1208,6 +1275,7 @@ def load_uwf(dataset_dir):
     UWF_ALLOWED_TACTICS = {"Credential Access", "Defense Evasion"}
     print(f"[UWF-ZeekData24] Loading {len(csv_files)} CSV(s) from {dataset_dir}")
     samples = {"ATTACK": [], "FALSE POSITIVE": []}
+    row_cap = (MAX_PER_SOURCE_CLASS + MAX_PER_SOURCE_CLASS) * 4
 
     for fpath in csv_files:
         print(f"  Reading {os.path.relpath(fpath, dataset_dir)} ...")
@@ -1224,6 +1292,8 @@ def load_uwf(dataset_dir):
             print(f"    No label column found, skipping.")
             continue
 
+        rows = []
+        buffered_counts = {"ATTACK": 0, "FALSE POSITIVE": 0}
         attacks = benign = 0
         for _, row in df.iterrows():
             if label_col == "label_binary":
@@ -1236,10 +1306,6 @@ def load_uwf(dataset_dir):
                 tactic = str(row.get("label_tactic", "")).strip()
                 if tactic not in UWF_ALLOWED_TACTICS:
                     continue
-
-            bucket = samples[verdict]
-            if len(bucket) >= MAX_PER_SOURCE_CLASS:
-                continue
 
             # UWF uses empty strings for missing values — pass through as-is
             # (build_prompt / _safe will convert to N/A)
@@ -1264,13 +1330,56 @@ def load_uwf(dataset_dir):
             if orig_port  in ("nan", "None"): orig_port  = "-"
             if resp_port  in ("nan", "None"): resp_port  = "-"
 
+            ts = str(row.get("ts", row.get("timestamp", ""))).strip()
+            if ts in ("nan", "None", ""):
+                ts = None
+            orig_h = str(row.get("id.orig_h", row.get("orig_h", row.get("src_ip", "")))).strip()
+            if orig_h in ("nan", "None", ""):
+                orig_h = None
+            resp_h = str(row.get("id.resp_h", row.get("resp_h", row.get("dest_ip", "")))).strip()
+            if resp_h in ("nan", "None", ""):
+                resp_h = None
+
+            buffered_counts[verdict] += 1
+            rows.append({
+                "ts":         ts,
+                "orig_h":     orig_h,
+                "orig_p":     orig_port,
+                "resp_h":     resp_h,
+                "resp_p":     resp_port,
+                "proto":      proto,
+                "service":    service,
+                "duration":   duration,
+                "orig_bytes": orig_bytes,
+                "resp_bytes": resp_bytes,
+                "conn_state": conn_state,
+                "orig_pkts":  orig_pkts,
+                "resp_pkts":  resp_pkts,
+                "verdict":    verdict,
+            })
+
+            if len(rows) >= row_cap:
+                atk_needed = max(0, MAX_PER_SOURCE_CLASS - len(samples["ATTACK"]))
+                ben_needed = max(0, MAX_PER_SOURCE_CLASS - len(samples["FALSE POSITIVE"]))
+                if (buffered_counts["ATTACK"] >= atk_needed and
+                        buffered_counts["FALSE POSITIVE"] >= ben_needed):
+                    break
+
+        behavior_ctxs = build_behavior_contexts(rows)
+        for row, behavior_ctx in zip(rows, behavior_ctxs):
+            bucket = samples[row["verdict"]]
+            if len(bucket) >= MAX_PER_SOURCE_CLASS:
+                continue
+
             bucket.append(make_sample(
-                proto, duration, orig_pkts, resp_pkts,
-                orig_bytes, resp_bytes, conn_state, verdict, "uwf",
-                service=service, resp_port=resp_port, orig_port=orig_port,
+                row["proto"], row["duration"], row["orig_pkts"], row["resp_pkts"],
+                row["orig_bytes"], row["resp_bytes"], row["conn_state"],
+                row["verdict"], "uwf", service=row["service"],
+                resp_port=row["resp_p"], orig_port=row["orig_p"],
+                behavior_ctx=behavior_ctx,
             ))
-            if verdict == "ATTACK": attacks += 1
-            else:                   benign  += 1
+            if row["verdict"] == "ATTACK": attacks += 1
+            else:                          benign  += 1
 
         print(f"    {attacks} attacks, {benign} benign")
 
@@ -1297,6 +1406,8 @@ def load_ctu_normal(dataset_dir):
     for fpath in log_files:
         count = 0
         rows = []
+        row_cap = CTU_NORMAL_CAP * 4
+        buffered_benign = 0
         with open(fpath) as f:
             for line in f:
                 if line.startswith("#"):
@@ -1334,7 +1445,13 @@ def load_ctu_normal(dataset_dir):
                     "orig_pkts":  orig_pkts,
                     "resp_pkts":  resp_pkts,
                 })
+                buffered_benign += 1
                 count += 1
+
+                if len(rows) >= row_cap:
+                    ben_needed = max(0, CTU_NORMAL_CAP - len(samples))
+                    if buffered_benign >= ben_needed:
+                        break
 
         behavior_ctxs = build_behavior_contexts(rows)
         for row, behavior_ctx in zip(rows, behavior_ctxs):
