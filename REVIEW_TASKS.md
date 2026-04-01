@@ -9,8 +9,10 @@
 
 ## Open Tasks
 
+## Completed Tasks
+
 ### TASK-008
-Status: open
+Status: done
 Priority: high
 Area: preprocess_zeek.py — load_unsw() line 1116, load_uwf() line 1298
 Problem: Both loaders iterate pandas DataFrames with `df.iterrows()`, which is the
@@ -33,7 +35,7 @@ currently disabled, so it is not a priority.
 ---
 
 ### TASK-009
-Status: open
+Status: done
 Priority: medium
 Area: preprocess_zeek.py — load_ctu13(), DATASETS dict
 Problem: CTU-13 is loaded from a `.tar.bz2` archive using Python's single-threaded
@@ -65,7 +67,7 @@ is purely inside load_ctu13().
 ---
 
 ### TASK-010
-Status: open
+Status: done
 Priority: medium
 Area: preprocess_zeek.py — main block (~line 1474), all loader functions
 Problem: The six loaders (load_iot23, load_ctu13, load_unsw, load_uwf,
@@ -113,5 +115,3 @@ preferred for GIL-bound CPU work. max_workers=4 leaves cores free for the OS
 and avoids memory contention when all loaders run at once on 32 GB RAM.
 If a loader raises an exception, f.result() will re-raise it in main — no silent
 failures. Do not catch exceptions inside _run_loader.
-
----
