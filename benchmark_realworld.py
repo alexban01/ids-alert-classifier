@@ -9,9 +9,10 @@ This is the meaningful test: v4 had ~95% FP rate on real Zeek logs. v6 was
 trained specifically to fix that by adding UWF-ZeekData24 + CTU-Normal.
 
 Usage:
-    .venv/bin/python benchmark_realworld.py [--regen]
+    .venv/bin/python benchmark_realworld.py [--regen] [--no-behavior]
 
-    --regen   Force regeneration of the sample cache even if it exists.
+    --regen         Force regeneration of the sample cache even if it exists.
+    --no-behavior   Keep prompts conn-only (skip [BEHAVIOR] rebuild).
 """
 
 import os
@@ -32,7 +33,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import PeftModel
 from sklearn.metrics import classification_report, confusion_matrix, matthews_corrcoef
 
-from prompt_utils import SYSTEM_PROMPT, build_prompt, extract_verdict
+from behavior_features import build_behavior_contexts, build_host_summaries
+from prompt_utils import SYSTEM_PROMPT, build_prompt, build_host_prompt, extract_verdict
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 BASE_MODEL   = "Qwen/Qwen2.5-1.5B-Instruct"
@@ -69,7 +71,8 @@ CTU_CAPTURE_DIR      = "test_captures"
 def make_sample(proto, duration, orig_pkts, resp_pkts,
                 orig_bytes, resp_bytes, conn_state,
                 ground_truth, source, raw_label, service="-",
-                resp_port="-", orig_port="-"):
+                resp_port="-", orig_port="-", ts=None,
+                orig_h=None, resp_h=None, uid=None, group_id=None):
     return {
         "prompt":       build_prompt(proto, duration, orig_pkts, resp_pkts,
                                      orig_bytes, resp_bytes, conn_state, service,
@@ -77,6 +80,21 @@ def make_sample(proto, duration, orig_pkts, resp_pkts,
         "ground_truth": ground_truth,
         "source":       source,
         "raw_label":    raw_label,
+        "ts":           ts,
+        "uid":          uid,
+        "orig_h":       orig_h,
+        "orig_p":       orig_port,
+        "resp_h":       resp_h,
+        "resp_p":       resp_port,
+        "proto":        proto,
+        "service":      service,
+        "duration":     duration,
+        "orig_pkts":    orig_pkts,
+        "resp_pkts":    resp_pkts,
+        "orig_bytes":   orig_bytes,
+        "resp_bytes":   resp_bytes,
+        "conn_state":   conn_state,
+        "group_id":     group_id or source,
     }
 
 # ── Loaders ────────────────────────────────────────────────────────────────────
@@ -142,6 +160,11 @@ def load_iot23(archive_path):
                         service    = parts[7],
                         orig_port  = parts[3],
                         resp_port  = parts[5],
+                        ts         = parts[0],
+                        uid        = parts[1],
+                        orig_h     = parts[2],
+                        resp_h     = parts[4],
+                        group_id   = member.name,
                     ))
                 except IndexError:
                     continue
@@ -227,6 +250,9 @@ def load_ctu13(archive_path):
                     service    = "-",  # binetflow has no app-layer service field
                     orig_port  = row.get("Sport", "-").strip(),
                     resp_port  = row.get("Dport", "-").strip(),
+                    orig_h     = row.get("SrcAddr", "").strip(),
+                    resp_h     = row.get("DstAddr", "").strip(),
+                    group_id   = member.name,
                 ))
 
     atk = len(buckets["ATTACK"])
@@ -303,6 +329,11 @@ def load_uwf(dataset_dir):
                 service    = svc,
                 orig_port  = _clean(row.get("id.orig_p", row.get("orig_p", row.get("src_port_zeek", "-")))) or "-",
                 resp_port  = _clean(row.get("id.resp_p", row.get("resp_p", row.get("dest_port_zeek", "-")))) or "-",
+                ts         = _clean(row.get("ts", row.get("timestamp", ""))) or None,
+                uid        = _clean(row.get("uid", "")) or None,
+                orig_h     = _clean(row.get("id.orig_h", row.get("orig_h", row.get("src_ip", "")))) or None,
+                resp_h     = _clean(row.get("id.resp_h", row.get("resp_h", row.get("dest_ip", "")))) or None,
+                group_id   = os.path.basename(fpath),
             ))
 
     atk = len(buckets["ATTACK"])
@@ -351,6 +382,11 @@ def load_ctu_normal(dataset_dir):
                     service    = parts[7],
                     orig_port  = parts[3],
                     resp_port  = parts[5],
+                    ts         = parts[0],
+                    uid        = parts[1],
+                    orig_h     = parts[2],
+                    resp_h     = parts[4],
+                    group_id   = os.path.basename(fpath),
                 ))
 
     print(f"  CTU-Normal: 0 attacks, {len(samples)} benign")
@@ -510,6 +546,11 @@ def load_ctu_botnet3():
                     service    = parts[7],
                     orig_port  = orig_p,
                     resp_port  = resp_p,
+                    ts         = parts[0],
+                    uid        = parts[1],
+                    orig_h     = orig_h,
+                    resp_h     = resp_h,
+                    group_id   = "ctu_botnet3",
                 ))
     except Exception as e:
         print(f"  [SKIP] conn.log parse error: {e}")
@@ -543,6 +584,91 @@ def generate_samples():
     print(f"\n✅ {len(all_samples)} samples cached → {CACHE_FILE}")
     print(f"   Attacks: {atk}  |  Benign: {ben}")
     return all_samples
+
+
+def rebuild_prompts_with_behavior(samples):
+    """Rebuild sample prompts with [BEHAVIOR] sections when raw fields allow it."""
+    grouped = defaultdict(list)
+    for idx, sample in enumerate(samples):
+        grouped[(sample.get("source"), sample.get("group_id", sample.get("source")))].append((idx, sample))
+
+    behavior_ctxs = [None] * len(samples)
+    for items in grouped.values():
+        rows = []
+        order = []
+        for idx, sample in items:
+            if sample.get("ts") in (None, "", "-", "?", "None"):
+                continue
+            rows.append({
+                "ts":         sample.get("ts"),
+                "uid":        sample.get("uid"),
+                "orig_h":     sample.get("orig_h"),
+                "orig_p":     sample.get("orig_p"),
+                "resp_h":     sample.get("resp_h"),
+                "resp_p":     sample.get("resp_p"),
+                "proto":      sample.get("proto"),
+                "service":    sample.get("service"),
+                "duration":   sample.get("duration"),
+                "orig_bytes": sample.get("orig_bytes"),
+                "resp_bytes": sample.get("resp_bytes"),
+                "conn_state": sample.get("conn_state"),
+                "orig_pkts":  sample.get("orig_pkts"),
+                "resp_pkts":  sample.get("resp_pkts"),
+            })
+            order.append(idx)
+        ctxs = build_behavior_contexts(rows)
+        for idx, ctx in zip(order, ctxs):
+            behavior_ctxs[idx] = ctx
+
+    for i, sample in enumerate(samples):
+        sample["behavior_ctx"] = behavior_ctxs[i]
+        sample["prompt"] = build_prompt(
+            sample.get("proto"), sample.get("duration"), sample.get("orig_pkts"), sample.get("resp_pkts"),
+            sample.get("orig_bytes"), sample.get("resp_bytes"), sample.get("conn_state"), sample.get("service", "-"),
+            resp_port=sample.get("resp_p", "-"), orig_port=sample.get("orig_p", "-"),
+            behavior_ctx=behavior_ctxs[i],
+        )
+    return samples
+
+
+def build_host_benchmark_samples(samples, preds):
+    """Aggregate flow samples/predictions into host-level benchmark items."""
+    rows = []
+    flow_results = []
+    for sample, pred in zip(samples, preds):
+        rows.append({
+            "host_key": f"{sample.get('source')}|{sample.get('group_id', sample.get('source'))}|{sample.get('orig_h') or '?'}",
+            "orig_h": sample.get("orig_h") or "?",
+            "uid": sample.get("uid"),
+            "resp_h": sample.get("resp_h"),
+            "resp_p": sample.get("resp_p"),
+            "service": sample.get("service"),
+            "conn_state": sample.get("conn_state"),
+        })
+        flow_results.append((pred, ""))
+
+    host_summaries = build_host_summaries(rows, flow_results)
+    host_truth = {}
+    for sample in samples:
+        key = f"{sample.get('source')}|{sample.get('group_id', sample.get('source'))}|{sample.get('orig_h') or '?'}"
+        cur = host_truth.get(key, "FALSE POSITIVE")
+        if sample.get("ground_truth") == "ATTACK":
+            cur = "ATTACK"
+        host_truth[key] = cur
+
+    host_samples = []
+    for summary in host_summaries:
+        key = summary.get("host_key")
+        if key not in host_truth:
+            continue
+        host_samples.append({
+            "prompt": build_host_prompt(summary["host"], summary),
+            "ground_truth": host_truth[key],
+            "source": key.split("|", 1)[0],
+            "raw_label": "HostAttack" if host_truth[key] == "ATTACK" else "HostBenign",
+            "host": summary["host"],
+        })
+    return host_samples
 
 
 # ── Inference ───────────────────────────────────────────────────────────────────
@@ -706,6 +832,7 @@ if __name__ == "__main__":
     torch.backends.cudnn.benchmark        = True
 
     regen = "--regen" in sys.argv
+    no_behavior = "--no-behavior" in sys.argv
 
     if not regen and os.path.exists(CACHE_FILE):
         print(f"[CACHE] Loading {CACHE_FILE}")
@@ -714,6 +841,11 @@ if __name__ == "__main__":
         print(f"  {len(samples)} samples loaded")
     else:
         samples = generate_samples()
+
+    if no_behavior:
+        print("[MODE] --no-behavior enabled: using conn-only prompts.")
+    else:
+        samples = rebuild_prompts_with_behavior(samples)
 
     _tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, padding_side="left")
     if _tokenizer.pad_token is None:
@@ -748,6 +880,26 @@ if __name__ == "__main__":
         m               = compute_metrics(preds, samples, unknowns)
         results.append((label, m))
 
+        host_samples = build_host_benchmark_samples(samples, preds)
+        if host_samples:
+            host_preds, host_unknowns = run_inference(model, host_samples, f"{label} [host pass-2]")
+            host_m = compute_metrics(host_preds, host_samples, host_unknowns)
+        else:
+            host_unknowns = 0
+            host_m = {"accuracy": 0.0, "atk_recall": 0.0, "ben_recall": 0.0, "fmt_fail": 0.0, "mcc": 0.0}
+        host_lines = [
+            f"\n--- Host Pass-2 ---",
+            f"  Hosts           : {len(host_samples)}",
+            f"  Format failures : {host_unknowns} ({100*host_unknowns/max(len(host_samples),1):.1f}%)",
+            f"  Accuracy        : {host_m['accuracy']:.1%}",
+            f"  Atk Recall      : {host_m['atk_recall']:.1%}",
+            f"  FP Recall       : {host_m['ben_recall']:.1%}",
+            f"  MCC             : {host_m['mcc']:+.4f}",
+        ]
+        for line in host_lines:
+            print(line)
+        out_lines.extend(host_lines)
+
         # Per-source metrics for JSON
         src_metrics = {}
         for src in ALL_SOURCES:
@@ -772,6 +924,14 @@ if __name__ == "__main__":
             "ben_recall": round(m["ben_recall"], 4),
             "fmt_fail":   round(m["fmt_fail"],   4),
             "mcc":        round(m["mcc"],        4),
+            "host_pass2": {
+                "n":          len(host_samples),
+                "accuracy":   round(host_m["accuracy"],   4),
+                "atk_recall": round(host_m["atk_recall"], 4),
+                "ben_recall": round(host_m["ben_recall"], 4),
+                "fmt_fail":   round(host_m["fmt_fail"],   4),
+                "mcc":        round(host_m["mcc"],        4),
+            },
             "per_source": src_metrics,
         })
 

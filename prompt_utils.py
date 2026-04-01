@@ -51,10 +51,21 @@ def _fmt_port(v):
             return "N/A"
 
 
+def _fmt_int(v):
+    """Format an integer-like value, or N/A if unset."""
+    if v in _NA_VALUES:
+        return "N/A"
+    try:
+        return str(int(float(v)))
+    except (ValueError, TypeError):
+        return "N/A"
+
+
 def build_prompt(proto, duration, orig_pkts, resp_pkts,
                  orig_bytes, resp_bytes, conn_state, service="-",
                  resp_port="-", orig_port="-",
-                 http_ctx=None, dns_ctx=None, ssl_ctx=None):
+                 http_ctx=None, dns_ctx=None, ssl_ctx=None,
+                 behavior_ctx=None):
     """Convert Zeek-native features to model prompt text.
 
     When base fields are unset (-, empty, etc.), derived fields
@@ -65,6 +76,7 @@ def build_prompt(proto, duration, orig_pkts, resp_pkts,
       http_ctx  — keys: method, host, uri, user_agent, status_code, resp_body_len
       dns_ctx   — keys: query, answers, qtype_name, ttl, rcode_name
       ssl_ctx   — keys: version, cipher, issuer, validation_status
+      behavior_ctx — compact sliding-window behavior features from nearby conn.log rows
     Pass None to omit a section entirely (used for context masking in training).
     """
     dur_na = _is_na(duration)
@@ -159,6 +171,57 @@ def build_prompt(proto, duration, orig_pkts, resp_pkts,
             f"  Issuer:   {_sctx(ssl_ctx, 'issuer')}    Validated: {_sctx(ssl_ctx, 'validation_status', 'UNKNOWN')}",
         ]
 
+    if behavior_ctx is not None:
+        lines += [
+            "\n[BEHAVIOR]",
+            f"  Src Conns 60s:        {_fmt_int(behavior_ctx.get('src_conn_60s'))}",
+            f"  Src Conns 300s:       {_fmt_int(behavior_ctx.get('src_conn_300s'))}",
+            f"  Unique Dst IPs 60s:   {_fmt_int(behavior_ctx.get('src_unique_dst_60s'))}",
+            f"  Unique Dst Ports 60s: {_fmt_int(behavior_ctx.get('src_unique_ports_60s'))}",
+            f"  S0 / RSTO / SF 60s:   "
+            f"{_fmt_int(behavior_ctx.get('src_s0_60s'))} / "
+            f"{_fmt_int(behavior_ctx.get('src_rsto_60s'))} / "
+            f"{_fmt_int(behavior_ctx.get('src_sf_60s'))}",
+            f"  Pair Conns 300s:      {_fmt_int(behavior_ctx.get('pair_conn_300s'))}",
+            f"  Mean Gap:             {_safe(behavior_ctx.get('pair_mean_gap_s'), '.1f')}s",
+            f"  Periodic:             {_sctx(behavior_ctx, 'pair_periodic_score', 'Low')}",
+            f"  Same Resp Port 60s:   {_fmt_int(behavior_ctx.get('same_resp_port_60s'))}",
+            f"  Same-Size Repeats:    {_fmt_int(behavior_ctx.get('same_flow_size_repeats_300s'))}",
+        ]
+
+    return "\n".join(lines)
+
+
+def build_host_prompt(host, summary):
+    """Build a second-pass host-level prompt from aggregated flow behavior."""
+    lines = [
+        "Analyze this source host's recent Zeek activity and classify it as ATTACK or FALSE POSITIVE.\n",
+        f"  Source Host:         {host}",
+        f"  Total Flows:         {_fmt_int(summary.get('total_flows'))}",
+        f"  Pass-1 ATTACK:       {_fmt_int(summary.get('pred_attack'))}",
+        f"  Pass-1 Benign:       {_fmt_int(summary.get('pred_benign'))}",
+        f"  Pass-1 Unknown:      {_fmt_int(summary.get('pred_unknown'))}",
+        f"  Attack Ratio:        {_safe(100 * float(summary.get('attack_ratio', 0.0)), '.1f')}%",
+        f"  Unique Dst IPs:      {_fmt_int(summary.get('unique_dst_ips'))}",
+        f"  Unique Dst Ports:    {_fmt_int(summary.get('unique_dst_ports'))}",
+        f"  S0 / RSTO / SF:      "
+        f"{_fmt_int(summary.get('state_s0'))} / "
+        f"{_fmt_int(summary.get('state_rsto'))} / "
+        f"{_fmt_int(summary.get('state_sf'))}",
+        f"  HTTP / DNS / SSL:    "
+        f"{_fmt_int(summary.get('http_flows'))} / "
+        f"{_fmt_int(summary.get('dns_flows'))} / "
+        f"{_fmt_int(summary.get('ssl_flows'))}",
+        f"  Periodic High:       {_fmt_int(summary.get('periodic_high'))}",
+        f"  Periodic Medium:     {_fmt_int(summary.get('periodic_medium'))}",
+        f"  Bursty Flows:        {_fmt_int(summary.get('bursty_flows'))}",
+        f"  Fan-out Flows:       {_fmt_int(summary.get('fanout_flows'))}",
+        f"  Same-Size Repeats:   {_fmt_int(summary.get('same_size_repeat_flows'))}",
+        f"  Top Ports:           {_sctx(summary, 'top_ports')}",
+        f"  Top Services:        {_sctx(summary, 'top_services')}",
+        f"  Attack Ports:        {_sctx(summary, 'top_attack_ports')}",
+        f"  Attack Destinations: {_sctx(summary, 'top_attack_dsts')}",
+    ]
     return "\n".join(lines)
 
 

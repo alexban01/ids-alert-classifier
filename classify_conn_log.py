@@ -9,6 +9,7 @@ Optionally enrich prompts with application-layer context from auxiliary Zeek log
   --http-log PATH    Zeek http.log (adds [HTTP] section to each matched flow)
   --dns-log  PATH    Zeek dns.log  (adds [DNS]  section to each matched flow)
   --ssl-log  PATH    Zeek ssl.log  (adds [SSL]  section to each matched flow)
+  --host-pass2       Run an optional second pass on aggregated source-host behavior
 
 Usage:
     .venv/bin/python classify_conn_log.py [CONN_LOG] [--ollama] [--limit N]
@@ -25,7 +26,8 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import PeftModel
 
-from prompt_utils import SYSTEM_PROMPT, build_prompt, extract_verdict
+from behavior_features import build_behavior_contexts, build_host_summaries
+from prompt_utils import SYSTEM_PROMPT, build_prompt, build_host_prompt, extract_verdict
 
 # ── Config ────────────────────────────────────────────────────────────────────
 BASE_MODEL       = "Qwen/Qwen2.5-1.5B-Instruct"
@@ -180,19 +182,21 @@ def build_uid_ssl(ssl_log_path):
     return lookup
 
 
-def build_prompts(rows, uid_http=None, uid_dns=None, uid_ssl=None):
+def build_prompts(rows, uid_http=None, uid_dns=None, uid_ssl=None, behavior_ctxs=None):
     """Build prompt strings for each row, optionally enriched with context logs."""
     result = []
-    for r in rows:
+    for i, r in enumerate(rows):
         uid      = r.get("uid", "")
         http_ctx = (uid_http or {}).get(uid)
         dns_ctx  = (uid_dns  or {}).get(uid)
         ssl_ctx  = (uid_ssl  or {}).get(uid)
+        behavior_ctx = behavior_ctxs[i] if behavior_ctxs and i < len(behavior_ctxs) else None
         result.append(build_prompt(
             r["proto"], r["duration"], r["orig_pkts"], r["resp_pkts"],
             r["orig_bytes"], r["resp_bytes"], r["conn_state"], r["service"],
             resp_port=r["resp_p"], orig_port=r["orig_p"],
             http_ctx=http_ctx, dns_ctx=dns_ctx, ssl_ctx=ssl_ctx,
+            behavior_ctx=behavior_ctx,
         ))
     return result
 
@@ -330,6 +334,37 @@ def print_results(rows, results):
         print()
 
 
+def print_host_results(host_summaries, results):
+    attacks = [(host_summaries[i], raw) for i, (v, raw) in enumerate(results) if v == "ATTACK"]
+    unknowns = [(host_summaries[i], raw) for i, (v, raw) in enumerate(results) if v == "UNKNOWN"]
+    benign_n = len(host_summaries) - len(attacks) - len(unknowns)
+
+    print(f"\n{'='*70}")
+    print(f"  HOST PASS-2: {len(host_summaries)} source hosts classified")
+    print(f"  Attacks:  {len(attacks)}")
+    print(f"  Benign:   {benign_n}")
+    print(f"  Unknown:  {len(unknowns)}")
+    print(f"{'='*70}\n")
+
+    if attacks:
+        print("── HOST ATTACK verdicts ────────────────────────────────────────────────")
+        for summary, raw_text in attacks:
+            reason = next(
+                (ln[7:].strip() for ln in raw_text.splitlines() if ln.upper().startswith("REASON:")),
+                ""
+            )
+            print(
+                f"  {summary['host']:>40s}  "
+                f"flows={summary['total_flows']:<5d} "
+                f"pass1_attack={summary['pred_attack']:<5d} "
+                f"uniq_dst={summary['unique_dst_ips']:<4d} "
+                f"ports={summary['top_ports']}"
+            )
+            if reason:
+                print(f"         Reason: {reason}")
+        print()
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     torch.backends.cuda.matmul.allow_tf32 = True
@@ -338,6 +373,8 @@ if __name__ == "__main__":
     args       = sys.argv[1:]
     use_ollama = "--ollama" in args
     args       = [a for a in args if a != "--ollama"]
+    host_pass2 = "--host-pass2" in args
+    args       = [a for a in args if a != "--host-pass2"]
 
     limit = None
     if "--limit" in args:
@@ -362,6 +399,9 @@ if __name__ == "__main__":
     print(f"Parsing {log_path} ..." + (f" (limit {limit})" if limit else ""))
     rows = parse_conn_log(log_path, limit=limit)
     print(f"  {len(rows)} connections")
+    behavior_ctxs = build_behavior_contexts(rows)
+    behavior_n = sum(1 for ctx in behavior_ctxs if ctx is not None)
+    print(f"  {behavior_n}/{len(rows)} flows have behavioral window context")
 
     uid_http = build_uid_http(http_log_path) if http_log_path else None
     uid_dns  = build_uid_dns(dns_log_path)   if dns_log_path  else None
@@ -374,7 +414,13 @@ if __name__ == "__main__":
         print(f"  {ctx_n}/{len(rows)} flows have application-layer context")
     print()
 
-    prompts = build_prompts(rows, uid_http=uid_http, uid_dns=uid_dns, uid_ssl=uid_ssl)
+    prompts = build_prompts(
+        rows,
+        uid_http=uid_http,
+        uid_dns=uid_dns,
+        uid_ssl=uid_ssl,
+        behavior_ctxs=behavior_ctxs,
+    )
 
     if use_ollama:
         print(f"Mode: Ollama ({OLLAMA_MODEL})")
@@ -385,3 +431,22 @@ if __name__ == "__main__":
         results = classify_hf(model, tokenizer, prompts)
 
     print_results(rows, results)
+
+    if host_pass2 and rows:
+        host_summaries = build_host_summaries(
+            rows,
+            results,
+            behavior_ctxs=behavior_ctxs,
+            uid_http=uid_http,
+            uid_dns=uid_dns,
+            uid_ssl=uid_ssl,
+        )
+        host_prompts = [build_host_prompt(s["host"], s) for s in host_summaries]
+
+        print(f"Running host pass-2 on {len(host_prompts)} source hosts ...")
+        if use_ollama:
+            host_results = classify_ollama(host_prompts)
+        else:
+            host_results = classify_hf(model, tokenizer, host_prompts)
+
+        print_host_results(host_summaries, host_results)

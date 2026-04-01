@@ -30,6 +30,7 @@ import urllib.request
 
 import pandas as pd
 
+from behavior_features import build_behavior_contexts
 from prompt_utils import SYSTEM_PROMPT, build_prompt
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -60,6 +61,10 @@ CONN_STATE_MASK_PROB = 0.20   # fraction of samples where conn_state is blanked 
 CONTEXT_MASK_PROB    = 0.50   # per-section probability of dropping http/dns/ssl context in training
                               # prevents "has http section → ATTACK" shortcut; forces model to
                               # classify correctly from conn.log alone half the time
+
+HARD_BENIGN_MIN_SCORE   = 3     # score threshold to count a benign sample as "hard"
+HARD_BENIGN_TARGET_FRAC = 0.35  # when subsampling benigns, reserve up to this fraction
+                                # for the hardest benign negatives first
 
 CTU_MALWARE_DIR = "datasets/ctu-malware/"        # download cache for bro logs + binetflow
 
@@ -313,28 +318,147 @@ def pick_reason(verdict):
     pool = ATTACK_REASONS if verdict == "ATTACK" else BENIGN_REASONS
     return random.choice(pool)
 
+
+def score_hard_benign(proto, conn_state, service="-", resp_port="-", orig_port="-",
+                      http_ctx=None, dns_ctx=None, ssl_ctx=None, behavior_ctx=None):
+    """Return (score, flags) for benign samples that look attack-like.
+
+    Higher scores mean the benign flow is more useful as a hard negative.
+    """
+    score = 0
+    flags = []
+
+    proto_s = str(proto or "").strip().lower()
+    state_s = str(conn_state or "").strip().upper()
+    service_s = str(service or "").strip().lower()
+    resp_port_s = str(resp_port or "").strip()
+
+    try:
+        resp_port_i = int(float(resp_port_s))
+    except (ValueError, TypeError):
+        resp_port_i = None
+
+    if http_ctx is not None:
+        score += 2
+        flags.append("http_ctx")
+        method = str(http_ctx.get("method") or "").upper()
+        host = str(http_ctx.get("host") or "")
+        uri = str(http_ctx.get("uri") or "")
+        if method in ("GET", "POST"):
+            score += 1
+            flags.append(f"http_{method.lower()}")
+        if host or uri:
+            score += 1
+            flags.append("http_named_endpoint")
+
+    if dns_ctx is not None:
+        score += 2
+        flags.append("dns_ctx")
+        rcode = str(dns_ctx.get("rcode_name") or "").upper()
+        ttl = str(dns_ctx.get("ttl") or "").strip()
+        if rcode in ("NXDOMAIN", "NXERROR"):
+            score += 2
+            flags.append("dns_nxdomain")
+        try:
+            if ttl and float(ttl) <= 60:
+                score += 1
+                flags.append("dns_short_ttl")
+        except (ValueError, TypeError):
+            pass
+
+    if ssl_ctx is not None:
+        score += 2
+        flags.append("ssl_ctx")
+        version = str(ssl_ctx.get("version") or "").upper()
+        cipher = str(ssl_ctx.get("cipher") or "").upper()
+        validation = str(ssl_ctx.get("validation_status") or "").upper()
+        issuer = str(ssl_ctx.get("issuer") or "")
+        if "FAILED" in validation or "SELF-SIGNED" in issuer.upper():
+            score += 2
+            flags.append("ssl_untrusted")
+        if version in ("SSLV3", "TLSV1", "TLSV1.0") or "RC4" in cipher:
+            score += 1
+            flags.append("ssl_legacy")
+
+    if resp_port_i in {22, 23, 25, 53, 80, 123, 443, 445, 502, 6667, 8080, 8443, 3128, 3389}:
+        score += 1
+        flags.append(f"port_{resp_port_i}")
+    if resp_port_i in {23, 445, 6667, 3389, 4848}:
+        score += 1
+        flags.append("high_risk_service_port")
+
+    if state_s in {"S0", "RSTO", "S1"}:
+        score += 1
+        flags.append(f"state_{state_s.lower()}")
+    if resp_port_i == 443 and service_s in {"", "-", "unknown"}:
+        score += 1
+        flags.append("port443_no_service")
+    if proto_s == "udp" and resp_port_i == 53:
+        score += 1
+        flags.append("udp_dns")
+
+    if behavior_ctx:
+        score += 1
+        flags.append("behavior_ctx")
+        src_conn_60s = int(behavior_ctx.get("src_conn_60s") or 0)
+        unique_dst_60s = int(behavior_ctx.get("src_unique_dst_60s") or 0)
+        unique_ports_60s = int(behavior_ctx.get("src_unique_ports_60s") or 0)
+        same_port_60s = int(behavior_ctx.get("same_resp_port_60s") or 0)
+        repeats_300s = int(behavior_ctx.get("same_flow_size_repeats_300s") or 0)
+        periodic = str(behavior_ctx.get("pair_periodic_score") or "").lower()
+        if src_conn_60s >= 10:
+            score += 2
+            flags.append("burst_60s")
+        if unique_dst_60s >= 5 or unique_ports_60s >= 5:
+            score += 2
+            flags.append("fanout_60s")
+        if same_port_60s >= 5:
+            score += 1
+            flags.append("same_port_repeat")
+        if repeats_300s >= 3:
+            score += 1
+            flags.append("same_size_repeat")
+        if periodic in {"high", "medium"}:
+            score += 2 if periodic == "high" else 1
+            flags.append(f"periodic_{periodic}")
+
+    return score, flags
+
+
 # ── Sample builder ─────────────────────────────────────────────────────────────
 def make_sample(proto, duration, orig_pkts, resp_pkts,
                 orig_bytes, resp_bytes, conn_state, verdict, source,
                 service="-", resp_port="-", orig_port="-",
-                http_ctx=None, dns_ctx=None, ssl_ctx=None):
+                http_ctx=None, dns_ctx=None, ssl_ctx=None, behavior_ctx=None):
+    hard_benign_score = 0
+    hard_benign_flags = []
+    if verdict == "FALSE POSITIVE":
+        hard_benign_score, hard_benign_flags = score_hard_benign(
+            proto, conn_state, service=service, resp_port=resp_port, orig_port=orig_port,
+            http_ctx=http_ctx, dns_ctx=dns_ctx, ssl_ctx=ssl_ctx, behavior_ctx=behavior_ctx,
+        )
+
     # Mask conn_state with CONN_STATE_MASK_PROB — forces model to use numeric
     # features (bytes, packets, port) when state is unavailable or ambiguous.
     prompt_conn_state = "-" if random.random() < CONN_STATE_MASK_PROB else conn_state
 
     # Per-section context masking (50% chance each section is dropped).
     # Prevents "has http section → ATTACK" shortcut; forces conn.log-only correctness.
+    prompt_behavior_ctx = behavior_ctx
     if http_ctx is not None and random.random() < CONTEXT_MASK_PROB:
         http_ctx = None
     if dns_ctx is not None and random.random() < CONTEXT_MASK_PROB:
         dns_ctx = None
     if ssl_ctx is not None and random.random() < CONTEXT_MASK_PROB:
         ssl_ctx = None
+    if prompt_behavior_ctx is not None and random.random() < CONTEXT_MASK_PROB:
+        prompt_behavior_ctx = None
 
     prompt  = build_prompt(proto, duration, orig_pkts, resp_pkts,
                            orig_bytes, resp_bytes, prompt_conn_state, service,
                            resp_port=resp_port, orig_port=orig_port,
-                           http_ctx=http_ctx, dns_ctx=dns_ctx, ssl_ctx=ssl_ctx)
+                           http_ctx=http_ctx, dns_ctx=dns_ctx, ssl_ctx=ssl_ctx,
+                           behavior_ctx=prompt_behavior_ctx)
     reason  = pick_reason(verdict)
     return {
         "messages": [
@@ -342,9 +466,12 @@ def make_sample(proto, duration, orig_pkts, resp_pkts,
             {"role": "user",      "content": prompt},
             {"role": "assistant", "content": f"VERDICT: {verdict}\nREASON: {reason}"},
         ],
-        "source":     source,
-        "verdict":    verdict,
-        "conn_state": conn_state,  # original (pre-mask) — used for SF oversampling
+        "source":            source,
+        "verdict":           verdict,
+        "conn_state":        conn_state,  # original (pre-mask) — used for SF oversampling
+        "hard_benign_score": hard_benign_score,
+        "hard_benign_flags": hard_benign_flags,
+        "is_hard_benign":    hard_benign_score >= HARD_BENIGN_MIN_SCORE,
     }
 
 # ── CTU-Malware-Capture helpers ────────────────────────────────────────────────
@@ -624,7 +751,11 @@ def load_ctu_malware_captures():
 
         # ── 5. Process conn.log ───────────────────────────────────────────────
         buckets = {"ATTACK": [], "FALSE POSITIVE": []}
-
+        attack_cap = MAX_PER_SOURCE_CLASS
+        benign_cap = MAX_PER_SOURCE_CLASS
+        row_cap = (attack_cap + benign_cap) * 4
+        buffered_counts = {"ATTACK": 0, "FALSE POSITIVE": 0}
+        conn_rows = []
         with open(conn_path, errors="replace") as f:
             for line in f:
                 if line.startswith("#"):
@@ -632,40 +763,70 @@ def load_ctu_malware_captures():
                 parts = line.strip().split("\t")
                 if len(parts) < 19:
                     continue
+                row = {
+                    "ts":         parts[0],
+                    "uid":        parts[1],
+                    "orig_h":     parts[2],
+                    "orig_p":     parts[3],
+                    "resp_h":     parts[4],
+                    "resp_p":     parts[5],
+                    "proto":      parts[6],
+                    "service":    parts[7],
+                    "duration":   parts[8],
+                    "orig_bytes": parts[9],
+                    "resp_bytes": parts[10],
+                    "conn_state": parts[11],
+                    "orig_pkts":  parts[16] if len(parts) > 16 else "-",
+                    "resp_pkts":  parts[18] if len(parts) > 18 else "-",
+                }
 
-                uid    = parts[1]
-                orig_h = parts[2]
-                orig_p = parts[3]
-                resp_h = parts[4]
-                resp_p = parts[5]
-                proto  = parts[6]
-
-                key   = _norm_key(proto, orig_h, orig_p, resp_h, resp_p)
+                key = _norm_key(
+                    row["proto"], row["orig_h"], row["orig_p"], row["resp_h"], row["resp_p"]
+                )
                 label = flow_labels.get(key)
-                if label is None:
-                    continue
+                if label in buffered_counts:
+                    buffered_counts[label] += 1
 
-                bucket = buckets[label]
-                if len(bucket) >= MAX_PER_SOURCE_CLASS:
-                    continue
+                conn_rows.append(row)
 
-                bucket.append(make_sample(
-                    proto      = proto,
-                    duration   = parts[8],
-                    orig_pkts  = parts[16] if len(parts) > 16 else "-",
-                    resp_pkts  = parts[18] if len(parts) > 18 else "-",
-                    orig_bytes = parts[9],
-                    resp_bytes = parts[10],
-                    conn_state = parts[11],
-                    verdict    = label,
-                    source     = "ctu_malware",
-                    service    = parts[7],
-                    orig_port  = orig_p,
-                    resp_port  = resp_p,
-                    http_ctx   = uid_http.get(uid),
-                    dns_ctx    = uid_dns.get(uid),
-                    ssl_ctx    = uid_ssl.get(uid),
-                ))
+                if len(conn_rows) >= row_cap:
+                    atk_needed = max(0, attack_cap - len(buckets["ATTACK"]))
+                    ben_needed = max(0, benign_cap - len(buckets["FALSE POSITIVE"]))
+                    if (buffered_counts["ATTACK"] >= atk_needed and
+                            buffered_counts["FALSE POSITIVE"] >= ben_needed):
+                        break
+
+        behavior_ctxs = build_behavior_contexts(conn_rows)
+        for row, behavior_ctx in zip(conn_rows, behavior_ctxs):
+            key = _norm_key(
+                row["proto"], row["orig_h"], row["orig_p"], row["resp_h"], row["resp_p"]
+            )
+            label = flow_labels.get(key)
+            if label is None:
+                continue
+
+            bucket = buckets[label]
+            if len(bucket) >= MAX_PER_SOURCE_CLASS:
+                continue
+
+            bucket.append(make_sample(
+                proto      = row["proto"],
+                duration   = row["duration"],
+                orig_pkts  = row["orig_pkts"],
+                resp_pkts  = row["resp_pkts"],
+                orig_bytes = row["orig_bytes"],
+                resp_bytes = row["resp_bytes"],
+                conn_state = row["conn_state"],
+                verdict    = label,
+                source     = "ctu_malware",
+                service    = row["service"],
+                orig_port  = row["orig_p"],
+                resp_port  = row["resp_p"],
+                http_ctx   = uid_http.get(row["uid"]),
+                dns_ctx    = uid_dns.get(row["uid"]),
+                ssl_ctx    = uid_ssl.get(row["uid"]),
+                behavior_ctx=behavior_ctx,
+            ))
 
         atk = len(buckets["ATTACK"])
         ben = len(buckets["FALSE POSITIVE"])
@@ -699,6 +860,9 @@ def load_iot23(archive_path):
             f = tf.extractfile(member)
             if f is None:
                 continue
+            rows = []
+            buffered_counts = {"ATTACK": 0, "FALSE POSITIVE": 0}
+            row_cap = (MAX_PER_SOURCE_CLASS + IOT23_BENIGN_CAP) * 4
             lines_read = attacks = benign = 0
             for raw in f:
                 line = raw.decode("utf-8", errors="replace").strip()
@@ -741,17 +905,47 @@ def load_iot23(archive_path):
                 else:
                     continue
 
+                buffered_counts[verdict] += 1
+                rows.append({
+                    "ts":         parts[0],
+                    "orig_h":     parts[2],
+                    "orig_p":     orig_port,
+                    "resp_h":     parts[4],
+                    "resp_p":     resp_port,
+                    "proto":      proto,
+                    "service":    service,
+                    "duration":   duration,
+                    "orig_bytes": orig_bytes,
+                    "resp_bytes": resp_bytes,
+                    "conn_state": conn_state,
+                    "orig_pkts":  orig_pkts,
+                    "resp_pkts":  resp_pkts,
+                    "verdict":    verdict,
+                })
                 cap    = IOT23_BENIGN_CAP if verdict == "FALSE POSITIVE" else MAX_PER_SOURCE_CLASS
-                bucket = samples[verdict]
-                if len(bucket) < cap:
-                    bucket.append(make_sample(
-                        proto, duration, orig_pkts, resp_pkts,
-                        orig_bytes, resp_bytes, conn_state, verdict, "iot23",
-                        service=service, resp_port=resp_port, orig_port=orig_port,
-                    ))
                 lines_read += 1
                 if verdict == "ATTACK":  attacks += 1
                 else:                    benign  += 1
+
+                if len(rows) >= row_cap:
+                    atk_needed = max(0, MAX_PER_SOURCE_CLASS - len(samples["ATTACK"]))
+                    ben_needed = max(0, IOT23_BENIGN_CAP - len(samples["FALSE POSITIVE"]))
+                    if (buffered_counts["ATTACK"] >= atk_needed and
+                            buffered_counts["FALSE POSITIVE"] >= ben_needed):
+                        break
+
+            behavior_ctxs = build_behavior_contexts(rows)
+            for row, behavior_ctx in zip(rows, behavior_ctxs):
+                cap = IOT23_BENIGN_CAP if row["verdict"] == "FALSE POSITIVE" else MAX_PER_SOURCE_CLASS
+                bucket = samples[row["verdict"]]
+                if len(bucket) < cap:
+                    bucket.append(make_sample(
+                        row["proto"], row["duration"], row["orig_pkts"], row["resp_pkts"],
+                        row["orig_bytes"], row["resp_bytes"], row["conn_state"],
+                        row["verdict"], "iot23", service=row["service"],
+                        resp_port=row["resp_p"], orig_port=row["orig_p"],
+                        behavior_ctx=behavior_ctx,
+                    ))
 
             print(f"    {member.name}: {attacks} attacks, {benign} benign")
 
@@ -879,6 +1073,7 @@ def load_unsw(dataset_dir):
 
     print(f"[UNSW-NB15] Loading {len(files)} file(s) from {dataset_dir}")
     samples = {"ATTACK": [], "FALSE POSITIVE": []}
+    row_cap = (MAX_PER_SOURCE_CLASS + MAX_PER_SOURCE_CLASS) * 4
 
     for fpath in files:
         print(f"  Reading {os.path.basename(fpath)} ...")
@@ -904,6 +1099,9 @@ def load_unsw(dataset_dir):
         svc_col    = next((c for c in ["service"]                    if c in df.columns), None)
         sport_col  = next((c for c in ["sport", "source_port", "orig_p"]       if c in df.columns), None)
         dport_col  = next((c for c in ["dport", "destination_port", "resp_p"]  if c in df.columns), None)
+        ts_col     = next((c for c in ["ts", "timestamp", "stime", "starttime"] if c in df.columns), None)
+        src_h_col  = next((c for c in ["srcip", "src_ip", "orig_h", "id.orig_h"] if c in df.columns), None)
+        dst_h_col  = next((c for c in ["dstip", "dst_ip", "resp_h", "id.resp_h"] if c in df.columns), None)
         label_col  = next((c for c in ["binary_label", "label"]      if c in df.columns), None)
 
         if label_col is None:
@@ -912,6 +1110,8 @@ def load_unsw(dataset_dir):
 
         df = df.replace([float("inf"), float("-inf")], float("nan")).dropna(subset=[label_col])
 
+        rows = []
+        buffered_counts = {"ATTACK": 0, "FALSE POSITIVE": 0}
         attacks = benign = 0
         for _, row in df.iterrows():
             lv = row[label_col]
@@ -920,26 +1120,54 @@ def load_unsw(dataset_dir):
             except (ValueError, TypeError):
                 verdict = "ATTACK" if str(lv).strip() not in ("0", "Normal", "BENIGN") else "FALSE POSITIVE"
 
-            bucket = samples[verdict]
+            buffered_counts[verdict] += 1
+            rows.append({
+                "ts":         str(row[ts_col]).strip() if ts_col else None,
+                "orig_h":     str(row[src_h_col]).strip() if src_h_col else None,
+                "orig_p":     str(row[sport_col]).strip() if sport_col else "-",
+                "resp_h":     str(row[dst_h_col]).strip() if dst_h_col else None,
+                "resp_p":     str(row[dport_col]).strip() if dport_col else "-",
+                "proto":      str(row[proto_col]).strip() if proto_col else "unknown",
+                "service":    str(row[svc_col]).strip() if svc_col else "-",
+                "duration":   str(row[dur_col]).strip() if dur_col else "0",
+                "orig_bytes": str(row[sbytes_col]).strip() if sbytes_col else "0",
+                "resp_bytes": str(row[dbytes_col]).strip() if dbytes_col else "0",
+                "conn_state": str(row[state_col]).strip() if state_col else "-",
+                "orig_pkts":  str(row[spkts_col]).strip() if spkts_col else "0",
+                "resp_pkts":  str(row[dpkts_col]).strip() if dpkts_col else "0",
+                "verdict":    verdict,
+            })
+
+            if len(rows) >= row_cap:
+                atk_needed = max(0, MAX_PER_SOURCE_CLASS - len(samples["ATTACK"]))
+                ben_needed = max(0, MAX_PER_SOURCE_CLASS - len(samples["FALSE POSITIVE"]))
+                if (buffered_counts["ATTACK"] >= atk_needed and
+                        buffered_counts["FALSE POSITIVE"] >= ben_needed):
+                    break
+
+        behavior_ctxs = build_behavior_contexts(rows)
+        for row, behavior_ctx in zip(rows, behavior_ctxs):
+            bucket = samples[row["verdict"]]
             if len(bucket) >= MAX_PER_SOURCE_CLASS:
                 continue
 
             bucket.append(make_sample(
-                proto      = str(row[proto_col])  if proto_col  else "unknown",
-                duration   = str(row[dur_col])    if dur_col    else "0",
-                orig_pkts  = str(row[spkts_col])  if spkts_col  else "0",
-                resp_pkts  = str(row[dpkts_col])  if dpkts_col  else "0",
-                orig_bytes = str(row[sbytes_col]) if sbytes_col else "0",
-                resp_bytes = str(row[dbytes_col]) if dbytes_col else "0",
-                conn_state = str(row[state_col])  if state_col  else "-",
-                verdict    = verdict,
+                proto      = row["proto"],
+                duration   = row["duration"],
+                orig_pkts  = row["orig_pkts"],
+                resp_pkts  = row["resp_pkts"],
+                orig_bytes = row["orig_bytes"],
+                resp_bytes = row["resp_bytes"],
+                conn_state = row["conn_state"],
+                verdict    = row["verdict"],
                 source     = "unsw",
-                service    = str(row[svc_col]).strip()  if svc_col    else "-",
-                orig_port  = str(row[sport_col])        if sport_col  else "-",
-                resp_port  = str(row[dport_col])        if dport_col  else "-",
+                service    = row["service"],
+                orig_port  = row["orig_p"],
+                resp_port  = row["resp_p"],
+                behavior_ctx=behavior_ctx,
             ))
-            if verdict == "ATTACK": attacks += 1
-            else:                   benign  += 1
+            if row["verdict"] == "ATTACK": attacks += 1
+            else:                          benign  += 1
 
         print(f"    {attacks} attacks, {benign} benign")
 
@@ -1047,6 +1275,7 @@ def load_uwf(dataset_dir):
     UWF_ALLOWED_TACTICS = {"Credential Access", "Defense Evasion"}
     print(f"[UWF-ZeekData24] Loading {len(csv_files)} CSV(s) from {dataset_dir}")
     samples = {"ATTACK": [], "FALSE POSITIVE": []}
+    row_cap = (MAX_PER_SOURCE_CLASS + MAX_PER_SOURCE_CLASS) * 4
 
     for fpath in csv_files:
         print(f"  Reading {os.path.relpath(fpath, dataset_dir)} ...")
@@ -1063,6 +1292,8 @@ def load_uwf(dataset_dir):
             print(f"    No label column found, skipping.")
             continue
 
+        rows = []
+        buffered_counts = {"ATTACK": 0, "FALSE POSITIVE": 0}
         attacks = benign = 0
         for _, row in df.iterrows():
             if label_col == "label_binary":
@@ -1075,10 +1306,6 @@ def load_uwf(dataset_dir):
                 tactic = str(row.get("label_tactic", "")).strip()
                 if tactic not in UWF_ALLOWED_TACTICS:
                     continue
-
-            bucket = samples[verdict]
-            if len(bucket) >= MAX_PER_SOURCE_CLASS:
-                continue
 
             # UWF uses empty strings for missing values — pass through as-is
             # (build_prompt / _safe will convert to N/A)
@@ -1103,13 +1330,56 @@ def load_uwf(dataset_dir):
             if orig_port  in ("nan", "None"): orig_port  = "-"
             if resp_port  in ("nan", "None"): resp_port  = "-"
 
+            ts = str(row.get("ts", row.get("timestamp", ""))).strip()
+            if ts in ("nan", "None", ""):
+                ts = None
+            orig_h = str(row.get("id.orig_h", row.get("orig_h", row.get("src_ip", "")))).strip()
+            if orig_h in ("nan", "None", ""):
+                orig_h = None
+            resp_h = str(row.get("id.resp_h", row.get("resp_h", row.get("dest_ip", "")))).strip()
+            if resp_h in ("nan", "None", ""):
+                resp_h = None
+
+            buffered_counts[verdict] += 1
+            rows.append({
+                "ts":         ts,
+                "orig_h":     orig_h,
+                "orig_p":     orig_port,
+                "resp_h":     resp_h,
+                "resp_p":     resp_port,
+                "proto":      proto,
+                "service":    service,
+                "duration":   duration,
+                "orig_bytes": orig_bytes,
+                "resp_bytes": resp_bytes,
+                "conn_state": conn_state,
+                "orig_pkts":  orig_pkts,
+                "resp_pkts":  resp_pkts,
+                "verdict":    verdict,
+            })
+
+            if len(rows) >= row_cap:
+                atk_needed = max(0, MAX_PER_SOURCE_CLASS - len(samples["ATTACK"]))
+                ben_needed = max(0, MAX_PER_SOURCE_CLASS - len(samples["FALSE POSITIVE"]))
+                if (buffered_counts["ATTACK"] >= atk_needed and
+                        buffered_counts["FALSE POSITIVE"] >= ben_needed):
+                    break
+
+        behavior_ctxs = build_behavior_contexts(rows)
+        for row, behavior_ctx in zip(rows, behavior_ctxs):
+            bucket = samples[row["verdict"]]
+            if len(bucket) >= MAX_PER_SOURCE_CLASS:
+                continue
+
             bucket.append(make_sample(
-                proto, duration, orig_pkts, resp_pkts,
-                orig_bytes, resp_bytes, conn_state, verdict, "uwf",
-                service=service, resp_port=resp_port, orig_port=orig_port,
+                row["proto"], row["duration"], row["orig_pkts"], row["resp_pkts"],
+                row["orig_bytes"], row["resp_bytes"], row["conn_state"],
+                row["verdict"], "uwf", service=row["service"],
+                resp_port=row["resp_p"], orig_port=row["orig_p"],
+                behavior_ctx=behavior_ctx,
             ))
-            if verdict == "ATTACK": attacks += 1
-            else:                   benign  += 1
+            if row["verdict"] == "ATTACK": attacks += 1
+            else:                          benign  += 1
 
         print(f"    {attacks} attacks, {benign} benign")
 
@@ -1135,6 +1405,9 @@ def load_ctu_normal(dataset_dir):
 
     for fpath in log_files:
         count = 0
+        rows = []
+        row_cap = CTU_NORMAL_CAP * 4
+        buffered_benign = 0
         with open(fpath) as f:
             for line in f:
                 if line.startswith("#"):
@@ -1157,14 +1430,38 @@ def load_ctu_normal(dataset_dir):
                 orig_pkts  = parts[16]
                 resp_pkts  = parts[18]
 
-                # All CTU-Normal traffic is benign — pass - values through as-is
-                samples.append(make_sample(
-                    proto, duration, orig_pkts, resp_pkts,
-                    orig_bytes, resp_bytes, conn_state,
-                    "FALSE POSITIVE", "ctu_normal",
-                    service=service, resp_port=resp_port, orig_port=orig_port,
-                ))
+                rows.append({
+                    "ts":         parts[0],
+                    "orig_h":     parts[2],
+                    "orig_p":     orig_port,
+                    "resp_h":     parts[4],
+                    "resp_p":     resp_port,
+                    "proto":      proto,
+                    "service":    service,
+                    "duration":   duration,
+                    "orig_bytes": orig_bytes,
+                    "resp_bytes": resp_bytes,
+                    "conn_state": conn_state,
+                    "orig_pkts":  orig_pkts,
+                    "resp_pkts":  resp_pkts,
+                })
+                buffered_benign += 1
                 count += 1
+
+                if len(rows) >= row_cap:
+                    ben_needed = max(0, CTU_NORMAL_CAP - len(samples))
+                    if buffered_benign >= ben_needed:
+                        break
+
+        behavior_ctxs = build_behavior_contexts(rows)
+        for row, behavior_ctx in zip(rows, behavior_ctxs):
+            samples.append(make_sample(
+                row["proto"], row["duration"], row["orig_pkts"], row["resp_pkts"],
+                row["orig_bytes"], row["resp_bytes"], row["conn_state"],
+                "FALSE POSITIVE", "ctu_normal", service=row["service"],
+                resp_port=row["resp_p"], orig_port=row["orig_p"],
+                behavior_ctx=behavior_ctx,
+            ))
 
         total += count
         print(f"  {os.path.basename(fpath)}: {count} benign entries")
@@ -1216,6 +1513,8 @@ if __name__ == "__main__":
     print(f"\nRaw train pool: {len(attacks)} attacks, {len(benign)} benign")
     print(f"Eval pool     : {sum(1 for s in eval_pool if s['verdict']=='ATTACK')} attacks, "
           f"{sum(1 for s in eval_pool if s['verdict']=='FALSE POSITIVE')} benign")
+    print(f"Hard benigns  : {sum(1 for s in benign if s.get('is_hard_benign'))} "
+          f"(score >= {HARD_BENIGN_MIN_SCORE})")
 
     # SF-state attack oversampling: give completed/established attacks 2× weight to
     # address near-zero recall on SF-state attacks (Credential Access, HTTP C2, exfil).
@@ -1230,9 +1529,24 @@ if __name__ == "__main__":
     attacks       = random.choices(sf_attacks + other_attacks, weights=weights, k=k_attacks)
 
     # Enforce 2:1 ratio: benign target is 2× actual attacks taken, capped at pool size.
+    # v9.1: reserve part of the benign budget for hard negatives that look
+    # attack-like by state/port/context/behavior, then fill the rest randomly.
     k_benign      = min(FINAL_BENIGN, 2 * k_attacks, len(benign))
-    random.shuffle(benign)
-    benign        = benign[:k_benign]
+    hard_benign   = [s for s in benign if s.get("is_hard_benign")]
+    other_benign  = [s for s in benign if not s.get("is_hard_benign")]
+
+    if len(benign) <= k_benign:
+        random.shuffle(benign)
+    else:
+        random.shuffle(hard_benign)
+        hard_benign.sort(key=lambda s: s.get("hard_benign_score", 0), reverse=True)
+        hard_keep = min(len(hard_benign), int(k_benign * HARD_BENIGN_TARGET_FRAC))
+        selected_hard = hard_benign[:hard_keep]
+
+        remaining = k_benign - len(selected_hard)
+        random.shuffle(other_benign)
+        benign = selected_hard + other_benign[:remaining]
+        random.shuffle(benign)
 
     final_train = attacks + benign
     random.shuffle(final_train)
@@ -1255,7 +1569,7 @@ if __name__ == "__main__":
 
     atk_pool = [s for s in final_train if s["verdict"] == "ATTACK"]
     ben_pool = [s for s in final_train if s["verdict"] == "FALSE POSITIVE"]
-    for section in ("[HTTP]", "[DNS]", "[SSL]"):
+    for section in ("[HTTP]", "[DNS]", "[SSL]", "[BEHAVIOR]"):
         ap = _ctx_pct(atk_pool, section)
         bp = _ctx_pct(ben_pool, section)
         flag = " ⚠ imbalanced" if ap > 0 and bp == 0 else ""
@@ -1264,6 +1578,10 @@ if __name__ == "__main__":
     print(f"\n✅ {len(final_train)} train samples → {TRAIN_FILE}")
     print(f"   Attacks: {len(attacks):>7,}  |  Benign: {len(benign):>7,}  "
           f"(ratio 1:{len(benign)/max(len(attacks),1):.1f})")
+    train_hard_benign = [s for s in final_train if s["verdict"] == "FALSE POSITIVE"
+                         and s.get("is_hard_benign")]
+    print(f"   Hard benign kept: {len(train_hard_benign):>7,}  "
+          f"({100*len(train_hard_benign)/max(len(benign),1):.1f}% of benign train)")
     print(f"✅ {len(eval_pool)} eval samples  → {EVAL_FILE}")
 
     print(f"\n   Train source breakdown:")
@@ -1272,3 +1590,10 @@ if __name__ == "__main__":
         a = sum(1 for s in final_train if s["source"] == src and s["verdict"] == "ATTACK")
         b = sum(1 for s in final_train if s["source"] == src and s["verdict"] == "FALSE POSITIVE")
         print(f"   {src:12s}: {n:>7,}  (atk {a:>6,} / ben {b:>6,})")
+
+    print(f"\n   Hard benign source breakdown:")
+    hb_sources = Counter(s["source"] for s in train_hard_benign)
+    for src, n in sorted(hb_sources.items()):
+        avg_score = (sum(s.get("hard_benign_score", 0) for s in train_hard_benign
+                         if s["source"] == src) / max(n, 1))
+        print(f"   {src:12s}: {n:>7,}  (avg score {avg_score:.1f})")
