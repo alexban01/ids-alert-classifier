@@ -19,11 +19,14 @@ Zeek conn.log feature set used across all sources:
 """
 
 import os
+import csv
 import json
+import re
 import random
 import tarfile
 import glob
 import math
+import urllib.request
 
 import pandas as pd
 
@@ -36,7 +39,7 @@ RANDOM_SEED   = 42
 EVAL_FRAC     = 0.10            # fraction of each source held out for eval
 
 # This is for fast training on my 3070
-TRAINING_FACTOR = 0.1
+TRAINING_FACTOR = 0.03
 
 MAX_PER_SOURCE_CLASS = int(80_000 * TRAINING_FACTOR)   # default cap per (source, class)
 IOT23_BENIGN_CAP     = int(20_000 * TRAINING_FACTOR)   # IoT-23 benign is 89% S0-dominated; reduce to avoid
@@ -45,11 +48,41 @@ CTU_NORMAL_CAP       = int(100_000 * TRAINING_FACTOR)  # increase — only signi
 
 # v7: 2:1 benign:attack ratio — real networks are overwhelmingly benign,
 # training balanced (1:1) makes the model trigger-happy on real traffic.
-FINAL_BENIGN  = int(240_000 * TRAINING_FACTOR)
-FINAL_ATTACK  = int(120_000 * TRAINING_FACTOR)
+# These are fixed targets for the full-scale run. TRAINING_FACTOR only controls
+# per-source caps (how much is loaded). When the pool is smaller than the target
+# (fast local runs), all available samples are used — no artificial discard.
+FINAL_BENIGN  = 240_000
+FINAL_ATTACK  = 120_000
 
 CONN_STATE_MASK_PROB = 0.20   # fraction of samples where conn_state is blanked to "-"
                               # forces model to learn from numeric features when state is absent
+
+CONTEXT_MASK_PROB    = 0.50   # per-section probability of dropping http/dns/ssl context in training
+                              # prevents "has http section → ATTACK" shortcut; forces model to
+                              # classify correctly from conn.log alone half the time
+
+CTU_MALWARE_DIR = "datasets/ctu-malware/"        # download cache for bro logs + binetflow
+
+# CTU-Malware-Capture scenarios to include in training.
+# Botnet-3 (Kelihos) is held out as permanent OOD test in benchmark_realworld.py.
+# URL pattern: https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-{ID}/
+CTU_MALWARE_SCENARIOS = [
+    # (scenario_id,  family,    base_url)
+    ("Botnet-42",  "Ramnit",
+     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-42"),
+    ("Botnet-44",  "Ngrbot",
+     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-44"),
+    ("Botnet-52",  "Htbot",
+     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-52"),
+    ("Botnet-54",  "Siemens",
+     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-54"),
+    ("Botnet-78-2", "Zeus",
+     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-78-2"),
+    ("Botnet-90",  "Pushdo",
+     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-90"),
+    ("Botnet-91",  "Ballpit",
+     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-91"),
+]
 
 DATASETS = {
     "iot23":      "datasets/iot-23/iot_23_datasets_small.tar.gz",
@@ -180,6 +213,21 @@ ATTACK_REASONS = [
 
     # ── Proxy/relay traffic (Htbot, Botnet-52) ────────────────────────────────
     "Established TCP connection to port 8080 or 3128 with moderate bidirectional byte exchange from a host that is not a designated proxy server may indicate HTTP proxy abuse or a proxy-relay botnet node.",
+
+    # ── Multi-log context: HTTP (Phase 3 — used when http.log is available) ───
+    "HTTP POST to a .php endpoint with minimal response body is consistent with a C2 gate check-in or command retrieval (Zeus/Ramnit pattern).",
+    "Obsolete or spoofed User-Agent string (e.g. MSIE 6.0 on a modern OS) in an HTTP request is commonly used by malware to mimic old browsers while communicating with C2 infrastructure.",
+    "HTTP request to an uncommon URI path (e.g. /gate.php, /config.bin, /panel/) with a small symmetric byte exchange is consistent with malware polling a C2 server for commands.",
+    "HTTP response body of zero or very few bytes after a POST request suggests C2 acknowledgement with no payload — the server confirmed receipt but issued no command.",
+
+    # ── Multi-log context: DNS (Phase 3 — used when dns.log is available) ─────
+    "DNS query to a domain with high lexical entropy or random-looking subdomain is consistent with domain generation algorithm (DGA) C2 or DNS tunneling.",
+    "NXDOMAIN response to a DNS query may indicate an active DGA botnet client iterating through generated domains looking for an active C2 server.",
+    "DNS query to a recently registered or low-reputation domain with a very short TTL (< 60 seconds) is consistent with fast-flux C2 infrastructure.",
+
+    # ── Multi-log context: SSL/TLS (Phase 3 — used when ssl.log is available) ─
+    "SSL/TLS connection with a self-signed certificate or failed certificate validation is consistent with malware C2 over HTTPS without a legitimate PKI chain.",
+    "Use of an obsolete TLS version (SSLv3, TLSv1.0) or weak cipher suite (RC4, NULL, EXPORT) in an established connection may indicate legacy malware C2 or an adversary-in-the-middle setup.",
 ]
 
 BENIGN_REASONS = [
@@ -246,6 +294,17 @@ BENIGN_REASONS = [
     "High-volume DNS queries from an internal resolver or CDN edge node are expected behavior for recursive resolution under load.",
     # Complement to proxy ports: legitimate forward proxy or dev environment
     "TCP connections to port 8080 or 3128 from clients to a designated internal proxy or development web server are normal in enterprise and developer environments.",
+
+    # ── Multi-log context complements (Phase 3) ────────────────────────────────
+    # HTTP complements
+    "Standard browser User-Agent with an expected HTTP 200 response to a known CDN or vendor endpoint is consistent with legitimate web browsing or software telemetry.",
+    "HTTP GET request to a well-known API endpoint with a normal-sized JSON response is consistent with routine application data retrieval.",
+    # DNS complements
+    "DNS query resolving to a well-known IP range (CDN, cloud provider, major vendor) with a stable TTL is consistent with normal application name resolution.",
+    "DNS query for a recognizable public hostname with a NOERROR response and standard TTL is consistent with routine DNS resolution.",
+    # SSL complements
+    "TLS connection to a well-known hostname using a modern cipher suite and a certificate from a trusted CA is consistent with standard secure web traffic.",
+    "SSL/TLS session with successful certificate validation and a current TLS version (1.2 or 1.3) is consistent with normal HTTPS browsing or API communication.",
 ]
 
 random.seed(RANDOM_SEED)
@@ -257,13 +316,25 @@ def pick_reason(verdict):
 # ── Sample builder ─────────────────────────────────────────────────────────────
 def make_sample(proto, duration, orig_pkts, resp_pkts,
                 orig_bytes, resp_bytes, conn_state, verdict, source,
-                service="-", resp_port="-", orig_port="-"):
+                service="-", resp_port="-", orig_port="-",
+                http_ctx=None, dns_ctx=None, ssl_ctx=None):
     # Mask conn_state with CONN_STATE_MASK_PROB — forces model to use numeric
     # features (bytes, packets, port) when state is unavailable or ambiguous.
     prompt_conn_state = "-" if random.random() < CONN_STATE_MASK_PROB else conn_state
+
+    # Per-section context masking (50% chance each section is dropped).
+    # Prevents "has http section → ATTACK" shortcut; forces conn.log-only correctness.
+    if http_ctx is not None and random.random() < CONTEXT_MASK_PROB:
+        http_ctx = None
+    if dns_ctx is not None and random.random() < CONTEXT_MASK_PROB:
+        dns_ctx = None
+    if ssl_ctx is not None and random.random() < CONTEXT_MASK_PROB:
+        ssl_ctx = None
+
     prompt  = build_prompt(proto, duration, orig_pkts, resp_pkts,
                            orig_bytes, resp_bytes, prompt_conn_state, service,
-                           resp_port=resp_port, orig_port=orig_port)
+                           resp_port=resp_port, orig_port=orig_port,
+                           http_ctx=http_ctx, dns_ctx=dns_ctx, ssl_ctx=ssl_ctx)
     reason  = pick_reason(verdict)
     return {
         "messages": [
@@ -275,6 +346,338 @@ def make_sample(proto, duration, orig_pkts, resp_pkts,
         "verdict":    verdict,
         "conn_state": conn_state,  # original (pre-mask) — used for SF oversampling
     }
+
+# ── CTU-Malware-Capture helpers ────────────────────────────────────────────────
+
+def _norm_key(proto, ip_a, port_a, ip_b, port_b):
+    """Normalise 5-tuple so (A→B) and (B→A) produce the same lookup key."""
+    pair_a = (str(ip_a).strip(), str(port_a).strip())
+    pair_b = (str(ip_b).strip(), str(port_b).strip())
+    lo, hi = (pair_a, pair_b) if pair_a <= pair_b else (pair_b, pair_a)
+    return (str(proto).strip().lower(), lo[0], lo[1], hi[0], hi[1])
+
+
+def _ctu_download(url, scenario_id, filename=None, optional=False):
+    """Download url to CTU_MALWARE_DIR/{scenario_id}_{filename}. Returns path or None."""
+    if filename is None:
+        filename = url.rstrip("/").split("/")[-1]
+    local = os.path.join(CTU_MALWARE_DIR, f"{scenario_id}_{filename}")
+    if os.path.isfile(local):
+        print(f"    [cache] {os.path.basename(local)}")
+        return local
+    try:
+        os.makedirs(CTU_MALWARE_DIR, exist_ok=True)
+        urllib.request.urlretrieve(url, local)
+        print(f"    Downloaded {os.path.basename(local)} "
+              f"({os.path.getsize(local) // 1024} KB)")
+        return local
+    except Exception as e:
+        if optional:
+            print(f"    [SKIP] {filename}: {e}")
+            if os.path.isfile(local):
+                os.remove(local)
+            return None
+        raise
+
+
+def _find_binetflow_url(base_url):
+    """Fetch the Stratosphere capture directory index and return the binetflow URL.
+
+    Priority order:
+    1. .binetflow.labeled in root (e.g. Botnet-78-2/Zeus)
+    2. .binetflow in detailed-bidirectional-flow-labels/ subdir (e.g. Botnet-42/44/52/54)
+    3. Plain .binetflow in root (fallback — may be unlabeled, yields 0 samples)
+    """
+    def _list_dir(url):
+        req = urllib.request.Request(
+            url.rstrip("/") + "/", headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            html = resp.read().decode("utf-8", errors="replace")
+        return re.findall(r'href="([^"/][^"]*?)"', html)
+
+    try:
+        links = _list_dir(base_url)
+
+        # Priority 1: .binetflow.labeled in root
+        labeled = [l for l in links if l.endswith(".binetflow.labeled")]
+        if labeled:
+            return base_url.rstrip("/") + "/" + labeled[0].lstrip("/")
+
+        # Priority 2: labeled binetflow in detailed-bidirectional-flow-labels/ subdir
+        if any("detailed-bidirectional-flow-labels" in l for l in links):
+            try:
+                sub = _list_dir(
+                    base_url.rstrip("/") + "/detailed-bidirectional-flow-labels/")
+                bf = [l for l in sub if l.endswith(".binetflow")]
+                if bf:
+                    return (base_url.rstrip("/")
+                            + "/detailed-bidirectional-flow-labels/"
+                            + bf[0].lstrip("/"))
+            except Exception:
+                pass
+
+        # Priority 3: plain .binetflow in root (may be unlabeled)
+        plain = [l for l in links if l.endswith(".binetflow")]
+        if plain:
+            return base_url.rstrip("/") + "/" + plain[0].lstrip("/")
+
+    except Exception as e:
+        print(f"    [WARN] Could not fetch index for {base_url}: {e}")
+    return None
+
+
+def _parse_zeek_log(path):
+    """Parse a Zeek TSV log (#fields header), return list of row dicts."""
+    rows   = []
+    fields = None
+    sep    = "\t"
+    unset  = {"-", "(empty)"}
+    with open(path, errors="replace") as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if line.startswith("#fields"):
+                fields = line[len("#fields"):].strip().split(sep)
+            elif line.startswith("#separator"):
+                raw = line.split()[-1]
+                sep = (bytes(raw, "utf-8").decode("unicode_escape")
+                       if "\\x" in raw else raw)
+            elif line.startswith("#empty_field"):
+                unset.add(line.split(sep)[-1])
+            elif line.startswith("#unset_field"):
+                unset.add(line.split(sep)[-1])
+            elif line.startswith("#") or not line.strip():
+                continue
+            elif fields is not None:
+                parts = line.split(sep)
+                row = {k: (None if (parts[i] if i < len(parts) else "-") in unset
+                           else (parts[i] if i < len(parts) else None))
+                       for i, k in enumerate(fields)}
+                rows.append(row)
+    return rows
+
+
+def _build_binetflow_lookup(path):
+    """Parse binetflow CSV → {norm_5tuple: label} dict.
+
+    Label mapping for training: Botnet → ATTACK, Normal → FALSE POSITIVE,
+    Background → skip (label noise; CTU-Normal covers benign diversity).
+    """
+    lookup = {}
+    with open(path, newline="", errors="replace") as f:
+        reader = csv.reader(f)
+        header = None
+        for row in reader:
+            if header is None:
+                header = [h.strip() for h in row]
+                idx    = {h: i for i, h in enumerate(header)}
+                needed = {"Proto", "SrcAddr", "Sport", "DstAddr", "Dport", "Label"}
+                missing = needed - set(header)
+                if missing:
+                    raise ValueError(f"binetflow missing columns: {missing}\nGot: {header}")
+                continue
+            if len(row) <= max(idx["Label"], idx["Proto"],
+                               idx["SrcAddr"], idx["Sport"],
+                               idx["DstAddr"], idx["Dport"]):
+                continue
+            raw_label = row[idx["Label"]].strip().lower()
+            if "botnet" in raw_label or "malware" in raw_label:
+                label = "ATTACK"
+            elif "normal" in raw_label:
+                label = "FALSE POSITIVE"
+            else:
+                continue  # Background → skip
+            key = _norm_key(
+                row[idx["Proto"]],
+                row[idx["SrcAddr"]], row[idx["Sport"]],
+                row[idx["DstAddr"]], row[idx["Dport"]],
+            )
+            if key not in lookup or label == "ATTACK":  # ATTACK wins on conflict
+                lookup[key] = label
+    return lookup
+
+
+def _build_http_lookup(path):
+    """Build uid → http_ctx dict from Zeek http.log (first request per uid)."""
+    lookup = {}
+    for row in _parse_zeek_log(path):
+        uid = row.get("uid")
+        if not uid or uid in lookup:
+            continue
+        lookup[uid] = {
+            "method":        row.get("method"),
+            "host":          row.get("host"),
+            "uri":           row.get("uri"),
+            "user_agent":    row.get("user_agent"),
+            "status_code":   row.get("status_code"),
+            "resp_body_len": row.get("response_body_len"),
+        }
+    return lookup
+
+
+def _build_dns_lookup(path):
+    """Build uid → dns_ctx dict from Zeek dns.log (first response per uid)."""
+    lookup = {}
+    for row in _parse_zeek_log(path):
+        uid = row.get("uid")
+        if not uid or uid in lookup:
+            continue
+        answers_raw = row.get("answers") or ""
+        ttls_raw    = row.get("TTLs") or row.get("ttls") or ""
+        lookup[uid] = {
+            "query":      row.get("query"),
+            "answers":    answers_raw.split(",")[0].strip() or None,
+            "qtype_name": row.get("qtype_name"),
+            "ttl":        ttls_raw.split(",")[0].strip() or None,
+            "rcode_name": row.get("rcode_name"),
+        }
+    return lookup
+
+
+def _build_ssl_lookup(path):
+    """Build uid → ssl_ctx dict from Zeek ssl.log (first session per uid)."""
+    lookup = {}
+    for row in _parse_zeek_log(path):
+        uid = row.get("uid")
+        if not uid or uid in lookup:
+            continue
+        # Simplify issuer: if same as subject it's self-signed; otherwise show CN
+        issuer_raw  = row.get("issuer")  or ""
+        subject_raw = row.get("subject") or ""
+        if not issuer_raw or issuer_raw == subject_raw:
+            issuer = "Self-Signed"
+        else:
+            cn = next((p.replace("CN=", "").strip()
+                       for p in issuer_raw.split(",")
+                       if p.strip().startswith("CN=")), issuer_raw)
+            issuer = cn[:48]
+        lookup[uid] = {
+            "version":           row.get("version"),
+            "cipher":            row.get("cipher"),
+            "issuer":            issuer,
+            "validation_status": row.get("validation_status"),
+        }
+    return lookup
+
+
+def load_ctu_malware_captures():
+    """Download and parse CTU-Malware-Capture scenarios from Stratosphere Lab.
+
+    For each scenario:
+      1. Downloads bro/conn.log + binetflow (labeled) for flow-level labelling.
+      2. Downloads bro/dns.log, http.log, ssl.log for application-layer context.
+      3. Matches conn.log flows to binetflow labels via direction-agnostic 5-tuple.
+      4. Builds uid → {http_ctx, dns_ctx, ssl_ctx} lookup from auxiliary logs.
+      5. Returns training samples with randomly masked context (CONTEXT_MASK_PROB).
+
+    Botnet-3 (Kelihos) is NOT included here — it is the permanent OOD hold-out
+    tracked in benchmark_realworld.py.
+
+    Label mapping: Botnet → ATTACK, Normal → FALSE POSITIVE, Background → skip.
+    Cap: MAX_PER_SOURCE_CLASS (same as CTU-13/IoT-23/UNSW) — same label quality,
+    same research group methodology, no reason to under-cap this source.
+    """
+    all_samples = []
+
+    for scenario_id, family, base_url in CTU_MALWARE_SCENARIOS:
+        print(f"\n[CTU-Malware {scenario_id} / {family}]")
+
+        # ── 1. Find and download binetflow ────────────────────────────────────
+        binetflow_url = _find_binetflow_url(base_url)
+        if not binetflow_url:
+            print(f"  [SKIP] No binetflow found for {scenario_id}")
+            continue
+        try:
+            binetflow_path = _ctu_download(binetflow_url, scenario_id)
+        except Exception as e:
+            print(f"  [SKIP] binetflow download failed: {e}")
+            continue
+
+        # ── 2. Download conn.log ──────────────────────────────────────────────
+        try:
+            conn_path = _ctu_download(f"{base_url}/bro/conn.log", scenario_id, "conn.log")
+        except Exception as e:
+            print(f"  [SKIP] conn.log download failed: {e}")
+            continue
+
+        # ── 3. Download optional logs (non-fatal if missing) ──────────────────
+        http_path = _ctu_download(f"{base_url}/bro/http.log", scenario_id,
+                                  "http.log", optional=True)
+        dns_path  = _ctu_download(f"{base_url}/bro/dns.log",  scenario_id,
+                                  "dns.log",  optional=True)
+        ssl_path  = _ctu_download(f"{base_url}/bro/ssl.log",  scenario_id,
+                                  "ssl.log",  optional=True)
+
+        # ── 4. Build label and context lookups ────────────────────────────────
+        try:
+            flow_labels = _build_binetflow_lookup(binetflow_path)
+        except Exception as e:
+            print(f"  [SKIP] binetflow parse failed: {e}")
+            continue
+
+        uid_http = _build_http_lookup(http_path) if http_path else {}
+        uid_dns  = _build_dns_lookup(dns_path)   if dns_path  else {}
+        uid_ssl  = _build_ssl_lookup(ssl_path)   if ssl_path  else {}
+
+        print(f"  Labels: {sum(1 for v in flow_labels.values() if v=='ATTACK')} attacks, "
+              f"{sum(1 for v in flow_labels.values() if v=='FALSE POSITIVE')} benign  "
+              f"| http={len(uid_http)} dns={len(uid_dns)} ssl={len(uid_ssl)} uids")
+
+        # ── 5. Process conn.log ───────────────────────────────────────────────
+        buckets = {"ATTACK": [], "FALSE POSITIVE": []}
+
+        with open(conn_path, errors="replace") as f:
+            for line in f:
+                if line.startswith("#"):
+                    continue
+                parts = line.strip().split("\t")
+                if len(parts) < 19:
+                    continue
+
+                uid    = parts[1]
+                orig_h = parts[2]
+                orig_p = parts[3]
+                resp_h = parts[4]
+                resp_p = parts[5]
+                proto  = parts[6]
+
+                key   = _norm_key(proto, orig_h, orig_p, resp_h, resp_p)
+                label = flow_labels.get(key)
+                if label is None:
+                    continue
+
+                bucket = buckets[label]
+                if len(bucket) >= MAX_PER_SOURCE_CLASS:
+                    continue
+
+                bucket.append(make_sample(
+                    proto      = proto,
+                    duration   = parts[8],
+                    orig_pkts  = parts[16] if len(parts) > 16 else "-",
+                    resp_pkts  = parts[18] if len(parts) > 18 else "-",
+                    orig_bytes = parts[9],
+                    resp_bytes = parts[10],
+                    conn_state = parts[11],
+                    verdict    = label,
+                    source     = "ctu_malware",
+                    service    = parts[7],
+                    orig_port  = orig_p,
+                    resp_port  = resp_p,
+                    http_ctx   = uid_http.get(uid),
+                    dns_ctx    = uid_dns.get(uid),
+                    ssl_ctx    = uid_ssl.get(uid),
+                ))
+
+        atk = len(buckets["ATTACK"])
+        ben = len(buckets["FALSE POSITIVE"])
+        print(f"  {scenario_id}: {atk} attacks, {ben} benign sampled")
+        all_samples.extend(buckets["ATTACK"] + buckets["FALSE POSITIVE"])
+
+    total_atk = sum(1 for s in all_samples if s["verdict"] == "ATTACK")
+    total_ben = sum(1 for s in all_samples if s["verdict"] == "FALSE POSITIVE")
+    print(f"\n  CTU-Malware total: {total_atk} attacks, {total_ben} benign "
+          f"across {len(CTU_MALWARE_SCENARIOS)} scenarios")
+    return all_samples
+
 
 # ── Loaders ────────────────────────────────────────────────────────────────────
 
@@ -786,6 +1189,10 @@ if __name__ == "__main__":
     # all_samples += load_cicids(DATASETS["cicids"])
     all_samples += load_uwf(DATASETS["uwf"])
     all_samples += load_ctu_normal(DATASETS["ctu_normal"])
+    # v9.0: CTU-Malware-Capture series — multi-log enriched training samples.
+    # Downloads conn.log + binetflow (for labels) + dns/http/ssl.log (for context).
+    # Botnet-3 (Kelihos) held out as OOD test — not included here.
+    all_samples += load_ctu_malware_captures()
 
     # ── Source-stratified train/eval split ────────────────────────────────────
     # Hold out EVAL_FRAC from each (source, verdict) bucket so eval distribution
@@ -810,18 +1217,22 @@ if __name__ == "__main__":
     print(f"Eval pool     : {sum(1 for s in eval_pool if s['verdict']=='ATTACK')} attacks, "
           f"{sum(1 for s in eval_pool if s['verdict']=='FALSE POSITIVE')} benign")
 
-    random.shuffle(benign)
-    benign = benign[:FINAL_BENIGN]
-
-    # SF-state attack oversampling (Change 5): give completed/established attacks
-    # 2× weight to address near-zero recall on SF-state attacks (Credential Access,
-    # novel exfil). S0/SYN attacks keep 1× weight. Uses random.choices (with
-    # replacement) — duplicates are rare since pool >> FINAL_ATTACK.
+    # SF-state attack oversampling: give completed/established attacks 2× weight to
+    # address near-zero recall on SF-state attacks (Credential Access, HTTP C2, exfil).
+    # S0/SYN attacks keep 1× weight. Uses random.choices (with replacement) at full
+    # scale (pool >> FINAL_ATTACK). At small TRAINING_FACTOR the pool may be smaller
+    # than FINAL_ATTACK — k is capped at pool size to avoid pure duplication.
     sf_attacks    = [s for s in attacks if s.get("conn_state", "-") in ("SF", "S1", "OTH")]
     other_attacks = [s for s in attacks if s.get("conn_state", "-") not in ("SF", "S1", "OTH")]
     weights       = [2.0] * len(sf_attacks) + [1.0] * len(other_attacks)
+    k_attacks     = min(FINAL_ATTACK, len(attacks))
     print(f"  SF/S1/OTH attacks (2× weight): {len(sf_attacks):,} | other: {len(other_attacks):,}")
-    attacks       = random.choices(sf_attacks + other_attacks, weights=weights, k=FINAL_ATTACK)
+    attacks       = random.choices(sf_attacks + other_attacks, weights=weights, k=k_attacks)
+
+    # Enforce 2:1 ratio: benign target is 2× actual attacks taken, capped at pool size.
+    k_benign      = min(FINAL_BENIGN, 2 * k_attacks, len(benign))
+    random.shuffle(benign)
+    benign        = benign[:k_benign]
 
     final_train = attacks + benign
     random.shuffle(final_train)
@@ -834,6 +1245,21 @@ if __name__ == "__main__":
 
     write_jsonl(TRAIN_FILE, final_train)
     write_jsonl(EVAL_FILE,  eval_pool)
+
+    # Context coverage check — warns if attack:http_ctx ratio >> benign:http_ctx ratio
+    def _ctx_pct(pool, key):
+        has_ctx = sum(1 for s in pool
+                      if any(key in msg["content"]
+                             for msg in s["messages"] if msg["role"] == "user"))
+        return 100 * has_ctx / max(len(pool), 1)
+
+    atk_pool = [s for s in final_train if s["verdict"] == "ATTACK"]
+    ben_pool = [s for s in final_train if s["verdict"] == "FALSE POSITIVE"]
+    for section in ("[HTTP]", "[DNS]", "[SSL]"):
+        ap = _ctx_pct(atk_pool, section)
+        bp = _ctx_pct(ben_pool, section)
+        flag = " ⚠ imbalanced" if ap > 0 and bp == 0 else ""
+        print(f"   Context {section}: atk {ap:.1f}% / ben {bp:.1f}%{flag}")
 
     print(f"\n✅ {len(final_train)} train samples → {TRAIN_FILE}")
     print(f"   Attacks: {len(attacks):>7,}  |  Benign: {len(benign):>7,}  "

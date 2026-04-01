@@ -9,6 +9,16 @@ SYSTEM_PROMPT = (
 _NA_VALUES = (None, "", "-", "?", "None", "nan", "NaN")
 
 
+def _sctx(d, key, default="N/A"):
+    """Get a value from a context dict, returning default if absent/None/empty."""
+    if not d:
+        return default
+    v = d.get(key)
+    if v is None or str(v).strip() in ("", "-", "None", "nan"):
+        return default
+    return str(v).strip()
+
+
 def _safe(v, fmt=".1f"):
     """Format a value as a float string, or 'N/A' if unset."""
     try:
@@ -43,12 +53,19 @@ def _fmt_port(v):
 
 def build_prompt(proto, duration, orig_pkts, resp_pkts,
                  orig_bytes, resp_bytes, conn_state, service="-",
-                 resp_port="-", orig_port="-"):
+                 resp_port="-", orig_port="-",
+                 http_ctx=None, dns_ctx=None, ssl_ctx=None):
     """Convert Zeek-native features to model prompt text.
 
     When base fields are unset (-, empty, etc.), derived fields
     (Bytes/sec, Orig Bytes/Pkt, Resp Bytes/Pkt) propagate as N/A
     rather than falling through to 0.0.
+
+    Optional context dicts add application-layer sections to the prompt:
+      http_ctx  — keys: method, host, uri, user_agent, status_code, resp_body_len
+      dns_ctx   — keys: query, answers, qtype_name, ttl, rcode_name
+      ssl_ctx   — keys: version, cipher, issuer, validation_status
+    Pass None to omit a section entirely (used for context masking in training).
     """
     dur_na = _is_na(duration)
     ob_na  = _is_na(orig_bytes)
@@ -111,6 +128,37 @@ def build_prompt(proto, duration, orig_pkts, resp_pkts,
         f"  Orig Bytes/Pkt:     {_fmt(op_sz, '.1f')}",
         f"  Resp Bytes/Pkt:     {_fmt(rp_sz, '.1f')}",
     ]
+
+    # ── Optional application-layer context sections ────────────────────────────
+    if http_ctx is not None:
+        status  = _sctx(http_ctx, "status_code")
+        rbl     = _sctx(http_ctx, "resp_body_len")
+        lines += [
+            "\n[HTTP]",
+            f"  Method:     {_sctx(http_ctx, 'method')}",
+            f"  Host:       {_sctx(http_ctx, 'host')}",
+            f"  URI:        {_sctx(http_ctx, 'uri')}",
+            f"  User-Agent: {_sctx(http_ctx, 'user_agent')}",
+            f"  Status:     {status}    Response: {rbl} bytes",
+        ]
+
+    if dns_ctx is not None:
+        rcode   = _sctx(dns_ctx, "rcode_name", "")
+        nxdomain = "Yes" if rcode.upper() in ("NXDOMAIN", "NXERROR") else "No"
+        lines += [
+            "\n[DNS]",
+            f"  Query:    {_sctx(dns_ctx, 'query')}",
+            f"  Answer:   {_sctx(dns_ctx, 'answers')}    Type: {_sctx(dns_ctx, 'qtype_name')}",
+            f"  TTL:      {_sctx(dns_ctx, 'ttl')}s    NXDOMAIN: {nxdomain}",
+        ]
+
+    if ssl_ctx is not None:
+        lines += [
+            "\n[SSL]",
+            f"  Version:  {_sctx(ssl_ctx, 'version')}    Cipher: {_sctx(ssl_ctx, 'cipher')}",
+            f"  Issuer:   {_sctx(ssl_ctx, 'issuer')}    Validated: {_sctx(ssl_ctx, 'validation_status', 'UNKNOWN')}",
+        ]
+
     return "\n".join(lines)
 
 

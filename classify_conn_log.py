@@ -1,14 +1,20 @@
 """
-classify_conn_log.py — Classify a Zeek conn.log using the v7.1 IDS classifier.
+classify_conn_log.py — Classify a Zeek conn.log using the v9.0 IDS classifier.
 
 Two inference modes:
   --ollama   Use the Ollama-served ids-classifier (no GPU/transformers needed)
-  (default)  Load v7.1 LoRA adapter via HuggingFace + PEFT (requires GPU)
+  (default)  Load v9.0 LoRA adapter via HuggingFace + PEFT (requires GPU)
+
+Optionally enrich prompts with application-layer context from auxiliary Zeek logs:
+  --http-log PATH    Zeek http.log (adds [HTTP] section to each matched flow)
+  --dns-log  PATH    Zeek dns.log  (adds [DNS]  section to each matched flow)
+  --ssl-log  PATH    Zeek ssl.log  (adds [SSL]  section to each matched flow)
 
 Usage:
     .venv/bin/python classify_conn_log.py [CONN_LOG] [--ollama] [--limit N]
     .venv/bin/python classify_conn_log.py conn.log --ollama
     .venv/bin/python classify_conn_log.py conn.log --limit 500
+    .venv/bin/python classify_conn_log.py conn.log --http-log http.log --ssl-log ssl.log
 """
 
 import sys
@@ -23,7 +29,7 @@ from prompt_utils import SYSTEM_PROMPT, build_prompt, extract_verdict
 
 # ── Config ────────────────────────────────────────────────────────────────────
 BASE_MODEL       = "Qwen/Qwen2.5-1.5B-Instruct"
-ADAPTER_DIR      = "./v8.1-ids-lora-adapter"
+ADAPTER_DIR      = "./v9.0-ids-lora-adapter"
 OLLAMA_MODEL     = "ids-classifier"
 OLLAMA_URL       = "http://localhost:11434/api/generate"
 CONN_LOG         = "real_conn/conn.log.5"
@@ -77,15 +83,118 @@ def parse_conn_log(path, limit=None):
     return rows
 
 
-def build_prompts(rows):
-    return [
-        build_prompt(
+# ── Auxiliary Zeek log parsers ─────────────────────────────────────────────────
+
+def _parse_zeek_log(path):
+    """Parse a Zeek TSV log (#fields header), return list of row dicts."""
+    rows   = []
+    fields = None
+    sep    = "\t"
+    unset  = {"-", "(empty)"}
+    with open(path, errors="replace") as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if line.startswith("#fields"):
+                fields = line[len("#fields"):].strip().split(sep)
+            elif line.startswith("#separator"):
+                raw = line.split()[-1]
+                sep = (bytes(raw, "utf-8").decode("unicode_escape")
+                       if "\\x" in raw else raw)
+            elif line.startswith("#empty_field"):
+                unset.add(line.split(sep)[-1])
+            elif line.startswith("#unset_field"):
+                unset.add(line.split(sep)[-1])
+            elif line.startswith("#") or not line.strip():
+                continue
+            elif fields is not None:
+                parts = line.split(sep)
+                row = {k: (None if (parts[i] if i < len(parts) else "-") in unset
+                           else (parts[i] if i < len(parts) else None))
+                       for i, k in enumerate(fields)}
+                rows.append(row)
+    return rows
+
+
+def build_uid_http(http_log_path):
+    """Build uid → http_ctx dict from Zeek http.log."""
+    lookup = {}
+    for row in _parse_zeek_log(http_log_path):
+        uid = row.get("uid")
+        if not uid or uid in lookup:
+            continue
+        lookup[uid] = {
+            "method":        row.get("method"),
+            "host":          row.get("host"),
+            "uri":           row.get("uri"),
+            "user_agent":    row.get("user_agent"),
+            "status_code":   row.get("status_code"),
+            "resp_body_len": row.get("response_body_len"),
+        }
+    print(f"  http.log: {len(lookup)} uid entries")
+    return lookup
+
+
+def build_uid_dns(dns_log_path):
+    """Build uid → dns_ctx dict from Zeek dns.log."""
+    lookup = {}
+    for row in _parse_zeek_log(dns_log_path):
+        uid = row.get("uid")
+        if not uid or uid in lookup:
+            continue
+        answers_raw = row.get("answers") or ""
+        ttls_raw    = row.get("TTLs") or row.get("ttls") or ""
+        lookup[uid] = {
+            "query":      row.get("query"),
+            "answers":    answers_raw.split(",")[0].strip() or None,
+            "qtype_name": row.get("qtype_name"),
+            "ttl":        ttls_raw.split(",")[0].strip() or None,
+            "rcode_name": row.get("rcode_name"),
+        }
+    print(f"  dns.log:  {len(lookup)} uid entries")
+    return lookup
+
+
+def build_uid_ssl(ssl_log_path):
+    """Build uid → ssl_ctx dict from Zeek ssl.log."""
+    lookup = {}
+    for row in _parse_zeek_log(ssl_log_path):
+        uid = row.get("uid")
+        if not uid or uid in lookup:
+            continue
+        issuer_raw  = row.get("issuer")  or ""
+        subject_raw = row.get("subject") or ""
+        if not issuer_raw or issuer_raw == subject_raw:
+            issuer = "Self-Signed"
+        else:
+            cn = next((p.replace("CN=", "").strip()
+                       for p in issuer_raw.split(",")
+                       if p.strip().startswith("CN=")), issuer_raw)
+            issuer = cn[:48]
+        lookup[uid] = {
+            "version":           row.get("version"),
+            "cipher":            row.get("cipher"),
+            "issuer":            issuer,
+            "validation_status": row.get("validation_status"),
+        }
+    print(f"  ssl.log:  {len(lookup)} uid entries")
+    return lookup
+
+
+def build_prompts(rows, uid_http=None, uid_dns=None, uid_ssl=None):
+    """Build prompt strings for each row, optionally enriched with context logs."""
+    result = []
+    for r in rows:
+        uid      = r.get("uid", "")
+        http_ctx = (uid_http or {}).get(uid)
+        dns_ctx  = (uid_dns  or {}).get(uid)
+        ssl_ctx  = (uid_ssl  or {}).get(uid)
+        result.append(build_prompt(
             r["proto"], r["duration"], r["orig_pkts"], r["resp_pkts"],
             r["orig_bytes"], r["resp_bytes"], r["conn_state"], r["service"],
             resp_port=r["resp_p"], orig_port=r["orig_p"],
-        )
-        for r in rows
-    ]
+            http_ctx=http_ctx, dns_ctx=dns_ctx, ssl_ctx=ssl_ctx,
+        ))
+    return result
 
 
 # ── Ollama inference ───────────────────────────────────────────────────────────
@@ -152,7 +261,7 @@ def classify_hf_batch(model, tokenizer, prompts):
         for p in prompts
     ]
     inputs    = tokenizer(texts, return_tensors="pt", padding=True,
-                          truncation=True, max_length=512)
+                          truncation=True, max_length=1024)
     inputs    = {k: v.to("cuda") for k, v in inputs.items()}
     input_len = inputs["input_ids"].shape[1]
     with torch.no_grad():
@@ -226,7 +335,7 @@ if __name__ == "__main__":
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.benchmark        = True
 
-    args      = sys.argv[1:]
+    args       = sys.argv[1:]
     use_ollama = "--ollama" in args
     args       = [a for a in args if a != "--ollama"]
 
@@ -236,13 +345,36 @@ if __name__ == "__main__":
         limit = int(args[idx + 1])
         args  = args[:idx] + args[idx + 2:]
 
+    def _pop_arg(flag, lst):
+        if flag in lst:
+            idx = lst.index(flag)
+            val = lst[idx + 1]
+            del lst[idx:idx + 2]
+            return val
+        return None
+
+    http_log_path = _pop_arg("--http-log", args)
+    dns_log_path  = _pop_arg("--dns-log",  args)
+    ssl_log_path  = _pop_arg("--ssl-log",  args)
+
     log_path = args[0] if args else CONN_LOG
 
     print(f"Parsing {log_path} ..." + (f" (limit {limit})" if limit else ""))
     rows = parse_conn_log(log_path, limit=limit)
-    print(f"  {len(rows)} connections\n")
+    print(f"  {len(rows)} connections")
 
-    prompts = build_prompts(rows)
+    uid_http = build_uid_http(http_log_path) if http_log_path else None
+    uid_dns  = build_uid_dns(dns_log_path)   if dns_log_path  else None
+    uid_ssl  = build_uid_ssl(ssl_log_path)   if ssl_log_path  else None
+
+    if any(x is not None for x in (uid_http, uid_dns, uid_ssl)):
+        ctx_n = sum(1 for r in rows
+                    if any(d.get(r.get("uid","")) is not None
+                           for d in (uid_http or {}, uid_dns or {}, uid_ssl or {})))
+        print(f"  {ctx_n}/{len(rows)} flows have application-layer context")
+    print()
+
+    prompts = build_prompts(rows, uid_http=uid_http, uid_dns=uid_dns, uid_ssl=uid_ssl)
 
     if use_ollama:
         print(f"Mode: Ollama ({OLLAMA_MODEL})")
