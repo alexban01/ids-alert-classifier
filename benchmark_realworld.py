@@ -24,6 +24,7 @@ import random
 import tarfile
 import glob
 import urllib.request
+from concurrent.futures import ProcessPoolExecutor
 import torch
 import pandas as pd
 from datetime import datetime
@@ -564,15 +565,39 @@ def load_ctu_botnet3():
 
 
 # ── Sample generation ───────────────────────────────────────────────────────────
+_LOADER_ORDER = ["iot23", "ctu13", "uwf", "ctu_normal", "ctu_botnet3"]
+
+
+def _run_bench_loader(job_name):
+    """Worker wrapper for ProcessPoolExecutor loader jobs."""
+    if job_name == "iot23":
+        return job_name, load_iot23(DATASETS["iot23"])
+    if job_name == "ctu13":
+        return job_name, load_ctu13(DATASETS["ctu13"])
+    if job_name == "uwf":
+        return job_name, load_uwf(DATASETS["uwf"])
+    if job_name == "ctu_normal":
+        return job_name, load_ctu_normal(DATASETS["ctu_normal"])
+    if job_name == "ctu_botnet3":
+        return job_name, load_ctu_botnet3()
+    raise ValueError(f"Unknown loader job: {job_name}")
+
+
 def generate_samples():
+    # Run all loaders in parallel; collect in fixed order for deterministic shuffle.
+    max_workers = min(len(_LOADER_ORDER), os.cpu_count() or 1)
     all_samples = []
-    all_samples += load_iot23(DATASETS["iot23"])
-    all_samples += load_ctu13(DATASETS["ctu13"])
-    all_samples += load_uwf(DATASETS["uwf"])
-    all_samples += load_ctu_normal(DATASETS["ctu_normal"])
-    # v9.0: CTU-Malware-Botnet-3 (Kelihos) — permanent OOD regression test.
-    # Never in training data. v8.1 MCC baseline: +0.06. Target: > +0.50.
-    all_samples += load_ctu_botnet3()
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = {name: executor.submit(_run_bench_loader, name)
+                   for name in _LOADER_ORDER}
+        for name in _LOADER_ORDER:
+            try:
+                _, job_samples = futures[name].result()
+            except Exception as e:
+                print(f"[ERROR] Loader '{name}' failed: {e}")
+                job_samples = []
+            all_samples += job_samples
+            print(f"[DONE] Loader '{name}': {len(job_samples)} samples")
 
     random.seed(RANDOM_SEED)
     random.shuffle(all_samples)
