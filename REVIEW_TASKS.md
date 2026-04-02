@@ -7,10 +7,10 @@
 
 ---
 
-## Open Tasks
+## Completed Tasks
 
 ### TASK-006
-Status: open
+Status: done
 Priority: high
 Area: train.py — lines 40–41 and 113
 Problem: `OUTPUT_DIR` and `ADAPTER_DIR` still point to v9.0 paths. Running training
@@ -30,7 +30,7 @@ Notes: Do not change any other hyperparameters, config, or logic.
 ---
 
 ### TASK-007
-Status: open
+Status: done
 Priority: low
 Area: REVIEW_TASKS.md
 Problem: TASK-001 through TASK-005 are listed as open but were all completed in
@@ -47,7 +47,7 @@ is accurate.
 ---
 
 ### TASK-008
-Status: open
+Status: done
 Priority: critical
 Area: loader_ctu_malware.py — lines 80–124
 Problem: `conn_rows` is never hard-capped. The two-pass design buffers all rows in
@@ -76,7 +76,7 @@ No scenario should cause `len(conn_rows)` to exceed `row_cap`.
 ---
 
 ### TASK-009
-Status: open
+Status: done
 Priority: high
 Area: zeek_log_utils.py — line 69
 Problem: `urllib.request.urlretrieve(url, local)` does not support a transfer timeout.
@@ -93,7 +93,7 @@ the call must raise `socket.timeout` (or similar) within ~60 s rather than hangi
 ---
 
 ### TASK-010
-Status: open
+Status: done
 Priority: medium
 Area: preprocess_zeek.py — lines 65–76
 Problem: All six loaders run sequentially in a single process, using one CPU core.
@@ -114,4 +114,5 @@ by at least 2× on a 4+ core machine compared to sequential baseline.
 
 ---
 
-## Completed Tasks
+## Open Tasks
+- None.
