@@ -19,12 +19,14 @@ if RUNPOD:
     GRAD_CHECKPOINTING   = False  # 32 GB has headroom even at max_length=1024
     PIN_MEMORY           = True
     NUM_WORKERS          = 4
+    EPOCHS               = 3
 else:
     BATCH                = 4
     GRAD_ACCUM           = 6      # effective batch = 24 (6×4)
     GRAD_CHECKPOINTING   = True   # required for 8 GB VRAM; 1024 tokens needs smaller batch
     PIN_MEMORY           = False
     NUM_WORKERS          = 0      # CUDA+fork unstable on local Linux. fork() copies the parent's CUDA context into worker processes — those handles are invalid in the child, causing deadlocks or corruption. spawn would fix it but adds complexity; workers=0 is simpler since the bottleneck is the GPU, not JSONL loading.
+    EPOCHS               = 3
 
 print(f"Target: {'RunPod RTX 5090' if RUNPOD else 'Local RTX 3070'}  "
       f"| batch={BATCH}  accum={GRAD_ACCUM}  effective={BATCH*GRAD_ACCUM}  "
@@ -95,7 +97,7 @@ trainer = SFTTrainer(
         gradient_checkpointing=GRAD_CHECKPOINTING,
         bf16=True,
         # ── Schedule ─────────────────────────────────────────────────────
-        num_train_epochs=3,
+        num_train_epochs=EPOCHS,
         learning_rate=2e-4,
         lr_scheduler_type="cosine_with_restarts",
         lr_scheduler_kwargs={"num_cycles": 3},
