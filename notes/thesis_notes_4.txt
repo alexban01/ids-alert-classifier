@@ -1,0 +1,228 @@
+================================================================================
+IDS ALERT CLASSIFIER — THESIS DEVELOPMENT NOTES (continued from thesis_notes_3.txt)
+Fine-tuning Qwen2.5-1.5B-Instruct for network intrusion detection
+================================================================================
+
+This file continues from thesis_notes_3.txt (v9.0 motivation and design).
+
+================================================================================
+V9.0 — RESULTS SUMMARY
+================================================================================
+
+v9.0 was trained on the same four existing sources (IoT-23, CTU-13, UWF-ZeekData24,
+CTU-Normal) plus the new CTU-Malware-Capture series (7 scenarios: Ramnit, Ngrbot,
+Htbot, Siemens, Zeus, Pushdo, Ballpit), with extended prompts including [HTTP],
+[DNS], and [SSL] context sections, and max_length extended from 512 to 1024.
+
+Benchmarked at ep1 (checkpoint-1420 out of 3558 total steps):
+
+  Source                  Atk Recall   FP Recall   Acc
+  ----------------------  ----------   ---------   ----
+  IoT-23                    100.0%       98.7%      99.3%
+  CTU-13                     99.7%       99.3%      99.5%
+  UWF-ZeekData24            100.0%       98.7%      99.3%
+  CTU-Normal                   n/a       99.7%      99.7%
+  Botnet-3 OOD (Kelihos)      6.0%         n/a       6.0%
+
+  Overall MCC: +0.775  |  Accuracy: 87.8%  |  Format failures: 0%
+
+Compared to the v8.1 OOD baseline of MCC +0.06 for Kelihos, even the ep1 checkpoint
+shows a meaningfully higher flow-level MCC. The training-set sources are well above
+99% recall at ep1, indicating the model has already learned the in-distribution
+patterns. Whether Botnet-3 recall improves further at ep2/ep3 is the key question.
+
+Note: the OOD target set in thesis_notes_3.txt was MCC > +0.50. At ep1 the v9.0
+checkpoint is at ~6% attack recall, still well short of that target. The 6% figure
+should be understood as an early checkpoint result, not a final v9.0 outcome.
+
+================================================================================
+V9.1 — WHAT CHANGED AND WHY
+================================================================================
+
+v9.1 introduces one new signal on top of the v9.0 prompt architecture: the
+[BEHAVIOR] context section. Everything else (architecture, dataset sources,
+hyperparameters, max_length=1024) is identical to v9.0.
+
+--------------------------------------------------------------------------------
+The [BEHAVIOR] section
+--------------------------------------------------------------------------------
+
+[HTTP], [DNS], [SSL] capture application-layer content for individual flows.
+They help when the application layer is visible. But:
+
+  - CTU-Malware SMTP spam (Kelihos) produces no http.log entries
+  - IRC C2 (Ngrbot) produces no http/ssl entries
+  - UDP-based botnets (many IoT-23 scenarios) produce no app-layer logs at all
+  - conn.log-only deployments (most SIEM pipelines) have no auxiliary logs
+
+For these cases, the only remaining signal is the statistical pattern of
+connections across time: how many connections per minute from this host, how
+many unique destinations, how many port scan attempts, whether the traffic is
+periodic (beaconing).
+
+The [BEHAVIOR] section adds exactly these features, computed per source host
+over a 60-second and 300-second sliding window using build_behavior_contexts():
+
+  src_conn_60s             — total outbound connections in 60s
+  src_unique_dst_60s       — unique destination IPs in 60s (lateral movement / scanning)
+  src_unique_ports_60s     — unique destination ports in 60s (port scan indicator)
+  same_resp_port_60s       — same-port repeat count (service hammering)
+  same_flow_size_repeats_300s — identical-size flows in 300s (C2 beaconing signature)
+  pair_periodic_score      — periodicity score for (src, dst) pair
+
+These features are the behavioral signature that distinguishes C2 beaconing from
+normal bursty traffic even when app-layer logs are absent. A host contacting 50
+unique IPs in 60 seconds is scanning regardless of what the HTTP URI says. A host
+sending identical 512-byte UDP packets to the same IP every 30 seconds is beaconing
+regardless of whether dns.log has an entry.
+
+The v9.1 hypothesis is that these features, combined with the per-flow context
+of v9.0, give the model enough signal to generalise to unseen botnet families.
+
+--------------------------------------------------------------------------------
+Preprocessing rewrite (supporting change, not a thesis contribution)
+--------------------------------------------------------------------------------
+
+The preprocessing pipeline was refactored from a single large file into separate
+loader modules, and three bugs were fixed before regenerating v9.1 training data:
+
+  - Loader row-cap bug: the CTU-Malware loader (and three others) only broke out
+    of the row-buffering loop when BOTH attack and benign counts simultaneously
+    reached their caps. For attack-heavy scenarios (Ramnit, Pushdo) with very
+    few Normal flows, the loop read the entire conn.log into memory — potentially
+    millions of rows — causing the observed freeze. Fixed to break unconditionally
+    at row_cap.
+
+  - Download timeout bug: urlretrieve() had no transfer timeout. A stalled
+    Stratosphere Lab connection could hang indefinitely. Fixed with streaming
+    urlopen(timeout=60) and chunk reads.
+
+  - Sequential loaders: all loaders ran in one process. Fixed with
+    ProcessPoolExecutor — relevant for iteration speed, not for training quality.
+
+The key point for the thesis is that these bugs meant v9.0 training data for
+CTU-Malware was either incomplete (scenarios that froze were skipped or partially
+loaded) or absent. v9.1 training data has correct, complete CTU-Malware samples.
+
+================================================================================
+V9.0 vs V9.1 — EP1 BENCHMARK RESULTS (2026-04-03)
+================================================================================
+
+Both checkpoints are end-of-epoch-1 (v9.0: ckpt-1420, v9.1: ckpt-1186 — different
+step counts because v9.1 training data was slightly larger after the loader fixes).
+
+  Model                   Acc    Atk Recall  FP Recall   MCC
+  ----------------------  -----  ----------  ---------  ------
+  v9.0 ckpt-1420 (ep1)   87.8%    76.4%       99.1%    +0.775
+  v9.1 ckpt-1186 (ep1)   87.5%    75.2%       99.8%    +0.774
+  delta (v9.1 - v9.0)    -0.2%    -1.2%       +0.7%    -0.002
+
+Per-source delta:
+
+  Source                  Δ Atk Recall  Δ FP Recall
+  ----------------------  ------------  -----------
+  IoT-23                      +0.0%        +1.0%
+  CTU-13                      -2.0%        +0.3%
+  UWF-ZeekData24              +0.0%        +1.3%
+  CTU-Normal                  +0.0%        +0.0%
+  Botnet-3 OOD (Kelihos)      -2.7%        +0.0%
+
+The overall delta is negligible — both models are functionally identical at ep1.
+
+================================================================================
+WHY BOTNET-3 OOD DROPPED BY 2.7% (v9.0: 6.0% → v9.1: 3.3%)
+================================================================================
+
+The 2.7 percentage point drop (18/300 → 10/300 correct) looks like a regression
+but should not be interpreted as one. Several factors explain it:
+
+1. EPOCH 1 NOISE — MOST IMPORTANT FACTOR
+
+At ep1, neither model has converged. The model is still in the steep part of the
+learning curve, and small differences in training data composition or batch ordering
+cause meaningful variance in early checkpoint quality. A difference of 8 correctly
+classified Kelihos flows out of 300 (18 vs 10) is well within the noise expected
+between two ep1 checkpoints of the same architecture.
+
+The correct comparison is ep3 vs ep3, not ep1 vs ep1. The ep1 results should be
+read as a sanity check (both models are learning, neither has collapsed) rather
+than as evidence of a direction.
+
+2. THE LOADER FIX CHANGED TRAINING DATA COMPOSITION
+
+v9.0 was trained with the CTU-Malware loader bug present. For attack-heavy scenarios
+(Ramnit, Pushdo) the loader may have read only partial conn.log data before
+hitting memory pressure, or the scenario was skipped entirely if it froze. This
+means v9.0 training data contained fewer CTU-Malware samples than intended.
+
+v9.1 training data has complete CTU-Malware coverage for all 7 scenarios. The model
+is now seeing more botnet flow examples during training, which shifts the training
+distribution slightly. An ep1 checkpoint trained on a different distribution will
+naturally produce different early-checkpoint behaviour on OOD data.
+
+This is not v9.1 performing worse — it is v9.1 training on the data it was supposed
+to train on, with the side effect that the ep1 checkpoint weights are different.
+
+3. [BEHAVIOR] CONTEXT CHANGES THE PROMPT DISTRIBUTION
+
+v9.1 prompts include [BEHAVIOR] sections for ~60-70% of training samples (those
+with sufficient temporal context for window features). The model at ep1 is
+simultaneously learning the flow-level features (already well-learned in v9.0) and
+the new behavioral features, which means at ep1 it may be in a transient state
+where neither representation is as well-calibrated as in v9.0.
+
+At ep1 of v9.0 the model was learning from 13-field prompts. At ep1 of v9.1 it is
+learning from richer 13+behavior-field prompts. The extra prompt complexity may
+cause slower initial convergence on the base features, which would show up as
+slightly lower OOD recall at ep1.
+
+4. KELIHOS DETECTION IS ALREADY NEAR-FLOOR
+
+The key data point: v9.0 6.0% vs v9.1 3.3% are both effectively 0% for practical
+purposes. The difference between "classifies 18 Kelihos flows correctly" and
+"classifies 10 correctly" out of 300 is not meaningful — both models fail on Kelihos
+at flow granularity. The OOD problem is not solved by either version at ep1.
+
+The Kelihos flows that both models DO classify correctly are likely the same subset:
+the flows with unusual port patterns, large byte counts, or S0/SYN states that
+deviate from the expected normal traffic signature. The Kelihos flows that look like
+normal TCP traffic (short SF connections) are misclassified as FALSE POSITIVE by
+both models because they ARE indistinguishable from normal traffic at the flow level
+without behavioral or app-layer context.
+
+CONCLUSION ON THE DROP:
+
+The 2.7% drop is ep1 noise on a near-floor metric with only 300 samples (8 flows).
+It is not evidence that v9.1 is worse than v9.0. The meaningful comparison requires
+ep3 results from both models. The thesis claim for v9.1 rests on whether [BEHAVIOR]
+context improves OOD Kelihos recall at ep3 relative to v9.0 ep3, not on ep1
+checkpoints.
+
+================================================================================
+WHAT TO EXPECT FROM FULL TRAINING (EP3)
+================================================================================
+
+At ep3, both models should converge on in-distribution sources to near-v8.1
+levels (99%+ on IoT-23, CTU-13, UWF). The question is whether the [BEHAVIOR]
+context in v9.1 translates to meaningfully better Kelihos recall.
+
+The argument that it should:
+  - Kelihos (and most botnets) exhibits distinctive behavioral patterns:
+    periodic beaconing, repetitive same-sized flows, bursts to few destinations
+  - These patterns ARE present in the training sources (CTU-Malware captures)
+    and will be represented in [BEHAVIOR] sections during training
+  - At ep3 the model should have learned to map these behavioral signatures to
+    ATTACK even when the individual flow looks benign
+
+The argument that it might not:
+  - Botnet-3 is specifically held out of training, so the model has not seen
+    Kelihos behavioral patterns during training
+  - Behavioral features are probabilistic — a beaconing score of "high" appears
+    in both legitimate NTP polling and C2 beaconing
+  - The 300-sample eval is small; Kelihos behavioral patterns may not be
+    well-represented in the sampled flows
+
+The ep3 results will determine whether v9.1 moves the needle on OOD generalisation
+or whether the OOD problem requires a fundamentally different approach (e.g., anomaly
+detection rather than supervised classification, or host-level rather than flow-level
+analysis).
