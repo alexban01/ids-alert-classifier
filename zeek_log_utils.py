@@ -66,7 +66,13 @@ def ctu_download(url, scenario_id, filename=None, optional=False):
         return local
     try:
         os.makedirs(CTU_MALWARE_DIR, exist_ok=True)
-        urllib.request.urlretrieve(url, local)
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=60) as resp, open(local, "wb") as out:
+            while True:
+                chunk = resp.read(1 << 20)
+                if not chunk:
+                    break
+                out.write(chunk)
         print(f"    Downloaded {os.path.basename(local)} "
               f"({os.path.getsize(local) // 1024} KB)")
         return local

@@ -70,7 +70,6 @@ def load_unsw(dataset_dir):
         df = df.replace([float("inf"), float("-inf")], float("nan")).dropna(subset=[label_col])
 
         rows = []
-        buffered_counts = {"ATTACK": 0, "FALSE POSITIVE": 0}
         attacks = benign = 0
 
         for _, row in df.iterrows():
@@ -80,7 +79,6 @@ def load_unsw(dataset_dir):
             except (ValueError, TypeError):
                 verdict = "ATTACK" if str(lv).strip() not in ("0", "Normal", "BENIGN") else "FALSE POSITIVE"
 
-            buffered_counts[verdict] += 1
             rows.append({
                 "ts":         str(row[ts_col]).strip()     if ts_col     else None,
                 "orig_h":     str(row[src_h_col]).strip()  if src_h_col  else None,
@@ -99,11 +97,7 @@ def load_unsw(dataset_dir):
             })
 
             if len(rows) >= row_cap:
-                atk_needed = max(0, MAX_PER_SOURCE_CLASS - len(samples["ATTACK"]))
-                ben_needed = max(0, MAX_PER_SOURCE_CLASS - len(samples["FALSE POSITIVE"]))
-                if (buffered_counts["ATTACK"] >= atk_needed and
-                        buffered_counts["FALSE POSITIVE"] >= ben_needed):
-                    break
+                break
 
         behavior_ctxs = build_behavior_contexts(rows)
         for row, behavior_ctx in zip(rows, behavior_ctxs):

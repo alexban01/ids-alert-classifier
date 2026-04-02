@@ -20,8 +20,10 @@ Module layout
 """
 
 import json
+import os
 import random
 from collections import Counter, defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from preprocess_config import (
     DATASETS,
@@ -43,6 +45,24 @@ from loader_ctu_normal    import load_ctu_normal
 from loader_ctu_malware   import load_ctu_malware_captures
 
 
+def _run_loader_job(job_name, dataset_path):
+    """Worker wrapper for ProcessPoolExecutor loader jobs."""
+    random.seed(RANDOM_SEED)
+    if job_name == "iot23":
+        return job_name, load_iot23(dataset_path)
+    if job_name == "ctu13":
+        return job_name, load_ctu13(dataset_path)
+    if job_name == "unsw":
+        return job_name, load_unsw(dataset_path)
+    if job_name == "uwf":
+        return job_name, load_uwf(dataset_path)
+    if job_name == "ctu_normal":
+        return job_name, load_ctu_normal(dataset_path)
+    if job_name == "ctu_malware":
+        return job_name, load_ctu_malware_captures()
+    raise ValueError(f"Unknown loader job: {job_name}")
+
+
 def _write_jsonl(path, samples):
     with open(path, "w") as f:
         for s in samples:
@@ -61,19 +81,35 @@ if __name__ == "__main__":
     random.seed(RANDOM_SEED)
 
     # ── Load all sources ──────────────────────────────────────────────────────
+    loader_jobs = [
+        ("iot23", DATASETS["iot23"]),
+        ("ctu13", DATASETS["ctu13"]),
+        ("unsw", DATASETS["unsw"]),
+        ("uwf", DATASETS["uwf"]),
+        ("ctu_normal", DATASETS["ctu_normal"]),
+        ("ctu_malware", None),
+    ]
+    max_workers = min(6, os.cpu_count() or 1)
     all_samples = []
-    all_samples += load_iot23(DATASETS["iot23"])
-    all_samples += load_ctu13(DATASETS["ctu13"])
-    all_samples += load_unsw(DATASETS["unsw"])
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_run_loader_job, job_name, dataset_path): job_name
+            for job_name, dataset_path in loader_jobs
+        }
+        for future in as_completed(futures):
+            job_name = futures[future]
+            try:
+                _, job_samples = future.result()
+            except Exception as e:
+                print(f"[ERROR] Loader '{job_name}' failed: {e}")
+                job_samples = []
+            all_samples.extend(job_samples)
+            print(f"[DONE] Loader '{job_name}': {len(job_samples)} samples")
+
     # CICIDS2017 disabled in v7: CICFlowMeter produces proto="unknown" and
     # conn_state="-" for every flow — both most-discriminative Zeek features
     # are always absent.  Also has ~10-15% label errors.
     # all_samples += load_cicids(DATASETS["cicids"])
-    all_samples += load_uwf(DATASETS["uwf"])
-    all_samples += load_ctu_normal(DATASETS["ctu_normal"])
-    # v9.0: CTU-Malware-Capture — multi-log enriched training samples.
-    # Botnet-3 (Kelihos) held out as OOD test — not included here.
-    all_samples += load_ctu_malware_captures()
 
     # ── Source-stratified train/eval split ────────────────────────────────────
     # Hold out EVAL_FRAC from each (source, verdict) bucket so eval distribution

@@ -33,7 +33,6 @@ def load_iot23(archive_path):
             if f is None:
                 continue
             rows = []
-            buffered_counts = {"ATTACK": 0, "FALSE POSITIVE": 0}
             row_cap = (MAX_PER_SOURCE_CLASS + IOT23_BENIGN_CAP) * 4
             attacks = benign = 0
 
@@ -69,7 +68,6 @@ def load_iot23(archive_path):
                 except IndexError:
                     continue
 
-                buffered_counts[verdict] += 1
                 rows.append({
                     "ts":         parts[0],
                     "orig_h":     parts[2],
@@ -90,11 +88,7 @@ def load_iot23(archive_path):
                 else:                   benign  += 1
 
                 if len(rows) >= row_cap:
-                    atk_needed = max(0, MAX_PER_SOURCE_CLASS - len(samples["ATTACK"]))
-                    ben_needed = max(0, IOT23_BENIGN_CAP - len(samples["FALSE POSITIVE"]))
-                    if (buffered_counts["ATTACK"] >= atk_needed and
-                            buffered_counts["FALSE POSITIVE"] >= ben_needed):
-                        break
+                    break
 
             behavior_ctxs = build_behavior_contexts(rows)
             for row, behavior_ctx in zip(rows, behavior_ctxs):

@@ -54,7 +54,6 @@ def load_uwf(dataset_dir):
             continue
 
         rows = []
-        buffered_counts = {"ATTACK": 0, "FALSE POSITIVE": 0}
         attacks = benign = 0
 
         for _, row in df.iterrows():
@@ -99,7 +98,6 @@ def load_uwf(dataset_dir):
             if resp_h in ("nan", "None", ""):
                 resp_h = None
 
-            buffered_counts[verdict] += 1
             rows.append({
                 "ts":         ts,
                 "orig_h":     orig_h,
@@ -118,11 +116,7 @@ def load_uwf(dataset_dir):
             })
 
             if len(rows) >= row_cap:
-                atk_needed = max(0, MAX_PER_SOURCE_CLASS - len(samples["ATTACK"]))
-                ben_needed = max(0, MAX_PER_SOURCE_CLASS - len(samples["FALSE POSITIVE"]))
-                if (buffered_counts["ATTACK"] >= atk_needed and
-                        buffered_counts["FALSE POSITIVE"] >= ben_needed):
-                    break
+                break
 
         behavior_ctxs = build_behavior_contexts(rows)
         for row, behavior_ctx in zip(rows, behavior_ctxs):
