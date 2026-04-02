@@ -1,4 +1,4 @@
-REAL-WORLD ZEEK BENCHMARK — 2026-04-01 22:47
+REAL-WORLD ZEEK BENCHMARK — 2026-04-03 00:36
 Sources: IoT-23, CTU-13, UWF-ZeekData24, CTU-Normal | OOD: Botnet-3 (Kelihos)
 Samples: 2400 total (1200 attacks / 1200 benign) | OOD: 300 | Seed: 42
 
@@ -6,40 +6,127 @@ Samples: 2400 total (1200 attacks / 1200 benign) | OOD: 300 | Seed: 42
   MODEL  : v9.0 ckpt-1420 (ep1)
   Samples: 2400  (attacks: 1200, benign: 1200)
   Format failures : 0 (0.0%)
-  MCC             : +0.7954  (-1 to +1, higher is better)
+  MCC             : +0.0000  (-1 to +1, higher is better)
 ======================================================================
                 precision    recall  f1-score   support
 
-        ATTACK       0.99      0.79      0.88      1200
-FALSE POSITIVE       0.82      0.99      0.90      1200
+        ATTACK       0.00      0.00      0.00      1200
+FALSE POSITIVE       0.50      1.00      0.67      1200
 
-      accuracy                           0.89      2400
-     macro avg       0.91      0.89      0.89      2400
-  weighted avg       0.91      0.89      0.89      2400
+      accuracy                           0.50      2400
+     macro avg       0.25      0.50      0.33      2400
+  weighted avg       0.25      0.50      0.33      2400
 
 Confusion Matrix  (rows = actual, cols = predicted)
                            ATTACK  FALSE POSITIVE
-  ATTACK                  947 ( 79%)     253 ( 21%)
-  FALSE POSITIVE           12 (  1%)    1188 ( 99%)
+  ATTACK                    0 (  0%)    1200 (100%)
+  FALSE POSITIVE            0 (  0%)    1200 (100%)
 
 --- Per source ---
   Source                               Atk  Recall     Ben  Recall      Acc
   ---------------------------------- ----- -------   ----- -------   ------
-  CTU-13         (binetflow)           300   99.7%     300   99.3%    99.5%
-  Botnet-3 [OOD] (Kelihos)             300   16.0%       0    0.0%    16.0%
-  CTU-Normal     (Zeek conn.log)         0    0.0%     300   99.3%    99.3%
-  IoT-23         (Zeek conn.log)       300  100.0%     300   98.0%    99.0%
-  UWF-ZeekData24 (Zeek conn.log)       300  100.0%     300   99.3%    99.7%
+  CTU-13         (binetflow)           300    0.0%     300  100.0%    50.0%
+  Botnet-3 [OOD] (Kelihos)             300    0.0%       0    0.0%     0.0%
+  CTU-Normal     (Zeek conn.log)         0    0.0%     300  100.0%   100.0%
+  IoT-23         (Zeek conn.log)       300    0.0%     300  100.0%    50.0%
+  UWF-ZeekData24 (Zeek conn.log)       300    0.0%     300  100.0%    50.0%
 
 --- Per label (attacks only) ---
-  Credential Access                            300/300 (100%)
-  Kelihos                                       48/300 ( 16%)
-  PartOfAHorizontalPortScan                    300/300 (100%)
-  flow=From-Botnet-V45-TCP-Attempt               3/3   (100%)
-  flow=From-Botnet-V45-TCP-CC106-IRC-Not-Encrypted   1/1   (100%)
-  flow=From-Botnet-V45-TCP-Established-HTTP-Ad-15   1/1   (100%)
-  flow=From-Botnet-V45-TCP-Established-HTTP-Ad-4   1/1   (100%)
-  flow=From-Botnet-V45-TCP-Established-HTTP-Ad-62   1/1   (100%)
-  flow=From-Botnet-V45-TCP-HTTP-Google-Net-Established-6   1/1   (100%)
-  flow=From-Botnet-V45-UDP-Attempt             274/275 (100%)
-  flow=From-Botnet-V45-UDP-DNS                  17/17  (100%)
+  Credential Access                              0/300 (  0%)
+  Kelihos                                        0/300 (  0%)
+  PartOfAHorizontalPortScan                      0/300 (  0%)
+  flow=From-Botnet-V45-TCP-Attempt               0/3   (  0%)
+  flow=From-Botnet-V45-TCP-CC106-IRC-Not-Encrypted   0/1   (  0%)
+  flow=From-Botnet-V45-TCP-Established-HTTP-Ad-15   0/1   (  0%)
+  flow=From-Botnet-V45-TCP-Established-HTTP-Ad-4   0/1   (  0%)
+  flow=From-Botnet-V45-TCP-Established-HTTP-Ad-62   0/1   (  0%)
+  flow=From-Botnet-V45-TCP-HTTP-Google-Net-Established-6   0/1   (  0%)
+  flow=From-Botnet-V45-UDP-Attempt               0/275 (  0%)
+  flow=From-Botnet-V45-UDP-DNS                   0/17  (  0%)
+
+--- Host Pass-2 ---
+  Hosts           : 5
+  Format failures : 0 (0.0%)
+  Accuracy        : 20.0%
+  Atk Recall      : 0.0%
+  FP Recall       : 100.0%
+  MCC             : +0.0000
+
+======================================================================
+  MODEL  : v9.1 ckpt-1186 (ep1)
+  Samples: 2400  (attacks: 1200, benign: 1200)
+  Format failures : 0 (0.0%)
+  MCC             : +0.0000  (-1 to +1, higher is better)
+======================================================================
+                precision    recall  f1-score   support
+
+        ATTACK       0.00      0.00      0.00      1200
+FALSE POSITIVE       0.50      1.00      0.67      1200
+
+      accuracy                           0.50      2400
+     macro avg       0.25      0.50      0.33      2400
+  weighted avg       0.25      0.50      0.33      2400
+
+Confusion Matrix  (rows = actual, cols = predicted)
+                           ATTACK  FALSE POSITIVE
+  ATTACK                    0 (  0%)    1200 (100%)
+  FALSE POSITIVE            0 (  0%)    1200 (100%)
+
+--- Per source ---
+  Source                               Atk  Recall     Ben  Recall      Acc
+  ---------------------------------- ----- -------   ----- -------   ------
+  CTU-13         (binetflow)           300    0.0%     300  100.0%    50.0%
+  Botnet-3 [OOD] (Kelihos)             300    0.0%       0    0.0%     0.0%
+  CTU-Normal     (Zeek conn.log)         0    0.0%     300  100.0%   100.0%
+  IoT-23         (Zeek conn.log)       300    0.0%     300  100.0%    50.0%
+  UWF-ZeekData24 (Zeek conn.log)       300    0.0%     300  100.0%    50.0%
+
+--- Per label (attacks only) ---
+  Credential Access                              0/300 (  0%)
+  Kelihos                                        0/300 (  0%)
+  PartOfAHorizontalPortScan                      0/300 (  0%)
+  flow=From-Botnet-V45-TCP-Attempt               0/3   (  0%)
+  flow=From-Botnet-V45-TCP-CC106-IRC-Not-Encrypted   0/1   (  0%)
+  flow=From-Botnet-V45-TCP-Established-HTTP-Ad-15   0/1   (  0%)
+  flow=From-Botnet-V45-TCP-Established-HTTP-Ad-4   0/1   (  0%)
+  flow=From-Botnet-V45-TCP-Established-HTTP-Ad-62   0/1   (  0%)
+  flow=From-Botnet-V45-TCP-HTTP-Google-Net-Established-6   0/1   (  0%)
+  flow=From-Botnet-V45-UDP-Attempt               0/275 (  0%)
+  flow=From-Botnet-V45-UDP-DNS                   0/17  (  0%)
+
+--- Host Pass-2 ---
+  Hosts           : 5
+  Format failures : 0 (0.0%)
+  Accuracy        : 20.0%
+  Atk Recall      : 0.0%
+  FP Recall       : 100.0%
+  MCC             : +0.0000
+
+==========================================================================
+  REAL-WORLD ZEEK COMPARISON — v9.0 ckpt-1420 (ep1) vs v9.1 ckpt-1186 (ep1)
+==========================================================================
+  Model                 Accuracy  Atk Recall  FP Recall     MCC  Fmt Fail
+  -------------------- --------- ----------- ---------- ------- ---------
+  v9.0 ckpt-1420 (ep1)     50.0%        0.0%     100.0%  +0.000      0.0%
+  v9.1 ckpt-1186 (ep1)     50.0%        0.0%     100.0%  +0.000      0.0%
+  -------------------- --------- ----------- ---------- ------- ---------
+  delta (v9.1 - v9.0)      +0.0%       +0.0%      +0.0%  +0.000     +0.0%
+==========================================================================
+
+  Atk Recall = % of actual attacks caught (sensitivity / TPR)
+  FP Recall  = % of benign flows correctly identified (specificity)
+  MCC        = Matthews Correlation Coefficient (-1 to +1)
+  Fmt Fail   = % of outputs missing VERDICT line
+
+  Sources: IoT-23 + CTU-13 + UWF-ZeekData24 + CTU-Normal
+  OOD    : Botnet-3 (Kelihos) — never in training data
+  (native Zeek conn.log — NO synthetic field mapping)
+
+--- Per-source delta (v9.1 - v9.0) ---
+  Source                              Δ Accuracy  Δ Atk Recall  Δ FP Recall
+  ---------------------------------- ----------- ------------- ------------
+  IoT-23         (Zeek conn.log)           +0.0%         +0.0%        +0.0%
+  CTU-13         (binetflow)               +0.0%         +0.0%        +0.0%
+  UWF-ZeekData24 (Zeek conn.log)           +0.0%         +0.0%        +0.0%
+  CTU-Normal     (Zeek conn.log)           +0.0%         +0.0%        +0.0%
+  Botnet-3 [OOD] (Kelihos)                 +0.0%         +0.0%        +0.0%
