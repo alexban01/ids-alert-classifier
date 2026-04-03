@@ -13,7 +13,7 @@ EVAL_FRAC   = 0.10            # fraction of each (source, class) bucket held out
 # ── Scale factor ───────────────────────────────────────────────────────────────
 # Set to 1.0 for full RunPod runs (~360k samples).
 # Set to 0.03–0.1 for fast local validation on RTX 3070.
-TRAINING_FACTOR = 0.03
+TRAINING_FACTOR = 0.1
 
 # ── Per-source caps ────────────────────────────────────────────────────────────
 MAX_PER_SOURCE_CLASS = int(80_000 * TRAINING_FACTOR)   # default cap per (source, class)
@@ -57,20 +57,29 @@ DATASETS = {
 # URL pattern: https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-{ID}/
 CTU_MALWARE_SCENARIOS = [
     # (scenario_id,  family,    base_url)
+    # All scenarios verified to have bro/conn.log + labeled binetflow in
+    # detailed-bidirectional-flow-labels/ (or .binetflow.labeled in root).
+    # Botnet-3 (Kelihos) is held out as OOD probe in benchmark_realworld.py.
     ("Botnet-42",  "Ramnit",
      "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-42"),
+    ("Botnet-43",  "Neris",
+     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-43"),
     ("Botnet-44",  "Ngrbot",
      "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-44"),
+    ("Botnet-45",  "Rbot",
+     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-45"),
+    ("Botnet-46",  "Virut",
+     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-46"),
+    ("Botnet-48",  "Sogou",
+     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-48"),
     ("Botnet-52",  "Htbot",
      "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-52"),
+    ("Botnet-53",  "NSIS.ay",
+     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-53"),
     ("Botnet-54",  "Siemens",
      "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-54"),
     ("Botnet-78-2", "Zeus",
      "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-78-2"),
-    ("Botnet-90",  "Pushdo",
-     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-90"),
-    ("Botnet-91",  "Ballpit",
-     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-91"),
 ]
 
 # ── Reason pools ───────────────────────────────────────────────────────────────

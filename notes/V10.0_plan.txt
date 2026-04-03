@@ -1,0 +1,149 @@
+================================================================================
+V10.0 PLANNING NOTES
+IDS Alert Classifier — Fine-tuning Qwen2.5-1.5B-Instruct
+================================================================================
+
+Context: written after v9.0/v9.1 ep1 benchmarks (TRAINING_FACTOR=0.03, 2026-04-03).
+Both v9.0 and v9.1 ep1 checkpoints show ~0% OOD recall on Botnet-3 (Kelihos).
+This document records open questions and planned changes for the next iteration.
+
+Benchmark reference:
+  Report  → results/benchmark_realworld_report.txt
+  Results → results/benchmark_realworld_results.json
+  (v9.0 ckpt-1420 vs v9.1 ckpt-1186, both ep1 of 3, TRAINING_FACTOR=0.03)
+
+================================================================================
+1. OOD PROBE: REPLACE BOTNET-3 WITH CTU-SME-11
+================================================================================
+
+Current OOD: CTU-Malware-Capture-Botnet-3 (Kelihos P2P botnet, SMTP spam C2)
+  - Near-zero recall at ep1 on both v9.0 (6%) and v9.1 (3.3%) — both ~0%
+  - Kelihos is difficult because it looks like normal TCP short flows at the
+    flow level, with no HTTP/DNS/SSL artifacts; the discriminating signal is
+    behavioral (periodic SMTP to many IPs) — hard to surface in conn.log alone
+  - The probe has been uninformative: every version scores ~0% on Kelihos,
+    making it impossible to tell whether a change helped or not
+
+Proposed OOD: CTU-SME-11 (Small/Medium Enterprise capture series)
+  - SME captures include mixed enterprise traffic with real malware and benign
+    background — closer to deployment conditions than pure botnet captures
+  - Different threat family from the CTU-Malware-Botnet-X scenarios in training,
+    so it tests true OOD generalization across both attack type and traffic context
+  - May produce non-trivially-low recall, making it a more informative probe
+
+Decision to make before V10.0:
+  - Replace Botnet-3 entirely, or keep both (Botnet-3 as legacy, CTU-SME-11 as primary)?
+  - No loader exists yet for CTU-SME-11 in benchmark_realworld.py; will need a new
+    load_ctu_sme11() function analogous to load_ctu_botnet3()
+  - Verify the CTU-SME-11 URL/format on Stratosphere Lab before implementing
+
+================================================================================
+2. DATASET BALANCE — CTU-MALWARE SIGNAL DILUTION
+================================================================================
+
+Problem: At TRAINING_FACTOR=1.0, the dataset composition is approximately:
+  IoT-23:      ~80k attacks  + ~20k benign   (capped)
+  CTU-13:      ~80k attacks  + ~80k benign
+  UNSW-NB15:   ~80k attacks  + ~80k benign
+  UWF:           0 attacks   + ~80k benign
+  CTU-Normal:    0 attacks   + ~100k benign
+  CTU-Malware:  ~80k attacks + ~80k benign   (7 scenarios combined, ~11k/scenario)
+  ------------------------------------------------------------------
+  Total:       ~320k attacks + ~440k benign  (before FINAL_ATTACK/BENIGN caps)
+  Final:        120k attacks + 240k benign   (2:1 ratio, random downsample)
+
+CTU-Malware ends up as roughly 1 in 4 attack samples after downsampling to FINAL_ATTACK.
+The other three attack sources (IoT-23, CTU-13, UNSW-NB15) contribute ~3 out of 4 attack
+samples, so the model allocates most of its capacity to their signatures.
+
+The OOD failure mode is consistent with this: unseen botnet families (Kelihos) are
+not recognized because the model learned IoT DDoS and CTU-13 botnet signatures well
+but botnet generalisation requires seeing more diverse botnet traffic during training.
+
+--------------------------------------------------------------------------------
+Options (not mutually exclusive):
+--------------------------------------------------------------------------------
+
+A. REDUCE CAPS ON NON-BOTNET SOURCES
+   Cut IoT-23, CTU-13, UNSW-NB15, UWF, CTU-Normal to a smaller fixed cap so
+   CTU-Malware scenarios have proportionally more representation in the final
+   attack budget.
+   Example: IoT-23 attacks → 20k, CTU-13 → 20k, UNSW → 20k, CTU-Malware → 60k
+   Risk: may hurt in-distribution accuracy on IoT-23/CTU-13 probe sources.
+
+B. ADD MORE CTU-MALWARE-BOTNET SCENARIOS
+   Expand beyond the current 7 scenarios. Stratosphere Lab has many additional
+   CTU-Malware-Capture-Botnet-X captures (different families, years, protocols).
+   More botnet diversity → better chance of learning botnet-agnostic features.
+   This is the least disruptive change; keeps other sources intact.
+   Action: survey available scenarios, add 5-10 more to SCENARIOS list in
+   preprocess_config.py / loader_ctu_malware.py.
+
+C. WEIGHTED SAMPLING IN FINAL DOWNSAMPLE
+   Keep all sources at their current caps but in the final 120k attack budget,
+   allocate a fixed fraction to CTU-Malware (e.g., 60k of 120k = 50% botnet).
+   This oversamples CTU-Malware relative to its raw count without changing caps.
+   Requires a change to the final downsample logic in preprocess_zeek.py.
+
+D. SPLIT INTO TWO SPECIALIST MODELS
+   IoT model:  IoT-23 + CTU-Normal (Zeek conn.log native, IoT deployment)
+   CTU model:  CTU-13 + CTU-Malware (mixed enterprise / botnet deployment)
+   Pros: each model trains on a coherent domain without cross-domain noise.
+   Cons: two models to train, maintain, and deploy; ensemble or routing logic needed.
+   This is the highest-effort option; consider only if single-model approaches fail.
+
+E. DROP UNSW-NB15
+   UNSW-NB15 adds 80k attack + 80k benign samples but is the most synthetic
+   source (older Bro-generated features, not live Zeek). It may be adding noise
+   rather than signal for botnet detection. Try removing it and reallocating
+   the attack budget to CTU-Malware.
+
+Recommended starting point for V10.0: option B (add more CTU-Malware scenarios)
+combined with option A (reduce non-botnet attack caps) — easiest to implement,
+most direct address of the dilution problem.
+
+Note on TRAINING_FACTOR: cannot raise it to 1.0 for full runs on local hardware.
+The row_cap memory issue was fixed in v9.1 for CTU-Malware (TASK-008), but full
+factor on an 8-core local machine still exceeds RAM for multi-scenario parallel
+loading. Use TRAINING_FACTOR=0.1 for local validation; TRAINING_FACTOR=1.0 on
+RunPod for the real run.
+
+================================================================================
+3. REPLACE IOT-23 V1 WITH V2
+================================================================================
+
+Current: loader_iot23.py loads datasets/iot-23/iot_23_datasets_small.tar.gz
+         This is the IoT-23 v1 "small" subset — 20 labeled scenarios out of 23.
+
+IoT-23 v2 (if available from Stratosphere Lab) may include:
+  - Additional capture scenarios (newer devices, newer malware families)
+  - Revised/corrected labels
+  - Same Zeek conn.log.labeled format (likely compatible with existing loader)
+
+Action required before implementing:
+  1. Check https://www.stratosphereips.org/datasets-iot23 for v2 availability
+  2. Verify label format is unchanged (field count, "Malicious"/"Benign" tokens)
+  3. Update SOURCES.txt with v2 URL
+  4. Update loader_iot23.py path constant if filename differs
+  5. If format changed, update the TSV parsing in load_iot23()
+
+If v2 is not available or has breaking format changes, skip for V10.0.
+
+================================================================================
+4. OPEN QUESTIONS BEFORE V10.0 TRAINING
+================================================================================
+
+Q1: Which OOD probe gives a more informative signal — CTU-SME-11 alone, or
+    CTU-SME-11 + Botnet-3 in parallel? Keeping Botnet-3 preserves historical
+    comparability; replacing it makes the benchmark cleaner.
+
+Q2: What is the right attack:benign ratio for a CTU-Malware-heavy dataset?
+    If CTU-Malware scenarios are attack-heavy (e.g., Ramnit has ~200k botnet
+    flows and ~500 normal), the row_cap fix means we now load full scenarios —
+    but the benign budget may be CTU-Malware-benign-limited. May need to
+    re-examine per-scenario benign counts before setting caps.
+
+Q3: At ep3 of v9.1 full training, does [BEHAVIOR] context improve OOD recall?
+    This is the outstanding question from v9.1. The ep3 results determine whether
+    v10.0 should keep [BEHAVIOR], extend it, or pivot to a different approach.
+    Do NOT start V10.0 before v9.1 ep3 benchmark is complete.

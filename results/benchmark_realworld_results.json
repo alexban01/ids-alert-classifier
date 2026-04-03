@@ -1,107 +1,36 @@
 {
-  "timestamp": "2026-04-03T00:36:01.155024",
-  "samples": 2400,
+  "timestamp": "2026-04-03T22:19:18.457581",
+  "mode": "OOD-ONLY",
+  "samples": 3892,
   "sources": {
-    "iot23": 600,
-    "ctu13": 600,
-    "uwf": 600,
-    "ctu_normal": 300,
-    "ctu_botnet3": 300
+    "iot23": 0,
+    "ctu13": 0,
+    "uwf": 0,
+    "ctu_normal": 0,
+    "ctu_mixed6": 3892
   },
   "models": [
     {
-      "label": "v9.0 ckpt-1420 (ep1)",
-      "accuracy": 0.5,
-      "atk_recall": 0.0,
-      "ben_recall": 1.0,
-      "fmt_fail": 0.0,
-      "mcc": 0.0,
-      "host_pass2": {
-        "n": 5,
-        "accuracy": 0.2,
-        "atk_recall": 0.0,
-        "ben_recall": 1.0,
-        "fmt_fail": 0.0,
-        "mcc": 0.0
-      },
-      "per_source": {
-        "iot23": {
-          "n": 600,
-          "accuracy": 0.5,
-          "atk_recall": 0.0,
-          "ben_recall": 1.0
-        },
-        "ctu13": {
-          "n": 600,
-          "accuracy": 0.5,
-          "atk_recall": 0.0,
-          "ben_recall": 1.0
-        },
-        "uwf": {
-          "n": 600,
-          "accuracy": 0.5,
-          "atk_recall": 0.0,
-          "ben_recall": 1.0
-        },
-        "ctu_normal": {
-          "n": 300,
-          "accuracy": 1.0,
-          "atk_recall": 0.0,
-          "ben_recall": 1.0
-        },
-        "ctu_botnet3": {
-          "n": 300,
-          "accuracy": 0.0,
-          "atk_recall": 0.0,
-          "ben_recall": 0.0
-        }
-      }
-    },
-    {
       "label": "v9.1 ckpt-1186 (ep1)",
-      "accuracy": 0.5,
+      "accuracy": 0.7238,
       "atk_recall": 0.0,
-      "ben_recall": 1.0,
+      "ben_recall": 0.939,
       "fmt_fail": 0.0,
-      "mcc": 0.0,
+      "mcc": -0.1211,
       "host_pass2": {
         "n": 5,
-        "accuracy": 0.2,
+        "accuracy": 0.8,
         "atk_recall": 0.0,
         "ben_recall": 1.0,
         "fmt_fail": 0.0,
         "mcc": 0.0
       },
       "per_source": {
-        "iot23": {
-          "n": 600,
-          "accuracy": 0.5,
+        "ctu_mixed6": {
+          "n": 3892,
+          "accuracy": 0.7238,
           "atk_recall": 0.0,
-          "ben_recall": 1.0
-        },
-        "ctu13": {
-          "n": 600,
-          "accuracy": 0.5,
-          "atk_recall": 0.0,
-          "ben_recall": 1.0
-        },
-        "uwf": {
-          "n": 600,
-          "accuracy": 0.5,
-          "atk_recall": 0.0,
-          "ben_recall": 1.0
-        },
-        "ctu_normal": {
-          "n": 300,
-          "accuracy": 1.0,
-          "atk_recall": 0.0,
-          "ben_recall": 1.0
-        },
-        "ctu_botnet3": {
-          "n": 300,
-          "accuracy": 0.0,
-          "atk_recall": 0.0,
-          "ben_recall": 0.0
+          "ben_recall": 0.939
         }
       }
     }
