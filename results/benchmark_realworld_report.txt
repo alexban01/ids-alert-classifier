@@ -1,39 +1,39 @@
-REAL-WORLD ZEEK BENCHMARK [OOD-ONLY] — 2026-04-03 22:19
-Sources: IoT-23, CTU-13, UWF-ZeekData24, CTU-Normal | OOD: Mixed-6 (DarkVNC)
-Samples: 3892 total (892 attacks / 3000 benign) | OOD: 3892 | Seed: 42
+REAL-WORLD ZEEK BENCHMARK [OOD-ONLY] — 2026-04-04 02:34
+Sources: IoT-23, CTU-13, UWF-ZeekData24, CTU-Normal | OOD: CTU-SME-11 (Amazon Echo)
+Samples: 6000 total (3000 attacks / 3000 benign) | OOD: 6000 | Seed: 42
 
 ======================================================================
   MODEL  : v9.1 ckpt-1186 (ep1)
-  Samples: 3892  (attacks: 892, benign: 3000)
+  Samples: 6000  (attacks: 3000, benign: 3000)
   Format failures : 0 (0.0%)
-  MCC             : -0.1211  (-1 to +1, higher is better)
+  MCC             : +0.3297  (-1 to +1, higher is better)
 ======================================================================
                 precision    recall  f1-score   support
 
-        ATTACK       0.00      0.00      0.00       892
-FALSE POSITIVE       0.76      0.94      0.84      3000
+        ATTACK       0.83      0.34      0.48      3000
+FALSE POSITIVE       0.58      0.93      0.72      3000
 
-      accuracy                           0.72      3892
-     macro avg       0.38      0.47      0.42      3892
-  weighted avg       0.59      0.72      0.65      3892
+      accuracy                           0.63      6000
+     macro avg       0.70      0.63      0.60      6000
+  weighted avg       0.70      0.63      0.60      6000
 
 Confusion Matrix  (rows = actual, cols = predicted)
                            ATTACK  FALSE POSITIVE
-  ATTACK                    0 (  0%)     892 (100%)
-  FALSE POSITIVE          183 (  6%)    2817 ( 94%)
+  ATTACK                 1010 ( 34%)    1990 ( 66%)
+  FALSE POSITIVE          213 (  7%)    2787 ( 93%)
 
 --- Per source ---
   Source                               Atk  Recall     Ben  Recall      Acc
   ---------------------------------- ----- -------   ----- -------   ------
-  Mixed-6  [OOD] (DarkVNC)             892    0.0%    3000   93.9%    72.4%
+  CTU-SME-11 [OOD] (Amazon Echo)      3000   33.7%    3000   92.9%    63.3%
 
 --- Per label (attacks only) ---
-  DarkVNC                                        0/892 (  0%)
+  From_malicious-To_benign-Discovery           1010/3000 ( 34%)
 
 --- Host Pass-2 ---
-  Hosts           : 5
+  Hosts           : 1373
   Format failures : 0 (0.0%)
-  Accuracy        : 80.0%
-  Atk Recall      : 0.0%
-  FP Recall       : 100.0%
-  MCC             : +0.0000
+  Accuracy        : 19.9%
+  Atk Recall      : 19.7%
+  FP Recall       : 80.0%
+  MCC             : -0.0005

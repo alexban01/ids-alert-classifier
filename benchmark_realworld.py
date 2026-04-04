@@ -9,7 +9,7 @@ Usage:
     .venv/bin/python benchmark_realworld.py [--regen] [--ood] [--no-behavior]
 
     --regen         Force regeneration of the entire sample cache.
-    --ood           Run inference only on OOD (Botnet-90 Conficker) samples.
+    --ood           Run inference only on OOD (CTU-SME-11 Amazon Echo) samples.
     --regen --ood   Regenerate only the OOD samples in the cache, then run
                     OOD-only inference (does not touch other source caches).
     --no-behavior   Keep prompts conn-only (skip [BEHAVIOR] rebuild).
@@ -30,7 +30,7 @@ from peft import PeftModel
 from sklearn.metrics import classification_report, confusion_matrix, matthews_corrcoef
 
 from bench_loaders import (
-    CAP, load_iot23, load_ctu13, load_uwf, load_ctu_normal, load_ctu_botnet90,
+    CAP, load_iot23, load_ctu13, load_uwf, load_ctu_normal, load_ctu_sme11,
 )
 from behavior_features import build_behavior_contexts, build_host_summaries
 from prompt_utils import SYSTEM_PROMPT, build_prompt, build_host_prompt, extract_verdict
@@ -66,13 +66,13 @@ SOURCE_NAMES = {
     "ctu13":        "CTU-13          (binetflow)",
     "uwf":          "UWF-ZeekData24  (Zeek conn.log)",
     "ctu_normal":   "CTU-Normal      (Zeek conn.log)",
-    "ctu_botnet90": "Botnet-90 [OOD] (Conficker)",
+    "ctu_sme11":    "CTU-SME-11 [OOD] (Amazon Echo)",
 }
 
-ALL_SOURCES = ["iot23", "ctu13", "uwf", "ctu_normal", "ctu_botnet90"]
+ALL_SOURCES = ["iot23", "ctu13", "uwf", "ctu_normal", "ctu_sme11"]
 
 # ── Sample generation ────────────────────────────────────────────────────────────
-_LOADER_ORDER = ["iot23", "ctu13", "uwf", "ctu_normal", "ctu_botnet90"]
+_LOADER_ORDER = ["iot23", "ctu13", "uwf", "ctu_normal", "ctu_sme11"]
 
 
 def _run_bench_loader(job_name):
@@ -85,8 +85,8 @@ def _run_bench_loader(job_name):
         return job_name, load_uwf(DATASETS["uwf"])
     if job_name == "ctu_normal":
         return job_name, load_ctu_normal(DATASETS["ctu_normal"])
-    if job_name == "ctu_botnet90":
-        return job_name, load_ctu_botnet90()
+    if job_name == "ctu_sme11":
+        return job_name, load_ctu_sme11()
     raise ValueError(f"Unknown loader job: {job_name}")
 
 
@@ -122,11 +122,11 @@ def regen_ood_samples():
     with open(CACHE_FILE) as f:
         samples = json.load(f)
 
-    non_ood = [s for s in samples if s["source"] != "ctu_botnet90"]
+    non_ood = [s for s in samples if s["source"] != "ctu_sme11"]
     old_ood_n = len(samples) - len(non_ood)
     print(f"  Dropping {old_ood_n} cached OOD samples")
 
-    ood_samples = load_ctu_botnet90()
+    ood_samples = load_ctu_sme11()
     merged = non_ood + ood_samples
     random.seed(RANDOM_SEED)
     random.shuffle(merged)
@@ -413,7 +413,7 @@ def print_comparison_table(results, json_output, out_lines):
         "  Fmt Fail   = % of outputs missing VERDICT line",
         "",
         "  Sources: IoT-23 + CTU-13 + UWF-ZeekData24 + CTU-Normal",
-        "  OOD    : Botnet-90 (Conficker) — never in training data",
+        "  OOD    : CTU-SME-11 Amazon Echo — never in training data",
         "  (native Zeek conn.log — NO synthetic field mapping)",
     ]
 
@@ -470,7 +470,7 @@ if __name__ == "__main__":
 
     # ── Filter to OOD only if --ood ──────────────────────────────────────────────
     if ood_only:
-        samples = [s for s in samples if s["source"] == "ctu_botnet90"]
+        samples = [s for s in samples if s["source"] == "ctu_sme11"]
         if not samples:
             print("[ERROR] No OOD samples found in cache. Run with --regen --ood first.")
             sys.exit(1)
@@ -489,11 +489,11 @@ if __name__ == "__main__":
     ts     = datetime.now().strftime("%Y-%m-%d %H:%M")
     atk_n  = sum(1 for s in samples if s["ground_truth"] == "ATTACK")
     ben_n  = len(samples) - atk_n
-    ood_n  = sum(1 for s in samples if s["source"] == "ctu_botnet90")
+    ood_n  = sum(1 for s in samples if s["source"] == "ctu_sme11")
     mode   = "OOD-ONLY" if ood_only else "FULL"
     out_lines = [
         f"REAL-WORLD ZEEK BENCHMARK [{mode}] — {ts}",
-        f"Sources: IoT-23, CTU-13, UWF-ZeekData24, CTU-Normal | OOD: Botnet-90 (Conficker)",
+        f"Sources: IoT-23, CTU-13, UWF-ZeekData24, CTU-Normal | OOD: CTU-SME-11 (Amazon Echo)",
         f"Samples: {len(samples)} total ({atk_n} attacks / {ben_n} benign) | OOD: {ood_n} | Seed: {RANDOM_SEED}",
     ]
     results     = []

@@ -10,12 +10,11 @@ Loaders:
     load_ctu13(archive_path)      — CTU-13 binetflow CSV from tar.bz2
     load_uwf(dataset_dir)         — UWF-ZeekData24 Zeek conn.log CSVs
     load_ctu_normal(dataset_dir)  — CTU-Normal benign-only Zeek conn.log
-    load_ctu_botnet90()           — CTU-Malware-Capture-Botnet-90 OOD probe (Conficker)
-                                    (downloads from Stratosphere Lab if not cached)
+    load_ctu_sme11()              — CTU-SME-11 Amazon Echo honeypot OOD probe
+                                    (downloads from Zenodo if not cached)
 """
 
 import os
-import csv
 import re
 import tarfile
 import glob
@@ -29,20 +28,13 @@ from prompt_utils import build_prompt
 # ── Constants ───────────────────────────────────────────────────────────────────
 CAP = 3000   # max samples per (source, class)
 
-# OOD regression test — CTU-Malware-Capture-Botnet-90 (Conficker) is intentionally
-# removed from CTU_MALWARE_SCENARIOS so it is never included in training data.
-# Conficker uses IRC C2 on non-standard port 2081 and LAN-scanning SYN probes —
-# both are per-flow classifiable (unlike DarkVNC where individual TCP flows are
-# indistinguishable from normal traffic). This makes it an informative OOD probe:
-# if the model generalises botnet patterns from training, recall should be >0%.
-CTU_BOTNET90_BASE_URL    = "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-90"
-CTU_BOTNET90_BINETFLOW  = "192.168.3.104-unvirus.binetflow"
-CTU_BOTNET90_C2_IP      = "66.252.13.214"   # IRC C2 server s.unicat.org
-# Port-based attack labeling fallback (used when binetflow has no Label column):
-#   445  — SMB SYN scan (Conficker LAN spreading, 37k+ S0 flows)
-#   2081 — IRC C2 channel on non-standard port
-CTU_BOTNET90_ATTACK_PORTS = {"445", "2081"}
-CTU_CAPTURE_DIR          = "test_captures"
+# OOD regression test — CTU-SME-11 Amazon Echo honeypot capture is intentionally
+# never included in training data. It is a 7-day enterprise network capture from
+# Stratosphere Lab (Zenodo record 7958259) with 76k flows (~48% malicious).
+# File format: Zeek conn.log.labeled — identical to IoT-23 (same lab).
+CTU_SME11_ARCHIVE = "CTU-SME-11_Honeypot-Assistant-Amazon-Echo1stGen-1_v1.0.0.tar.bz2"
+CTU_SME11_URL     = f"https://zenodo.org/records/7958259/files/{CTU_SME11_ARCHIVE}?download=1"
+CTU_CAPTURE_DIR   = "test_captures"
 
 
 # ── Sample helper ────────────────────────────────────────────────────────────────
@@ -371,15 +363,7 @@ def load_ctu_normal(dataset_dir):
     return samples
 
 
-# ── CTU-Malware-Capture-Botnet-90 OOD loader ────────────────────────────────────
-
-def _norm_key(proto, ip_a, port_a, ip_b, port_b):
-    """Direction-agnostic 5-tuple key for binetflow ↔ conn.log matching."""
-    pair_a = (str(ip_a).strip(), str(port_a).strip())
-    pair_b = (str(ip_b).strip(), str(port_b).strip())
-    lo, hi = (pair_a, pair_b) if pair_a <= pair_b else (pair_b, pair_a)
-    return (str(proto).strip().lower(), lo[0], lo[1], hi[0], hi[1])
-
+# ── CTU-SME-11 OOD loader ───────────────────────────────────────────────────────
 
 def _bench_download(url, local_path):
     """Download url to local_path if not already cached."""
@@ -402,138 +386,95 @@ def _bench_download(url, local_path):
         return None
 
 
-def load_ctu_botnet90():
-    """Load CTU-Malware-Capture-Botnet-90 (Conficker) as permanent OOD eval source.
+def load_ctu_sme11():
+    """Load CTU-SME-11 Amazon Echo honeypot capture as permanent OOD eval source.
 
-    Conficker uses IRC C2 on non-standard port 2081 (server: s.unicat.org /
-    66.252.13.214) and performs LAN-wide SYN scanning. Both are per-flow
-    classifiable — unlike DarkVNC where individual flows were indistinguishable
-    from normal TCP. This scenario is intentionally NEVER included in training.
-
-    Label strategy (in order):
-      1. Binetflow Label column — looks for 'botnet'/'malware'/'attack' → ATTACK,
-         'normal' → FALSE POSITIVE.
-      2. C2 IP fallback — if binetflow has no Label column or yields 0 attacks,
-         any flow to/from CTU_BOTNET90_C2_IP is labelled ATTACK, all others FP.
+    CTU-SME-11 is a 7-day enterprise network capture from Stratosphere Lab
+    (Zenodo record 7958259). The Amazon Echo device has 76k flows (~48% malicious)
+    and is the smallest archive (742.9 MB). File format is Zeek conn.log.labeled —
+    identical to IoT-23 (same lab), with 'Malicious'/'Benign'/'Background' labels
+    in the last tab-separated field. Never included in training data.
     """
-    print(f"\n[CTU-Botnet-90 OOD / Conficker]")
+    print(f"\n[CTU-SME-11 OOD / Amazon Echo]")
     os.makedirs(CTU_CAPTURE_DIR, exist_ok=True)
 
-    conn_local      = os.path.join(CTU_CAPTURE_DIR, "CTU-Botnet-90_conn.log")
-    binetflow_local = os.path.join(CTU_CAPTURE_DIR, f"CTU-Botnet-90_{CTU_BOTNET90_BINETFLOW}")
-
-    conn_path      = _bench_download(f"{CTU_BOTNET90_BASE_URL}/bro/conn.log", conn_local)
-    binetflow_path = _bench_download(f"{CTU_BOTNET90_BASE_URL}/{CTU_BOTNET90_BINETFLOW}", binetflow_local)
-
-    if conn_path is None:
-        print("  [SKIP] conn.log download failed")
+    local_path   = os.path.join(CTU_CAPTURE_DIR, CTU_SME11_ARCHIVE)
+    archive_path = _bench_download(CTU_SME11_URL, local_path)
+    if archive_path is None:
+        print("  [SKIP] Archive download failed")
         return []
 
-    # ── Try binetflow label matching ─────────────────────────────────────────────
-    flow_labels     = {}
-    use_ip_fallback = binetflow_path is None
+    print(f"  Opening {os.path.basename(archive_path)} ...")
+    buckets = defaultdict(list)
 
-    if not use_ip_fallback:
-        try:
-            with open(binetflow_path, newline="", errors="replace") as f:
-                reader = csv.reader(f)
-                header = None
-                for row in reader:
-                    if header is None:
-                        header = [h.strip() for h in row]
-                        idx    = {h: i for i, h in enumerate(header)}
-                        needed = {"Proto", "SrcAddr", "Sport", "DstAddr", "Dport", "Label"}
-                        if not needed.issubset(set(header)):
-                            print(f"  binetflow has no Label column — using C2 IP fallback")
-                            use_ip_fallback = True
-                            break
+    try:
+        with tarfile.open(archive_path, "r:bz2") as tf:
+            members = [m for m in tf.getmembers()
+                       if m.name.endswith("conn.log.labeled") and m.isfile()]
+            print(f"  {len(members)} conn.log.labeled file(s)")
+
+            for member in members:
+                if all(len(buckets[v]) >= CAP for v in ["ATTACK", "FALSE POSITIVE"]):
+                    break
+                f = tf.extractfile(member)
+                if f is None:
+                    continue
+                for raw in f:
+                    line = raw.decode("utf-8", errors="replace").strip()
+                    if not line or line.startswith("#"):
                         continue
-                    if len(row) <= max(idx["Label"], idx["Proto"], idx["SrcAddr"],
-                                       idx["Sport"], idx["DstAddr"], idx["Dport"]):
+                    parts = line.split("\t")
+                    if len(parts) < 23:
                         continue
-                    raw = row[idx["Label"]].strip().lower()
-                    if "botnet" in raw or "malware" in raw or "attack" in raw:
-                        label = "ATTACK"
-                    elif "normal" in raw:
-                        label = "FALSE POSITIVE"
+
+                    # CTU-SME-11: label and detailedlabel are separate tab columns
+                    # (unlike IoT-23 where they were bundled into the last field)
+                    label_col    = parts[21]   # "Malicious" / "Benign" / "Background"
+                    detailed_col = parts[22]   # e.g. "From_malicious-To_benign-Discovery"
+
+                    if label_col == "Malicious":
+                        verdict = "ATTACK"
+                    elif label_col == "Benign":
+                        verdict = "FALSE POSITIVE"
                     else:
                         continue  # Background → skip
-                    key = _norm_key(
-                        row[idx["Proto"]],
-                        row[idx["SrcAddr"]], row[idx["Sport"]],
-                        row[idx["DstAddr"]], row[idx["Dport"]],
-                    )
-                    if key not in flow_labels or label == "ATTACK":
-                        flow_labels[key] = label
-        except Exception as e:
-            print(f"  [WARN] binetflow parse error: {e} — using C2 IP fallback")
-            use_ip_fallback = True
 
-    if not use_ip_fallback:
-        atk_n = sum(1 for v in flow_labels.values() if v == "ATTACK")
-        ben_n = sum(1 for v in flow_labels.values() if v == "FALSE POSITIVE")
-        print(f"  binetflow: {atk_n} ATTACK + {ben_n} FALSE POSITIVE labels")
-        if atk_n == 0:
-            print(f"  No ATTACK labels in binetflow — using C2 IP fallback")
-            use_ip_fallback = True
-
-    if use_ip_fallback:
-        print(f"  Port fallback: resp_p in {CTU_BOTNET90_ATTACK_PORTS} → ATTACK "
-              f"(445=SYN scan, 2081=IRC C2)")
-
-    # ── Parse conn.log ───────────────────────────────────────────────────────────
-    buckets = defaultdict(list)
-    try:
-        with open(conn_path, errors="replace") as f:
-            for line in f:
-                if line.startswith("#"):
-                    continue
-                parts = line.strip().split("\t")
-                if len(parts) < 19:
-                    continue
-                proto  = parts[6]
-                orig_h = parts[2]; orig_p = parts[3]
-                resp_h = parts[4]; resp_p = parts[5]
-
-                if use_ip_fallback:
-                    label = ("ATTACK" if resp_p in CTU_BOTNET90_ATTACK_PORTS
-                             else "FALSE POSITIVE")
-                else:
-                    label = flow_labels.get(_norm_key(proto, orig_h, orig_p, resp_h, resp_p))
-                    if label is None:
+                    if len(buckets[verdict]) >= CAP:
                         continue
 
-                if len(buckets[label]) >= CAP:
-                    continue
+                    raw_label = detailed_col if verdict == "ATTACK" else "Benign"
 
-                buckets[label].append(make_sample(
-                    proto        = proto,
-                    duration     = parts[8],
-                    orig_pkts    = parts[16] if len(parts) > 16 else "-",
-                    resp_pkts    = parts[18] if len(parts) > 18 else "-",
-                    orig_bytes   = parts[9],
-                    resp_bytes   = parts[10],
-                    conn_state   = parts[11],
-                    ground_truth = label,
-                    source       = "ctu_botnet90",
-                    raw_label    = "Conficker" if label == "ATTACK" else "Benign",
-                    service      = parts[7],
-                    orig_port    = orig_p,
-                    resp_port    = resp_p,
-                    ts           = parts[0],
-                    uid          = parts[1],
-                    orig_h       = orig_h,
-                    resp_h       = resp_h,
-                    group_id     = "ctu_botnet90",
-                ))
+                    try:
+                        buckets[verdict].append(make_sample(
+                            proto        = parts[6],
+                            duration     = parts[8],
+                            orig_pkts    = parts[16],
+                            resp_pkts    = parts[18],
+                            orig_bytes   = parts[9],
+                            resp_bytes   = parts[10],
+                            conn_state   = parts[11],
+                            ground_truth = verdict,
+                            source       = "ctu_sme11",
+                            raw_label    = raw_label,
+                            service      = parts[7],
+                            orig_port    = parts[3],
+                            resp_port    = parts[5],
+                            ts           = parts[0],
+                            uid          = parts[1],
+                            orig_h       = parts[2],
+                            resp_h       = parts[4],
+                            group_id     = member.name,
+                        ))
+                    except IndexError:
+                        continue
 
-                if all(len(v) >= CAP for v in buckets.values()):
-                    break
+                    if all(len(v) >= CAP for v in buckets.values()):
+                        break
     except Exception as e:
-        print(f"  [SKIP] conn.log parse error: {e}")
+        print(f"  [SKIP] Archive parse error: {e}")
         return []
 
     atk = len(buckets["ATTACK"])
     ben = len(buckets["FALSE POSITIVE"])
-    print(f"  Botnet-90 (OOD): {atk} attacks, {ben} benign sampled")
+    print(f"  CTU-SME-11 (OOD): {atk} attacks, {ben} benign sampled")
     return buckets["ATTACK"] + buckets["FALSE POSITIVE"]
