@@ -1,0 +1,239 @@
+================================================================================
+IDS ALERT CLASSIFIER — THESIS DEVELOPMENT NOTES (continued from thesis_notes_4.txt)
+Fine-tuning Qwen2.5-1.5B-Instruct for network intrusion detection
+================================================================================
+
+This file continues from thesis_notes_4.txt (v9.0/v9.1 design and ep1 benchmark
+analysis). The topic here is OOD probe selection, the DarkVNC experiment, the
+CTU-SME-11 result, and the V10.0 dataset expansion plan.
+
+================================================================================
+OOD PROBE SELECTION — WHY IT MATTERS
+================================================================================
+
+The OOD probe is the single metric that decides whether the v9.x work succeeded.
+The in-distribution sources (IoT-23, CTU-13, UWF, CTU-Normal) are near-ceiling on
+every model from v8.1 onwards — they tell us the model is working, not whether it
+generalises. The OOD probe is the only honest signal.
+
+The original OOD probe was CTU-Malware-Capture-Botnet-3 (Kelihos). As documented
+in thesis_notes_4.txt, every version from v8.1 through v9.1 ep1 scored effectively
+0% attack recall on it (v8.1: 38% with labelling-mismatch caveats, v9.0 ep1: 6%,
+v9.1 ep1: 3.3%). The problem with Kelihos as a probe is that it communicates
+predominantly over SMTP and P2P overlays on non-standard ports — traffic that is
+indistinguishable at the conn.log level from background internet noise for individual
+flows. The discriminating signal requires behavioral aggregation across time that a
+single-flow classifier cannot access.
+
+Because the Kelihos probe was consistently at 0%, it was impossible to tell whether
+a change helped or not. The probe was measuring the ceiling of a single-flow
+classifier against a fundamentally hard attack family, not the model's general
+OOD generalization ability.
+
+================================================================================
+THE DARKVNC EXPERIMENT (Botnet-90 / Mixed-6) — WHAT WE LEARNED
+================================================================================
+
+Before settling on CTU-SME-11, a brief experiment was run with Mixed-6 (DarkVNC)
+as the OOD source. Result on v9.1 ckpt-1186 ep1:
+
+  Source                    Atk Recall   FP Recall   MCC
+  ------------------------  ----------   ---------   ------
+  Mixed-6 [OOD] (DarkVNC)      0.0%        93.9%    -0.1211
+
+0% attack recall — worse than Kelihos. DarkVNC operates as a remote access trojan
+primarily via HTTP/HTTPS on standard ports (80/443). At the conn.log level, DarkVNC
+C2 traffic looks like: short SF TCP to port 443, moderate symmetric byte exchange,
+clean handshake — indistinguishable from a CDN health check. This is the same
+structural problem as Zeus (Botnet-78-2), which was also near-zero throughout the
+v8/v9 iterations.
+
+The lesson from DarkVNC: a useful OOD probe must come from an attack family where
+the malicious signal is at least partially visible in the conn.log features the
+model has access to. Purely HTTP/HTTPS C2 (Zeus, DarkVNC) and pure SMTP spam
+(Kelihos) sit below the detection floor of a flow-level classifier. They are valid
+real-world threats to document in the thesis, but they are not useful training-signal
+probes.
+
+The DarkVNC experiment was reverted after one commit; it was never committed as a
+final result.
+
+================================================================================
+OOD REPLACEMENT — CTU-SME-11 (Amazon Echo)
+================================================================================
+
+The new permanent OOD probe is CTU-Malware-Capture-SME-11, specifically the
+labeled Zeek conn.log from the Amazon Echo scenario. The attack label in the
+binetflow is "From_malicious-To_benign-Discovery" — this is an infected Amazon
+Echo IoT device performing network discovery/reconnaissance against the enterprise
+LAN it was deployed on.
+
+First result on v9.1 ckpt-1186 (ep1), 2026-04-04:
+
+  Source                                Atk Recall   FP Recall   Acc    MCC
+  ------------------------------------  ----------   ---------   -----  ------
+  CTU-SME-11 [OOD] (Amazon Echo)          33.7%        92.9%    63.3%  +0.3297
+
+  Confusion Matrix:
+    ATTACK     : 1010 / 3000 correct (34%)
+    FALSE POS  :  213 / 3000 mislabeled as ATTACK (7%)
+
+  Host Pass-2:
+    Hosts       : 1373
+    Atk Recall  : 19.7%
+    FP Recall   : 80.0%
+    MCC         : -0.0005
+
+Compared to the Kelihos baseline (v9.1 ep1: 3.3%) and DarkVNC (0%), a 33.7% attack
+recall is a substantially more informative reading. The MCC of +0.3297 at ep1 is
+well above the v8.1 OOD floor of +0.06, and above the V10.0 design target threshold
+of "non-trivially-low recall".
+
+WHY CTU-SME-11 IS MORE DETECTABLE THAN KELIHOS OR DARKVNC
+
+The Amazon Echo scenario involves a compromised IoT device conducting horizontal
+discovery across the enterprise subnet. At the conn.log level, this manifests as:
+
+  - S0 TCP probes to many unique destination IPs (port scan signature)
+  - S0 flows with zero resp_bytes and near-zero duration (no service response)
+  - High orig_packets to resp_packets ratio (SYN with no SYN-ACK)
+
+These are the exact features the model was trained to recognize from IoT-23
+(horizontal port scans, S0 states with zero resp_bytes). The model can detect
+them because they are structurally similar to attacks in its training distribution
+— specifically IoT-23 PartOfAHorizontalPortScan and Ngrbot scanning phases.
+
+This is both the strength of CTU-SME-11 as a probe (it gives a non-trivial signal)
+and its limitation (it tests generalisation within a recognizable attack template
+rather than to a wholly novel family). The thesis should document both.
+
+WHAT THE 66% MISS RATE TELLS US
+
+Two thirds of the Amazon Echo attack flows are missed. Looking at the label —
+"From_malicious-To_benign-Discovery" — the SME-11 capture includes the full
+network traffic from the infected device, not just the scanning phase. A significant
+fraction of the labeled "ATTACK" flows are normal-looking TCP connections from the
+Echo device to its cloud backend (Amazon services, NTP, DNS) that Stratosphere Lab
+labels as malicious simply because the device is infected. This is the same
+labeling mismatch documented for Kelihos in thesis_notes_3.txt: all traffic from
+a compromised host gets the "malicious" label regardless of whether the individual
+flow is distinguishably malicious.
+
+The true detection rate for the actively malicious behavior (S0 scan probes) within
+CTU-SME-11 is likely higher than 34%. The 66% miss rate partially reflects normal
+IoT cloud-service traffic being labeled as "ATTACK" in the binetflow ground truth.
+
+HOST PASS-2 AT EP1 IS NEAR-RANDOM
+
+The Host Pass-2 result (MCC -0.0005 on 1373 unique hosts) indicates that the
+second-pass host-level aggregation is not adding signal at ep1. This is expected:
+host-level analysis is only meaningful when per-flow predictions are reliable enough
+to aggregate. At ep1, flow-level recall is 34% — aggregating 34%-recall predictions
+by host does not improve the signal. The Host Pass-2 metric should be evaluated at
+ep3 results for a fair assessment.
+
+================================================================================
+BENCHMARK REFACTORING — BENCH_LOADERS.PY
+================================================================================
+
+The benchmark infrastructure was refactored before the CTU-SME-11 run (commit
+fa5638a). The main change was extracting all data loading functions from
+benchmark_realworld.py into a new module bench_loaders.py. This is a code quality
+change, not a thesis contribution, but it has one practical consequence for the
+thesis experiment record:
+
+Prior to this refactor, benchmark_realworld.py contained ~800 lines mixing
+inference logic, data loading, and reporting. The loader functions are now in
+bench_loaders.py (~540 lines), and benchmark_realworld.py is focused on inference
+orchestration. The split makes it easier to add new OOD sources (add a loader to
+bench_loaders.py, reference it in benchmark_realworld.py's OOD_SOURCES list).
+
+================================================================================
+CTU-MALWARE SCENARIO EXPANSION — V9.1 vs V10.0
+================================================================================
+
+The original v9.0 training set had 7 CTU-Malware scenarios:
+  Botnet-42 (Ramnit), Botnet-44 (Ngrbot), Botnet-52 (Htbot), Botnet-54 (Siemens),
+  Botnet-78-2 (Zeus), Botnet-90 (Pushdo), Botnet-91 (Ballpit)
+
+After the V10.0 planning notes (notes/V10.0_plan.txt), the scenario list was
+expanded to 10 in preprocess_config.py (commit fa5638a):
+  Botnet-42 (Ramnit), Botnet-43 (Neris), Botnet-44 (Ngrbot), Botnet-45 (Rbot),
+  Botnet-46 (Virut), Botnet-48 (Sogou), Botnet-52 (Htbot), Botnet-53 (NSIS.ay),
+  Botnet-54 (Siemens), Botnet-78-2 (Zeus)
+
+Three scenarios were swapped out: Botnet-90 (Pushdo), Botnet-91 (Ballpit) removed;
+Botnet-43 (Neris), Botnet-45 (Rbot), Botnet-46 (Virut), Botnet-48 (Sogou),
+Botnet-53 (NSIS.ay) added — net +3.
+
+The motivations from V10.0_plan.txt are:
+  1. More botnet family diversity reduces the risk that the model overfits to the
+     specific C2 patterns of the 7 original scenarios.
+  2. Neris and Rbot are well-studied IRC-based botnet families that share structural
+     similarity with CTU-13 Neris captures (already in training as CTU-13 binetflow),
+     providing signal reinforcement across two complementary data sources.
+  3. Virut (SMB self-propagation) adds worm-spread signature training data that is
+     currently underrepresented.
+
+Note: Botnet-3 (Kelihos) remains permanently held out as an OOD probe and is not
+in the training scenario list regardless of version.
+
+================================================================================
+V10.0 DESIGN — OPEN QUESTIONS
+================================================================================
+
+From notes/V10.0_plan.txt, the key open questions before starting V10.0 training:
+
+Q1: EP3 RESULTS FROM V9.1 (CRITICAL BLOCKER)
+Do NOT start V10.0 before v9.1 full-training (ep3) benchmark. The [BEHAVIOR]
+context section is the defining hypothesis of v9.1 — its value (or lack thereof)
+for OOD recall must be established before designing v10.0. If [BEHAVIOR] improves
+CTU-SME-11 recall meaningfully at ep3, v10.0 extends it. If not, v10.0 pivots.
+
+Q2: DATASET BALANCE — CTU-MALWARE DILUTION
+At TRAINING_FACTOR=1.0, CTU-Malware ends up as ~1 in 4 attack samples after the
+2:1 final downsample. The V10.0 plan recommends Option B (more scenarios, now
+partially done with the 10-scenario list) combined with Option A (reduce non-botnet
+source caps to give CTU-Malware proportionally more attack budget).
+
+Q3: LABELLING MISMATCH IN CTU-SME-11 GROUND TRUTH
+The 66% miss rate on CTU-SME-11 ep1 cannot be interpreted as pure model failure
+without understanding what fraction of the 3000 labeled attacks are distinguishably
+malicious at the flow level vs. normal cloud/NTP/DNS traffic from a compromised IoT
+device. A flow-level audit of the CTU-SME-11 binetflow labels (spot-check 50 missed
+flows) would clarify whether the true ceiling for a flow-level classifier on this
+scenario is 34%, 60%, or something else. This is a thesis robustness check.
+
+Q4: OOD PROBE STRATEGY — KEEP KELIHOS AS SECONDARY?
+CTU-SME-11 is the primary OOD probe going forward. The thesis decision is whether
+to keep Kelihos as a secondary reference point (historical comparability across
+v8.1 → v9.x → v10.x) or remove it entirely to simplify the benchmark. Keeping it
+costs ~5 minutes of extra benchmark time per run. The case for keeping it: it
+anchors the "hard OOD" end of the difficulty spectrum and lets the thesis show that
+some attack families are structurally undetectable at the flow level.
+
+================================================================================
+SUMMARY OF STATUS AS OF 2026-04-04
+================================================================================
+
+  What is done:
+  - v9.0 and v9.1 trained and benchmarked at ep1 (TRAINING_FACTOR=0.03)
+  - OOD probe replaced: Kelihos → CTU-SME-11 (Amazon Echo)
+  - Benchmark infrastructure refactored (bench_loaders.py extracted)
+  - CTU-Malware scenario list expanded from 7 to 10
+  - V10.0 planning notes written (notes/V10.0_plan.txt)
+
+  What is pending:
+  - v9.1 full training (TRAINING_FACTOR=1.0, ep3) on RunPod — BLOCKING for V10.0
+  - CTU-SME-11 ep3 benchmark to determine [BEHAVIOR] contribution
+  - Host Pass-2 ep3 evaluation (ep1 is near-random; ep3 will be the real test)
+  - Decision on IoT-23 v2 upgrade (V10.0_plan.txt §3)
+  - Decision on final OOD probe configuration for thesis writeup
+
+  The key thesis claim at this point:
+  v9.1 adds [BEHAVIOR] context (temporal/behavioral window features) as a novel
+  approach to OOD generalisation for flow-level IDS classifiers. The ep3 benchmark
+  will either validate this claim (improved CTU-SME-11 recall over v9.0 ep3) or
+  motivate the conclusion that flow-level context alone is insufficient and that
+  host-level or anomaly-based approaches are required. Either outcome is a valid
+  thesis finding — the null result is scientifically informative.
