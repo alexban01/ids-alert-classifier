@@ -26,6 +26,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from preprocess_config import (
+    CTU_MALWARE_SCENARIOS,
     DATASETS,
     EVAL_FILE,
     EVAL_FRAC,
@@ -37,12 +38,12 @@ from preprocess_config import (
     TRAIN_FILE,
 )
 from loader_iot23         import load_iot23
-from loader_ctu13         import load_ctu13
+from loader_ctu13         import load_ctu13_file
 from loader_unsw          import load_unsw
 from loader_cicids        import load_cicids          # noqa: F401 — kept for optional re-enable
 from loader_uwf           import load_uwf
 from loader_ctu_normal    import load_ctu_normal
-from loader_ctu_malware   import load_ctu_malware_captures
+from loader_ctu_malware   import load_ctu_malware_scenario
 
 
 def _run_loader_job(job_name, dataset_path):
@@ -50,16 +51,17 @@ def _run_loader_job(job_name, dataset_path):
     random.seed(RANDOM_SEED)
     if job_name == "iot23":
         return job_name, load_iot23(dataset_path)
-    if job_name == "ctu13":
-        return job_name, load_ctu13(dataset_path)
+    if job_name == "ctu13_single":
+        return job_name, load_ctu13_file(dataset_path)
     if job_name == "unsw":
         return job_name, load_unsw(dataset_path)
     if job_name == "uwf":
         return job_name, load_uwf(dataset_path)
     if job_name == "ctu_normal":
         return job_name, load_ctu_normal(dataset_path)
-    if job_name == "ctu_malware":
-        return job_name, load_ctu_malware_captures()
+    if job_name == "ctu_malware_single":
+        scenario_id, family, base_url = dataset_path
+        return job_name, load_ctu_malware_scenario(scenario_id, family, base_url)
     raise ValueError(f"Unknown loader job: {job_name}")
 
 
@@ -78,18 +80,50 @@ def _ctx_pct(pool, key):
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--ctu-only", action="store_true",
+        help="Skip IoT-23 and UNSW-NB15 (slow/large); keep CTU-13, CTU-Normal, CTU-Malware, UWF.",
+    )
+    parser.add_argument(
+        "--no-uwf", action="store_true",
+        help="Also skip UWF-ZeekData24 (combine with --ctu-only for CTU-only benign sources).",
+    )
+    args = parser.parse_args()
+
     random.seed(RANDOM_SEED)
 
     # ── Load all sources ──────────────────────────────────────────────────────
+    # Each CTU-13 binetflow file and each CTU-Malware scenario is its own
+    # parallel job — independent parse with no shared state.
+    _ctu13_files = sorted(
+        os.path.join(root, fname)
+        for root, _, files in os.walk(DATASETS["ctu13"])
+        for fname in files
+        if fname.endswith(".binetflow")
+    )
+    if not _ctu13_files:
+        print(f"[WARN] No CTU-13 binetflow files found in {DATASETS['ctu13']} — skipping")
+
     loader_jobs = [
-        ("iot23", DATASETS["iot23"]),
-        ("ctu13", DATASETS["ctu13"]),
-        ("unsw", DATASETS["unsw"]),
-        ("uwf", DATASETS["uwf"]),
+        ("iot23",      DATASETS["iot23"]),
+        ("unsw",       DATASETS["unsw"]),
+        ("uwf",        DATASETS["uwf"]),
         ("ctu_normal", DATASETS["ctu_normal"]),
-        ("ctu_malware", None),
+    ] + [
+        ("ctu13_single", fp) for fp in _ctu13_files
+    ] + [
+        ("ctu_malware_single", (sid, fam, url))
+        for sid, fam, url in CTU_MALWARE_SCENARIOS
     ]
-    max_workers = min(6, os.cpu_count() or 1)
+    if args.ctu_only:
+        loader_jobs = [(n, p) for n, p in loader_jobs if n not in ("iot23", "unsw")]
+        print("[INFO] --ctu-only: skipping IoT-23 and UNSW-NB15")
+    if args.no_uwf:
+        loader_jobs = [(n, p) for n, p in loader_jobs if n != "uwf"]
+        print("[INFO] --no-uwf: skipping UWF-ZeekData24")
+    max_workers = min(len(loader_jobs), os.cpu_count() or 1)
     all_samples = []
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         futures = {

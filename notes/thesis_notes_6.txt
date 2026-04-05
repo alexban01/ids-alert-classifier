@@ -1,0 +1,187 @@
+================================================================================
+IDS ALERT CLASSIFIER — THESIS DEVELOPMENT NOTES (continued from thesis_notes_5.txt)
+Fine-tuning Qwen2.5-1.5B-Instruct for network intrusion detection
+================================================================================
+
+This file continues from thesis_notes_5.txt (OOD probe selection, DarkVNC experiment,
+CTU-SME-11 baseline, V10.0 open questions). The topic here is the v9.1 ep3 benchmark
+result, closure of the [BEHAVIOR] hypothesis, Host Pass-2 retirement, and V10.0 pivot.
+
+================================================================================
+V9.1 EP3 — FULL TRAINING RESULT (2026-04-06)
+================================================================================
+
+v9.1 was trained at TRAINING_FACTOR=1.0 (full dataset, ~360k samples) on RunPod
+RTX 5090. The benchmark was run against the CTU-SME-11 (Amazon Echo) OOD probe
+with --regen --ood (3000 samples, 1500 attack / 1500 benign, seed=42).
+
+  Source                                Atk Recall   FP Recall   Acc    MCC
+  ------------------------------------  ----------   ---------   -----  ------
+  CTU-SME-11 [OOD] (Amazon Echo)          31.6%        96.7%    64.2%  +0.3734
+
+  Confusion Matrix:
+    ATTACK     :  474 / 1500 correct (32%)
+    FALSE POS  :   49 / 1500 mislabeled as ATTACK (3%)
+
+  Format failures: 0 / 3000
+
+For comparison, ep1 (TRAINING_FACTOR=0.03):
+
+  Source                                Atk Recall   FP Recall   Acc    MCC
+  ------------------------------------  ----------   ---------   -----  ------
+  CTU-SME-11 [OOD] (Amazon Echo)          33.7%        92.9%    63.3%  +0.3297
+
+  Host Pass-2 (ep1): MCC -0.0005, Atk Recall 19.7%, FP Recall 80.0%
+
+ep3 delta vs ep1:
+  MCC:         +0.3297 → +0.3734  (+0.044)
+  Atk Recall:   33.7%  →  31.6%   (−2.1%)
+  FP Recall:    92.9%  →  96.7%   (+3.8%)
+
+================================================================================
+CLOSING THE [BEHAVIOR] HYPOTHESIS
+================================================================================
+
+Q1 from thesis_notes_5.txt was: does [BEHAVIOR] improve CTU-SME-11 recall over the
+v9.0 ep3 baseline?
+
+The ep3 result answers this: no.
+
+Attack recall dropped 2.1 percentage points from ep1 to ep3 as more training data
+made the model more conservative. The MCC improvement (+0.044) is driven entirely
+by the FP recall increase (+3.8%), not by better attack detection. The model learned
+to be more confident about benign traffic with full training data, but did not learn
+to detect more attacks.
+
+The [BEHAVIOR] context section adds temporal/behavioral window features derived from
+recent flows on the same originating host (inter-arrival time statistics, unique
+destination counts, S0 probe ratios). The hypothesis was that this per-host signal
+would generalize to OOD attack families that are structurally similar to trained
+behaviors (horizontal scans, port probes). The ep3 result does not support this.
+
+POSSIBLE EXPLANATIONS
+
+1. The [BEHAVIOR] features require behavioral context that is not meaningfully
+   different between the training distribution and CTU-SME-11. The Amazon Echo
+   is performing horizontal scan discovery, which looks like IoT-23 port scans in
+   per-flow features — the [BEHAVIOR] section does not add discrimination because
+   the base flow features are already the right signal.
+
+2. The 50% random masking of context sections during training may have been too
+   aggressive. If [BEHAVIOR] is masked in half of training samples, the model may
+   learn to ignore it as an unreliable signal.
+
+3. The Amazon Echo labelling mismatch (see thesis_notes_5.txt, Q3) means a large
+   fraction of "missed" attacks are actually indistinguishable normal cloud traffic.
+   In that case, no amount of behavioral context would improve recall because the
+   ground truth ceiling is at or near the current 32-34% range.
+
+The thesis should present the [BEHAVIOR] null result as a scientifically valid
+finding. The contribution of v9.1 is to empirically test whether per-flow behavioral
+context improves OOD recall for a Qwen2.5-based flow classifier, and to establish
+that it does not — motivating the V10.0 direction change toward host-level and
+anomaly-based approaches.
+
+================================================================================
+HOST PASS-2 — RETIRED
+================================================================================
+
+Host Pass-2 ep3 result:
+
+  Hosts           : 791
+  Atk Recall      : 0.0%
+  FP Recall       : 100.0%
+  MCC             : +0.0000
+
+0% attack recall. No hosts flagged as malicious after the second pass.
+
+This is the definitive failure of the Host Pass-2 mechanism. At ep1, Pass-2 scored
+MCC -0.0005 (effectively random). At ep3 — with more training data and higher FP
+recall at the flow level — Pass-2 still finds nothing.
+
+WHY IT FAILS ON OOD DATA
+
+Host Pass-2 aggregates flow-level predictions by source host: if a threshold fraction
+of flows from a given originating IP are predicted ATTACK, the host is flagged. On
+OOD data, the flow-level recall is only 32%. This means 68% of attack flows are
+predicted FALSE POSITIVE. Aggregating 32%-recall flow predictions by host does not
+recover lost signal — the host's attack flows are already being called benign, so
+the host-level aggregation threshold is never reached.
+
+Put differently, Pass-2 amplifies confidence in the flow-level classifier; it cannot
+compensate for systematic misclassification. On the CTU-SME-11 data, 1026 of 1500
+attack flows are predicted FALSE POSITIVE at the flow level. From the Pass-2
+perspective, the infected Echo device looks like a mostly-benign host with a few
+anomalous flows — not enough to cross the host flagging threshold.
+
+THESIS TREATMENT
+
+Host Pass-2 should be documented in the thesis as a negative result. The mechanism
+was designed to recover missed attacks via host-level signal, but the OOD benchmark
+shows it cannot compensate for flow-level classification failures. The correct
+approach for host-level detection requires different architecture (e.g., per-host
+feature aggregation before the LLM, or a separate anomaly detection pass on the
+full host traffic matrix), not post-hoc aggregation of unreliable per-flow verdicts.
+
+Host Pass-2 is not being carried forward to V10.0.
+
+================================================================================
+V10.0 DIRECTION — PIVOT FROM [BEHAVIOR]
+================================================================================
+
+V10.0 will not extend [BEHAVIOR] context sections or Host Pass-2. The ep3 result
+closes both lines of v9.1 inquiry.
+
+Candidate approaches for V10.0 (not yet decided, pending Q3 resolution):
+
+1. SPOT-CHECK CTU-SME-11 LABELS (Q3 — do first)
+   Before committing to any architectural change, audit 50 missed flows from the
+   CTU-SME-11 benchmark to estimate the true detection ceiling. If the 32-34% recall
+   is already near the ceiling for a flow-level classifier on this data (because the
+   remaining 66% of "ATTACK" flows are normal cloud/NTP/DNS traffic from an infected
+   device), then the right V10.0 framing is documentation of the ceiling rather than
+   attempting to push through it with a different architecture.
+
+2. HOST-LEVEL FEATURES BEFORE INFERENCE
+   Aggregate per-host features (n unique destinations in a time window, S0 ratio,
+   bytes/flow distribution) before the LLM inference step. The model receives a
+   host-level summary in addition to per-flow data — structural change vs. the
+   post-hoc aggregation of Pass-2.
+
+3. ANOMALY SIGNAL
+   Flag hosts deviating from their own recent baseline. Requires a baseline model
+   per host and is significantly more complex to implement and benchmark fairly.
+
+4. HARDER NEGATIVE MINING
+   Oversample flows structurally similar to OOD misses during training. Requires
+   manual analysis of the missed CTU-SME-11 flows to identify what the model is
+   confusing them with in the training distribution.
+
+The Q3 spot-check is the prerequisite for all of the above — it determines whether
+V10.0 has a meaningful recall target to optimise toward or whether the thesis
+conclusion is that the 32-34% ceiling is structural.
+
+================================================================================
+SUMMARY OF STATUS AS OF 2026-04-06
+================================================================================
+
+  What is done:
+  - v9.1 ep3 (TRAINING_FACTOR=1.0) trained on RunPod and benchmarked
+  - [BEHAVIOR] hypothesis closed: null result, OOD attack recall unchanged
+  - Host Pass-2 retired: 0% attack recall on OOD ep3
+  - V10.0 direction changed: pivot away from [BEHAVIOR] and Pass-2
+  - current-state.md updated to reflect ep3 findings
+
+  What is pending:
+  - Q3: Spot-check 50 CTU-SME-11 missed flows — establishes true ceiling
+  - Q2: Dataset balance decision for V10.0 (CTU-Malware dilution)
+  - Q4: Final decision on Kelihos as secondary OOD in thesis
+  - V10.0 architecture decision (host-level features vs. anomaly vs. hard negatives)
+
+  The thesis narrative as of this session:
+  v9.1 tested whether per-flow [BEHAVIOR] context improves OOD generalisation for
+  a Qwen2.5 flow-level IDS classifier. It does not. v9.1 is a well-documented null
+  result: the MCC on the primary OOD probe (CTU-SME-11 Amazon Echo) improved
+  marginally (+0.044) but attack recall did not improve, and Host Pass-2 failed
+  completely. V10.0 will pursue a different hypothesis to be determined after the
+  Q3 label audit.

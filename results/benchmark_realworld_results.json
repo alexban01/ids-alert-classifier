@@ -1,36 +1,36 @@
 {
-  "timestamp": "2026-04-04T02:34:14.018206",
+  "timestamp": "2026-04-06T01:30:01.611355",
   "mode": "OOD-ONLY",
-  "samples": 6000,
+  "samples": 3000,
   "sources": {
     "iot23": 0,
     "ctu13": 0,
     "uwf": 0,
     "ctu_normal": 0,
-    "ctu_sme11": 6000
+    "ctu_sme11": 3000
   },
   "models": [
     {
-      "label": "v9.1 ckpt-1186 (ep1)",
-      "accuracy": 0.6328,
-      "atk_recall": 0.3367,
-      "ben_recall": 0.929,
+      "label": "v9.1 Fine-tuned",
+      "accuracy": 0.6417,
+      "atk_recall": 0.316,
+      "ben_recall": 0.9673,
       "fmt_fail": 0.0,
-      "mcc": 0.3297,
+      "mcc": 0.3734,
       "host_pass2": {
-        "n": 1373,
-        "accuracy": 0.1988,
-        "atk_recall": 0.1966,
-        "ben_recall": 0.8,
+        "n": 791,
+        "accuracy": 0.0063,
+        "atk_recall": 0.0,
+        "ben_recall": 1.0,
         "fmt_fail": 0.0,
-        "mcc": -0.0005
+        "mcc": 0.0
       },
       "per_source": {
         "ctu_sme11": {
-          "n": 6000,
-          "accuracy": 0.6328,
-          "atk_recall": 0.3367,
-          "ben_recall": 0.929
+          "n": 3000,
+          "accuracy": 0.6417,
+          "atk_recall": 0.316,
+          "ben_recall": 0.9673
         }
       }
     }

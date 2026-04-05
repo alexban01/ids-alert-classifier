@@ -40,7 +40,7 @@ BASE_MODEL     = "Qwen/Qwen2.5-1.5B-Instruct"
 CACHE_FILE     = "results/benchmark_realworld_cache.json"
 REPORT_TXT     = "results/benchmark_realworld_report.txt"
 RESULTS_JSON   = "results/benchmark_realworld_results.json"
-MAX_NEW_TOKENS = 80
+MAX_NEW_TOKENS = 24
 BATCH_SIZE     = 8
 RANDOM_SEED    = 42
 
@@ -51,12 +51,13 @@ MODELS = [
     # ("v8 ckpt-1500 (ep1)",   "./v8-ids-model/checkpoint-1500"),
     # ("v8.1 Fine-tuned",      "./v8.1-ids-lora-adapter"),
     # ("v9.0 ckpt-1420 (ep1)",   "./v9.0-ids-model/checkpoint-1420"),
-    ("v9.1 ckpt-1186 (ep1)",   "./v9.1-ids-model/checkpoint-1186"),
+    # ("v9.1 ckpt-1186 (ep1)",   "./v9.1-ids-model/checkpoint-1186"),
+    ("v9.1 Fine-tuned",        "./v9.1-ids-lora-adapter"),
 ]
 
 DATASETS = {
     "iot23":      "datasets/iot-23/iot_23_datasets_small.tar.gz",
-    "ctu13":      "datasets/ctu-13/CTU-13-Dataset.tar.bz2",
+    "ctu13":      "datasets/ctu-13/CTU-13-Dataset/",
     "uwf":        "datasets/uwf-zeekdata24/",
     "ctu_normal": "datasets/ctu-normal/",
 }

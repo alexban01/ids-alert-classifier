@@ -7,7 +7,7 @@ ProcessPoolExecutor worker.
 
 Loaders:
     load_iot23(archive_path)      — IoT-23 conn.log.labeled from tar.gz
-    load_ctu13(archive_path)      — CTU-13 binetflow CSV from tar.bz2
+    load_ctu13(dataset_dir)       — CTU-13 binetflow CSVs from extracted directory
     load_uwf(dataset_dir)         — UWF-ZeekData24 Zeek conn.log CSVs
     load_ctu_normal(dataset_dir)  — CTU-Normal benign-only Zeek conn.log
     load_ctu_sme11()              — CTU-SME-11 Amazon Echo honeypot OOD probe
@@ -26,7 +26,7 @@ import pandas as pd
 from prompt_utils import build_prompt
 
 # ── Constants ───────────────────────────────────────────────────────────────────
-CAP = 3000   # max samples per (source, class)
+CAP = 1500   # max samples per (source, class)
 
 # OOD regression test — CTU-SME-11 Amazon Echo honeypot capture is intentionally
 # never included in training data. It is a 7-day enterprise network capture from
@@ -150,33 +150,36 @@ def load_iot23(archive_path):
     return buckets["ATTACK"] + buckets["FALSE POSITIVE"]
 
 
-def load_ctu13(archive_path):
-    """CTU-13 binetflow CSV from tar.bz2.
+def load_ctu13(dataset_dir):
+    """CTU-13 binetflow CSVs from extracted dataset directory.
 
     Has TotPkts only (split 50/50 between orig/resp).
     Label: contains 'Botnet' → ATTACK, 'Normal' → FP, 'Background' → skip.
     """
-    if not os.path.isfile(archive_path):
-        print(f"[SKIP] CTU-13 not found: {archive_path}")
+    if not os.path.isdir(dataset_dir):
+        print(f"[SKIP] CTU-13 directory not found: {dataset_dir}")
         return []
 
-    print(f"[CTU-13] Opening {archive_path} ...")
+    binetflow_files = sorted(
+        os.path.join(root, fname)
+        for root, _, files in os.walk(dataset_dir)
+        for fname in files
+        if fname.endswith(".binetflow")
+    )
+    if not binetflow_files:
+        print(f"[SKIP] No .binetflow files found in {dataset_dir}")
+        return []
+
+    print(f"[CTU-13] Found {len(binetflow_files)} binetflow file(s) in {dataset_dir}")
     buckets = defaultdict(list)
 
-    with tarfile.open(archive_path, "r:bz2") as tf:
-        members = [m for m in tf.getmembers()
-                   if m.name.endswith(".binetflow") and m.isfile()]
-        print(f"  {len(members)} binetflow file(s)")
-
-        for member in members:
-            if all(len(v) >= CAP for v in [buckets["ATTACK"], buckets["FALSE POSITIVE"]]):
-                break
-            f = tf.extractfile(member)
-            if f is None:
-                continue
+    for filepath in binetflow_files:
+        if all(len(v) >= CAP for v in [buckets["ATTACK"], buckets["FALSE POSITIVE"]]):
+            break
+        with open(filepath, errors="replace") as f:
             header = None
-            for raw in f:
-                line = raw.decode("utf-8", errors="replace").strip()
+            for line in f:
+                line = line.strip()
                 if not line:
                     continue
                 if header is None:
@@ -223,7 +226,7 @@ def load_ctu13(archive_path):
                     resp_port  = row.get("Dport", "-").strip(),
                     orig_h     = row.get("SrcAddr", "").strip(),
                     resp_h     = row.get("DstAddr", "").strip(),
-                    group_id   = member.name,
+                    group_id   = filepath,
                 ))
 
     atk = len(buckets["ATTACK"])

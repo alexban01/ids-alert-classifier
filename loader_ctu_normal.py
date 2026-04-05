@@ -33,7 +33,7 @@ def load_ctu_normal(dataset_dir):
     for fpath in log_files:
         count   = 0
         rows    = []
-        row_cap = CTU_NORMAL_CAP * 4
+        row_cap = max(CTU_NORMAL_CAP - len(samples), 0)
         buffered_benign = 0
 
         with open(fpath) as f:

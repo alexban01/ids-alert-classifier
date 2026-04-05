@@ -13,13 +13,21 @@ EVAL_FRAC   = 0.10            # fraction of each (source, class) bucket held out
 # ── Scale factor ───────────────────────────────────────────────────────────────
 # Set to 1.0 for full RunPod runs (~360k samples).
 # Set to 0.03–0.1 for fast local validation on RTX 3070.
-TRAINING_FACTOR = 0.1
+TRAINING_FACTOR = 0.2
 
 # ── Per-source caps ────────────────────────────────────────────────────────────
-MAX_PER_SOURCE_CLASS = int(80_000 * TRAINING_FACTOR)   # default cap per (source, class)
-IOT23_BENIGN_CAP     = int(20_000 * TRAINING_FACTOR)   # IoT-23 benign is 89% S0-dominated;
-                                                        # reduced to avoid "S0 = benign" bias
-CTU_NORMAL_CAP       = int(100_000 * TRAINING_FACTOR)  # only significant SF benign source
+MAX_PER_SOURCE_CLASS     = int(80_000 * TRAINING_FACTOR)   # default cap per (source, class)
+IOT23_BENIGN_CAP         = int(20_000 * TRAINING_FACTOR)   # IoT-23 benign is 89% S0-dominated;
+                                                            # reduced to avoid "S0 = benign" bias
+CTU_NORMAL_CAP           = int(100_000 * TRAINING_FACTOR)  # only significant SF benign source
+
+# CTU balance knobs — tune these to control CTU-13 vs CTU-Malware contribution.
+# CTU-13 has 13 binetflow files; CTU-Malware has 10 scenarios.
+# Total ceiling: CTU-13 = 13 × CTU13_FILE_CAP, CTU-Malware = 10 × CTU_MALWARE_SCENARIO_CAP.
+# Raise CTU_MALWARE_SCENARIO_CAP and lower CTU13_FILE_CAP to shift weight toward
+# diverse botnet families (the OOD-relevant data) and away from 2011 CTU-13 captures.
+CTU13_FILE_CAP           = int(4_000 * TRAINING_FACTOR)    # per binetflow file  → 52k max total
+CTU_MALWARE_SCENARIO_CAP = int(8_000 * TRAINING_FACTOR)    # per scenario        → 80k max total
 
 # ── Final ratio targets ────────────────────────────────────────────────────────
 # v7: 2:1 benign:attack — real networks are overwhelmingly benign; 1:1 training
@@ -45,7 +53,7 @@ CTU_MALWARE_DIR = "datasets/ctu-malware/"   # download cache for bro logs + bine
 
 DATASETS = {
     "iot23":      "datasets/iot-23/iot_23_datasets_small.tar.gz",
-    "ctu13":      "datasets/ctu-13/CTU-13-Dataset.tar.bz2",
+    "ctu13":      "datasets/ctu-13/CTU-13-Dataset/",
     "unsw":       "datasets/unsw-nb15/",
     "cicids":     ".",          # looks for *.pcap_ISCX.csv in cwd
     "uwf":        "datasets/uwf-zeekdata24/",

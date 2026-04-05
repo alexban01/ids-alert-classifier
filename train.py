@@ -21,8 +21,8 @@ if RUNPOD:
     NUM_WORKERS          = 4
     EPOCHS               = 3
 else:
-    BATCH                = 4
-    GRAD_ACCUM           = 6      # effective batch = 24 (6×4)
+    BATCH                = 3
+    GRAD_ACCUM           = 8      # effective batch = 24 (6×4)
     GRAD_CHECKPOINTING   = True   # required for 8 GB VRAM; 1024 tokens needs smaller batch
     PIN_MEMORY           = False
     NUM_WORKERS          = 0      # CUDA+fork unstable on local Linux. fork() copies the parent's CUDA context into worker processes — those handles are invalid in the child, causing deadlocks or corruption. spawn would fix it but adds complexity; workers=0 is simpler since the bottleneck is the GPU, not JSONL loading.
@@ -112,7 +112,7 @@ trainer = SFTTrainer(
         save_strategy="epoch",
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
-        max_length=1024,   # v9.1: extended for multi-log prompts (http/dns/ssl/behavior context)
+        max_length=768,   # v9.1: extended for multi-log prompts (http/dns/ssl/behavior context)
     ),
 )
 
