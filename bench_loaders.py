@@ -10,8 +10,11 @@ Loaders:
     load_ctu13(dataset_dir)       — CTU-13 binetflow CSVs from extracted directory
     load_uwf(dataset_dir)         — UWF-ZeekData24 Zeek conn.log CSVs
     load_ctu_normal(dataset_dir)  — CTU-Normal benign-only Zeek conn.log
-    load_ctu_sme11()              — CTU-SME-11 Amazon Echo honeypot OOD probe
-                                    (downloads from Zenodo if not cached)
+    load_ctu_sme11()              — CTU-SME-11 Amazon Echo honeypot (RETIRED — kept for
+                                    historical comparison only; use load_ctu_win7ad())
+    load_ctu_win7ad()             — CTU-SME-11 Windows7AD-1 primary OOD probe
+                                    (infected Windows VM, outbound lateral movement +
+                                    Trickbot C2; downloads from Zenodo if not cached)
 """
 
 import os
@@ -28,13 +31,15 @@ from prompt_utils import build_prompt
 # ── Constants ───────────────────────────────────────────────────────────────────
 CAP = 1500   # max samples per (source, class)
 
-# OOD regression test — CTU-SME-11 Amazon Echo honeypot capture is intentionally
-# never included in training data. It is a 7-day enterprise network capture from
-# Stratosphere Lab (Zenodo record 7958259) with 76k flows (~48% malicious).
-# File format: Zeek conn.log.labeled — identical to IoT-23 (same lab).
-CTU_SME11_ARCHIVE = "CTU-SME-11_Honeypot-Assistant-Amazon-Echo1stGen-1_v1.0.0.tar.bz2"
-CTU_SME11_URL     = f"https://zenodo.org/records/7958259/files/{CTU_SME11_ARCHIVE}?download=1"
-CTU_CAPTURE_DIR   = "test_captures"
+# CTU-SME-11 archives — Zenodo record 7958259
+# Echo (RETIRED): inbound internet background scanning, invalid OOD ground truth
+# Windows7AD-1 (PRIMARY OOD): infected Windows VM, outbound lateral movement + Trickbot C2
+CTU_SME11_ARCHIVE    = "CTU-SME-11_Honeypot-Assistant-Amazon-Echo1stGen-1_v1.0.0.tar.bz2"
+CTU_SME11_URL        = f"https://zenodo.org/records/7958259/files/{CTU_SME11_ARCHIVE}?download=1"
+CTU_WIN7AD_ARCHIVE   = "CTU-SME-11_Experiment-VM-Microsoft-Windows7AD-1_v1.0.0.tar.bz2"
+CTU_WIN7AD_LOCAL     = "CTU-SME-11_Win7AD.tar.bz2"   # shorter local filename
+CTU_WIN7AD_URL       = f"https://zenodo.org/records/7958259/files/{CTU_WIN7AD_ARCHIVE}?download=1"
+CTU_CAPTURE_DIR      = "test_captures"
 
 
 # ── Sample helper ────────────────────────────────────────────────────────────────
@@ -480,4 +485,103 @@ def load_ctu_sme11():
     atk = len(buckets["ATTACK"])
     ben = len(buckets["FALSE POSITIVE"])
     print(f"  CTU-SME-11 (OOD): {atk} attacks, {ben} benign sampled")
+    return buckets["ATTACK"] + buckets["FALSE POSITIVE"]
+
+
+def load_ctu_win7ad():
+    """Load CTU-SME-11 Windows7AD-1 as primary OOD eval source (V10.0+).
+
+    An infected Windows 7 Active Directory VM from Stratosphere Lab's CTU-SME-11
+    dataset (Zenodo record 7958259). 7-day enterprise capture, 184k flows (1.1%
+    malicious). All malicious flows originate FROM the internal VM (192.168.x.x
+    as orig_h) — clean outbound attack ground truth.
+
+    Attack mix (2,038 malicious flows total):
+      89% Human attacks — REJ/RSTR to RDP/3389, Kerberos/88/464, SMB/445, MSRPC
+      11% Trickbot C2   — RSTO to non-standard ports 4134 and 22299
+
+    File format: Zeek conn.log.labeled with separate label (col 21) and
+    detailedlabel (col 22) columns — same as the Echo capture.
+    Local cache: test_captures/CTU-SME-11_Win7AD.tar.bz2
+    """
+    print(f"\n[CTU-SME-11 OOD / Windows7AD-1]")
+    os.makedirs(CTU_CAPTURE_DIR, exist_ok=True)
+
+    local_path   = os.path.join(CTU_CAPTURE_DIR, CTU_WIN7AD_LOCAL)
+    archive_path = _bench_download(CTU_WIN7AD_URL, local_path)
+    if archive_path is None:
+        print("  [SKIP] Archive download failed")
+        return []
+
+    print(f"  Opening {os.path.basename(archive_path)} ...")
+    buckets = defaultdict(list)
+
+    try:
+        with tarfile.open(archive_path, "r:bz2") as tf:
+            members = [m for m in tf.getmembers()
+                       if m.name.endswith("conn.log.labeled") and m.isfile()]
+            print(f"  {len(members)} conn.log.labeled file(s)")
+
+            for member in members:
+                if all(len(buckets[v]) >= CAP for v in ["ATTACK", "FALSE POSITIVE"]):
+                    break
+                f = tf.extractfile(member)
+                if f is None:
+                    continue
+                for raw in f:
+                    line = raw.decode("utf-8", errors="replace").strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    parts = line.split("\t")
+                    if len(parts) < 23:
+                        continue
+
+                    label_col   = parts[21]   # "Malicious" / "Benign" / "Background"
+                    detailed_col = parts[22]  # e.g. "From_malicious-To_benign-Human_attacks"
+
+                    if label_col == "Malicious":
+                        verdict = "ATTACK"
+                    elif label_col == "Benign":
+                        verdict = "FALSE POSITIVE"
+                    else:
+                        continue  # Background → skip
+
+                    if len(buckets[verdict]) >= CAP:
+                        continue
+
+                    raw_label = detailed_col if verdict == "ATTACK" else "Benign"
+
+                    try:
+                        buckets[verdict].append(make_sample(
+                            proto        = parts[6],
+                            duration     = parts[8],
+                            orig_pkts    = parts[16],
+                            resp_pkts    = parts[18],
+                            orig_bytes   = parts[9],
+                            resp_bytes   = parts[10],
+                            conn_state   = parts[11],
+                            ground_truth = verdict,
+                            source       = "ctu_win7ad",
+                            raw_label    = raw_label,
+                            service      = parts[7],
+                            orig_port    = parts[3],
+                            resp_port    = parts[5],
+                            ts           = parts[0],
+                            uid          = parts[1],
+                            orig_h       = parts[2],
+                            resp_h       = parts[4],
+                            group_id     = member.name,
+                        ))
+                    except IndexError:
+                        continue
+
+                    if all(len(v) >= CAP for v in buckets.values()):
+                        break
+    except Exception as e:
+        print(f"  [SKIP] Archive parse error: {e}")
+        return []
+
+    atk = len(buckets["ATTACK"])
+    ben = len(buckets["FALSE POSITIVE"])
+    print(f"  CTU-SME-11 Win7AD (OOD): {atk} attacks, {ben} benign sampled")
     return buckets["ATTACK"] + buckets["FALSE POSITIVE"]
