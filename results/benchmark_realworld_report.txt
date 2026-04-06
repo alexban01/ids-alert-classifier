@@ -1,39 +1,44 @@
-REAL-WORLD ZEEK BENCHMARK [OOD-ONLY] — 2026-04-06 01:30
-Sources: IoT-23, CTU-13, UWF-ZeekData24, CTU-Normal | OOD: CTU-SME-11 (Amazon Echo)
-Samples: 3000 total (1500 attacks / 1500 benign) | OOD: 3000 | Seed: 42
+REAL-WORLD ZEEK BENCHMARK [OOD-ONLY] — 2026-04-06 22:40
+Sources: IoT-23, CTU-13, UWF-ZeekData24, CTU-Normal | OOD: Win7AD-1, Echo, Kelihos
+Samples: 6300 total (3300 attacks / 3000 benign) | OOD: 6300 | Seed: 42
 
 ======================================================================
   MODEL  : v9.1 Fine-tuned
-  Samples: 3000  (attacks: 1500, benign: 1500)
+  Samples: 6300  (attacks: 3300, benign: 3000)
   Format failures : 0 (0.0%)
-  MCC             : +0.3734  (-1 to +1, higher is better)
+  MCC             : +0.2741  (-1 to +1, higher is better)
 ======================================================================
                 precision    recall  f1-score   support
 
-        ATTACK       0.91      0.32      0.47      1500
-FALSE POSITIVE       0.59      0.97      0.73      1500
+        ATTACK       0.82      0.28      0.41      3300
+FALSE POSITIVE       0.54      0.93      0.68      3000
 
-      accuracy                           0.64      3000
-     macro avg       0.75      0.64      0.60      3000
-  weighted avg       0.75      0.64      0.60      3000
+      accuracy                           0.59      6300
+     macro avg       0.68      0.60      0.55      6300
+  weighted avg       0.69      0.59      0.54      6300
 
 Confusion Matrix  (rows = actual, cols = predicted)
                            ATTACK  FALSE POSITIVE
-  ATTACK                  474 ( 32%)    1026 ( 68%)
-  FALSE POSITIVE           49 (  3%)    1451 ( 97%)
+  ATTACK                  910 ( 28%)    2390 ( 72%)
+  FALSE POSITIVE          200 (  7%)    2800 ( 93%)
 
 --- Per source ---
   Source                               Atk  Recall     Ben  Recall      Acc
   ---------------------------------- ----- -------   ----- -------   ------
-  CTU-SME-11 [OOD] (Amazon Echo)      1500   31.6%    1500   96.7%    64.2%
+  CTU-Malware3   [OOD-Floor] (Kelihos)   300   86.3%       0    0.0%    86.3%
+  CTU-SME-11 [OOD-Easy] (Echo)        1500   31.6%    1500   96.7%    64.2%
+  CTU-SME-11 [OOD-Hard] (Win7AD-1)    1500   11.8%    1500   89.9%    50.9%
 
 --- Per label (attacks only) ---
   From_malicious-To_benign-Discovery           474/1500 ( 32%)
+  From_malicious-To_benign-Human_attacks       172/1279 ( 13%)
+  From_malicious-To_malicious-Malware_C2-Trickbot   5/221 (  2%)
+  Kelihos                                      259/300 ( 86%)
 
 --- Host Pass-2 ---
-  Hosts           : 791
+  Hosts           : 797
   Format failures : 0 (0.0%)
-  Accuracy        : 0.6%
+  Accuracy        : 1.0%
   Atk Recall      : 0.0%
   FP Recall       : 100.0%
   MCC             : +0.0000
