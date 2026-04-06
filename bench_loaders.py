@@ -10,11 +10,13 @@ Loaders:
     load_ctu13(dataset_dir)       — CTU-13 binetflow CSVs from extracted directory
     load_uwf(dataset_dir)         — UWF-ZeekData24 Zeek conn.log CSVs
     load_ctu_normal(dataset_dir)  — CTU-Normal benign-only Zeek conn.log
-    load_ctu_sme11()              — CTU-SME-11 Amazon Echo honeypot (RETIRED — kept for
-                                    historical comparison only; use load_ctu_win7ad())
+    load_ctu_sme11()              — CTU-SME-11 Amazon Echo OOD probe (easy OOD —
+                                    inbound IoT scan traffic; downloads from Zenodo)
     load_ctu_win7ad()             — CTU-SME-11 Windows7AD-1 primary OOD probe
                                     (infected Windows VM, outbound lateral movement +
                                     Trickbot C2; downloads from Zenodo if not cached)
+    load_ctu_botnet3()            — CTU-Malware Botnet-3 (Kelihos) hard floor OOD probe
+                                    (P2P spam botnet; attacks only; local conn.log)
 """
 
 import os
@@ -40,6 +42,7 @@ CTU_WIN7AD_ARCHIVE   = "CTU-SME-11_Experiment-VM-Microsoft-Windows7AD-1_v1.0.0.t
 CTU_WIN7AD_LOCAL     = "CTU-SME-11_Win7AD.tar.bz2"   # shorter local filename
 CTU_WIN7AD_URL       = f"https://zenodo.org/records/7958259/files/{CTU_WIN7AD_ARCHIVE}?download=1"
 CTU_CAPTURE_DIR      = "test_captures"
+CTU_BOTNET3_LOG      = "test_captures/CTU-Malware-Capture-Botnet-3_conn.log"
 
 
 # ── Sample helper ────────────────────────────────────────────────────────────────
@@ -395,13 +398,15 @@ def _bench_download(url, local_path):
 
 
 def load_ctu_sme11():
-    """Load CTU-SME-11 Amazon Echo honeypot capture as permanent OOD eval source.
+    """Load CTU-SME-11 Amazon Echo honeypot capture as easy OOD eval source.
 
     CTU-SME-11 is a 7-day enterprise network capture from Stratosphere Lab
     (Zenodo record 7958259). The Amazon Echo device has 76k flows (~48% malicious)
     and is the smallest archive (742.9 MB). File format is Zeek conn.log.labeled —
     identical to IoT-23 (same lab), with 'Malicious'/'Benign'/'Background' labels
     in the last tab-separated field. Never included in training data.
+    Role: easy OOD — inbound IoT scan traffic with some structural similarity to
+    IoT-23 training data. LLM v9.1 scores +0.373 MCC here (partial transfer).
     """
     print(f"\n[CTU-SME-11 OOD / Amazon Echo]")
     os.makedirs(CTU_CAPTURE_DIR, exist_ok=True)
@@ -585,3 +590,55 @@ def load_ctu_win7ad():
     ben = len(buckets["FALSE POSITIVE"])
     print(f"  CTU-SME-11 Win7AD (OOD): {atk} attacks, {ben} benign sampled")
     return buckets["ATTACK"] + buckets["FALSE POSITIVE"]
+
+
+def load_ctu_botnet3():
+    """Load CTU-Malware Botnet-3 (Kelihos) as hard-floor OOD eval source.
+
+    Kelihos is a P2P spam botnet captured in a malware sandbox. All flows
+    in the Zeek conn.log originate from the infected VM and are ATTACK.
+    The botnet is per-flow indistinguishable from normal web/email traffic —
+    it scores MCC ~0.0 on all classifiers. Serves as the structural detection
+    floor (no method can reliably detect it at the per-flow level).
+
+    Local file: test_captures/CTU-Malware-Capture-Botnet-3_conn.log
+    Standard 21-field Zeek conn.log (tab-separated, # header lines).
+    """
+    print(f"\n[CTU-Malware Botnet-3 OOD / Kelihos]")
+
+    if not os.path.isfile(CTU_BOTNET3_LOG):
+        print(f"  [SKIP] {CTU_BOTNET3_LOG} not found")
+        return []
+
+    samples = []
+    with open(CTU_BOTNET3_LOG) as f:
+        for line in f:
+            if len(samples) >= CAP:
+                break
+            if line.startswith("#"):
+                continue
+            parts = line.strip().split("\t")
+            if len(parts) < 21:
+                continue
+            samples.append(make_sample(
+                proto        = parts[6],
+                duration     = parts[8],
+                orig_pkts    = parts[16],
+                resp_pkts    = parts[18],
+                orig_bytes   = parts[9],
+                resp_bytes   = parts[10],
+                conn_state   = parts[11],
+                ground_truth = "ATTACK",
+                source       = "ctu_botnet3",
+                raw_label    = "Kelihos",
+                service      = parts[7],
+                orig_port    = parts[3],
+                resp_port    = parts[5],
+                ts           = parts[0],
+                uid          = parts[1],
+                orig_h       = parts[2],
+                resp_h       = parts[4],
+            ))
+
+    print(f"  CTU-Malware Botnet-3 (OOD): {len(samples)} attacks, 0 benign")
+    return samples
