@@ -234,3 +234,11 @@ def extract_verdict(output):
             if "ATTACK" in line:
                 return "ATTACK"
     return "UNKNOWN"
+
+
+def extract_reason(output):
+    """Parse model output for REASON: line. Returns the reason string, or empty string."""
+    for line in output.splitlines():
+        if line.upper().startswith("REASON:"):
+            return line[7:].strip()
+    return ""

@@ -1,0 +1,337 @@
+================================================================================
+IDS ALERT CLASSIFIER — THESIS DEVELOPMENT NOTES (continued from thesis_notes_6.txt)
+Fine-tuning Qwen2.5-1.5B-Instruct for network intrusion detection
+================================================================================
+
+This file covers the V10.0 planning session (2026-04-06) and the two most
+important empirical results of the project: the distribution gap analysis and
+the classical ML baseline comparison. These results fundamentally reframe the
+thesis contribution and provide the publishable finding.
+
+================================================================================
+V10.0 PLANNING — DESIGN DECISIONS
+================================================================================
+
+Following thesis_notes_6.txt (V9.1 ep3 null result for [BEHAVIOR], Host Pass-2
+retired), V10.0 planning resolved the following:
+
+OOD PROBE: Three-tier battery (not just Windows7AD-1)
+
+  PRIMARY   — CTU-SME-11 Windows7AD-1 (MCC +0.022, 11.3% recall on v9.1)
+               Outbound lateral movement from a compromised Windows 7 AD server.
+               89% REJ/RSTR to RDP/Kerberos/SMB ports, 11% Trickbot C2.
+               Clean ground truth. Never in training.
+
+  EASY OOD  — CTU-SME-11 Amazon Echo (MCC +0.3734, 31.6% recall on v9.1)
+               Inbound IoT scan traffic from internet (contextually OOD, but
+               structurally similar to IoT-23 training data). Lower bar.
+
+  FLOOR     — CTU-Malware Botnet-3 Kelihos (MCC ~0.0, ~3% recall on v9.1)
+               P2P spam botnet. Per-flow indistinguishable from normal traffic.
+               Documents the hard detection floor for flow-level classifiers.
+
+Decision: Option B — keep Windows7AD-1 as a pure OOD probe and document the
+gap with quantitative analysis. Do NOT add synthetic lateral movement training
+data. The 11% recall is the finding, not a bug to fix.
+
+Rationale: Option A (closing the gap with synthetic data) converts the thesis
+into an incremental engineering improvement. Option B with a rigorous gap
+analysis is a scientific finding about the limits of transfer learning across
+network security domains — publishable at IEEE TIFS, AISec workshop, USENIX
+ML4Security.
+
+TRAINING DATA: CTU-Malware budget fix (Q2 resolution)
+
+CTU-Malware represents only ~19% of final 120k attack samples after random
+downsampling. Target is 40% (48k/120k). Fix: add CTU_MALWARE_ATTACK_BUDGET=48000
+constant and change the final sampling block from random to source-stratified
+reservation. No cap changes, no oversampling — the raw CTU-Malware pool (~60k)
+comfortably covers 48k.
+
+CLASSICAL ML BASELINE: required for publishability
+
+Reviewers at all security ML venues will ask for a classical ML comparison.
+Implemented as baseline_ml.py using RandomForest + LogisticRegression on 14
+features directly from the benchmark cache (no new training data needed).
+
+================================================================================
+GAP ANALYSIS — TRAINING DISTRIBUTION VS WIN7AD-1 (2026-04-06)
+================================================================================
+
+Script: analyze_gap.py — reads benchmark_realworld_cache.json
+Training proxy: iot23 + ctu13 + uwf attack samples (900 total, 300/source)
+OOD: ctu_win7ad attack samples (1500 total)
+
+CONN_STATE DISTRIBUTION
+
+  State        Train %    Win7AD-1 %
+  ---------    -------    ----------
+  REJ            0.3%       65.8%     <-- 65x more prevalent in OOD
+  SF            33.3%        2.3%
+  S0            33.0%        0.0%
+  INT           30.6%        0.0%
+  RSTR           0.0%       17.9%     <-- completely absent from training
+  RSTO           0.0%       13.4%     <-- completely absent from training
+
+  KEY GAP: REJ+RSTR = 0.3% of training attacks vs 83.7% of Win7AD-1 attacks
+
+Training attacks are dominated by S0 (IoT scans), INT (binetflow mid-flow), and
+SF (completed connections). Win7AD-1 attacks are 83.7% REJ or RSTR — connection
+refused/reset, the fingerprint of lateral movement probing against closed ports.
+
+The model has essentially zero training signal for "REJ = ATTACK". When it sees
+a REJ flow in inference, it has no basis to classify it as malicious.
+
+DESTINATION PORT DISTRIBUTION
+
+  Port          Train %    Win7AD-1 %   Note
+  --------      -------    ----------   ----
+  4848           33.3%         0.1%     (IoT botnet)
+  0              30.1%         0.0%     (binetflow unmapped)
+  3389            0.0%        15.5%     LATERAL (RDP)
+  23             17.1%         0.1%     (Telnet botnet)
+  4134            0.0%         6.3%     TRICKBOT-C2
+  22299           0.0%         5.9%     TRICKBOT-C2
+  464             0.0%         2.0%     LATERAL (Kerberos change-pw)
+  135             0.0%         0.2%     LATERAL (MSRPC)
+  88              0.0%         0.2%     LATERAL (Kerberos)
+  445             0.0%         0.1%     LATERAL (SMB)
+
+  Lateral ports (RDP/SMB/Kerberos) in training: 0 (0.0%) vs Win7AD-1: 19.1%
+  Trickbot C2 ports in training:                0 (0.0%) vs Win7AD-1: 12.3%
+
+Not a single training attack sample targets RDP (3389), Kerberos (88/464),
+MSRPC (135), SMB (445), or Trickbot non-standard ports (4134/22299).
+
+CONCLUSION
+
+The model's 11.3% OOD recall is fully explained by the training distribution.
+This is not model capacity failure — the model cannot learn what it has never
+seen. REJ and RSTR flows with lateral movement port targets are a completely
+alien pattern relative to the training distribution.
+
+IMPORTANT: the model already sees Dest Port and conn_state as text fields in
+the prompt. The gap is NOT about missing features — it is about missing training
+examples with those feature combinations labeled as attacks.
+
+================================================================================
+MODEL PREDICTION BY CONN_STATE — WIN7AD-1 ATTACKS
+================================================================================
+
+After re-running benchmark with REASON extraction (benchmark_realworld.py --ood):
+
+  conn_state     n      Detected   Recall
+  ----------    ----    --------   ------
+  REJ            987       164      16.6%
+  RSTR           269         2       0.7%
+  RSTO           201         4       2.0%
+  SF              34         0       0.0%
+  OTH              3         0       0.0%
+  S1               3         0       0.0%
+
+RSTR recall of 0.7% (2/269) means the model almost completely misses SMB lateral
+movement. RSTO recall of 2% means Trickbot C2 is also nearly undetectable.
+
+Even REJ recall of 16.6% is likely due to a small number of REJ flows that
+coincidentally match IoT scan patterns — not genuine lateral movement detection.
+
+Total false negatives: 1330 / 1500 attacks (88.7% miss rate).
+
+================================================================================
+THE "CONFIDENTLY WRONG" REASON FIELD FINDING
+================================================================================
+
+Model output examples for Win7AD-1 REJ false negatives (port varied, REASON same):
+
+  State: REJ   Port: 3389
+  REASON: "Short periodic HTTPS connections to a CDN or vendor endpoint with
+           stable byte counts"
+
+  State: REJ   Port: 464 (Kerberos)
+  REASON: "Short periodic HTTPS connections to a CDN or vendor endpoint with
+           stable byte counts"
+
+  State: RSTO  Port: 4134 (Trickbot C2)
+  REASON: "High UDP packet rate with large resp_bytes and long duration on a
+           high-bandwidth connection"
+
+The model gives plausible, fluent, internally consistent explanations — but they
+are factually incorrect. A REJ connection has zero duration and zero resp_bytes.
+There is no HTTPS, no CDN, no stable byte counts. The model is pattern-matching
+to a benign template it learned during training and fabricating a reason that
+fits the template.
+
+This is the "confidently wrong" phenomenon. It has two components:
+  1. The verdict is wrong (FALSE POSITIVE for a genuine attack)
+  2. The reason is coherent-sounding but feature-inconsistent
+
+This is something a signature-based IDS (Snort, Suricata, Zeek notice.log)
+fundamentally cannot do: produce wrong answers with fluent explanations. For
+a signature-based system, either the rule fires or it does not. A fine-tuned
+LLM can produce sophisticated-looking wrong answers, which is more dangerous
+in a high-stakes triage context.
+
+THESIS TREATMENT
+
+This is a novel finding and should be a dedicated section in the thesis. The
+key argument: LLMs for IDS offer explanation capability that classical methods
+lack, but this explanation capability is not grounded in the actual features
+when the model is operating outside its training distribution. The REASON field
+should be treated as an unreliable signal in OOD scenarios.
+
+The failure analysis table (30 false negatives with REASON text) is the most
+compelling exhibit. Reviewers and practitioners will find it striking.
+
+================================================================================
+CLASSICAL ML BASELINE — RF AND LR VS LLM (2026-04-06)
+================================================================================
+
+Script: baseline_ml.py
+Training: 80% of ID sources (iot23, ctu13, uwf, ctu_normal, ctu_botnet90, ctu_mixed6)
+          9593 samples total
+Test OOD: ctu_win7ad (3000), ctu_sme11 (3000), ctu_botnet3 (300)
+Features: 14 (7 numeric + 7 categorical ordinal)
+
+IN-DISTRIBUTION RESULTS (20% hold-out of ID sources)
+
+  Model              Accuracy   Atk Recall   FP Recall   MCC
+  -----------------  --------   ----------   ---------   -----
+  Random Forest        99.7%       99.4%        99.9%    +0.993
+  Logistic Regression  96.5%       97.7%        95.7%    +0.928
+
+Both models match or approach LLM in-distribution performance (~+0.99 MCC).
+This confirms the in-distribution task is solvable with simple features.
+
+OOD RESULTS — WINDOWS7AD-1 (PRIMARY OOD PROBE)
+
+  Model                MCC      Atk%    FP%     Lateral mv    Trickbot C2
+  -------------------  ------   -----   -----   -----------   -----------
+  v9.1 LLM             +0.022   11.3%   90.0%       13%            2%
+  Random Forest        +0.689   64.9%   99.7%       68%           48%
+  Logistic Regression  +0.764   78.2%   96.9%       75%           95%
+
+LR is 5-7x better than the LLM on MCC. LR gets 95% Trickbot C2 recall vs 2%.
+LR gets 75% lateral movement recall vs 13%.
+
+OOD RESULTS — EASY OOD (AMAZON ECHO)
+
+  Model                MCC      Atk%    FP%
+  -------------------  ------   -----   -----
+  v9.1 LLM (ep1)       +0.329   33.7%   92.9%
+  v9.1 LLM (ep3)       +0.373   31.6%   96.7%
+  Random Forest        +0.507   47.4%   96.7%
+  Logistic Regression  +0.511   80.9%   69.9%
+
+LR recall (80.9%) >> LLM recall (31.6%). RF recall (47.4%) > LLM. Both
+classical methods outperform the LLM on the "easy" OOD probe as well.
+
+OOD RESULTS — KELIHOS FLOOR
+
+  Model                MCC      Atk%    FP%
+  -------------------  ------   -----   -----
+  v9.1 LLM             ~0.0     ~3%     N/A
+  Random Forest        +0.000    2.0%    0.0%
+  Logistic Regression  +0.000    6.7%    0.0%
+
+All methods near-zero. Kelihos is structurally undetectable at the per-flow
+level — P2P spam traffic looks like normal web/email connections.
+
+RF FEATURE IMPORTANCE
+
+  orig_bytes_per_pkt   19.1%  (top feature)
+  conn_state           13.3%
+  resp_port            11.5%
+  src_port_tier         9.3%
+  orig_bytes            8.3%
+  proto                 8.0%
+
+conn_state and resp_port are features 2 and 3. The top feature (orig_bytes_per_pkt)
+is particularly diagnostic for lateral movement: REJ and RSTR connections have
+0 orig_bytes (the connection was refused before data was sent), giving
+orig_bytes_per_pkt = 0. This is a strong signal for refused-connection scans.
+
+WHY RF/LR OUTPERFORMS LLM ON WIN7AD-1
+
+The RF does not need to "know" what port 3389 means. It detects lateral movement
+primarily through orig_bytes_per_pkt=0 combined with conn_state=REJ — features
+that co-occur in failed TCP probes, which are abundant in ctu_botnet90 training
+data (SMB scanning, S0 to port 445). The RF generalizes from "failed TCP with
+zero bytes = suspicious" to lateral movement across any port.
+
+The LLM cannot make this connection. It has never seen conn_state=REJ with
+zero bytes labeled as ATTACK. When it encounters this combination, it
+pattern-matches to the closest benign template it knows and generates a
+plausible-sounding but wrong REASON.
+
+This reveals the fundamental limitation of text-space generalization for network
+IDS: classical ML generalizes via numeric feature proximity in feature space;
+fine-tuned LLMs require explicit training examples with the same feature
+combination. Text-space generalization does not carry the same geometric
+properties as feature-space generalization.
+
+================================================================================
+THE PUBLISHABLE FINDING — REVISED THESIS NARRATIVE
+================================================================================
+
+The thesis now has a clear, novel, surprising finding:
+
+FINDING 1: In-distribution performance is equivalent across methods.
+Fine-tuned Qwen2.5-1.5B achieves MCC ~+0.99 on known attack families (IoT,
+botnet, network scans), matching Random Forest and Logistic Regression on the
+same feature set.
+
+FINDING 2: Classical ML vastly outperforms fine-tuned LLM on OOD attacks.
+On the Win7AD-1 OOD probe (Windows lateral movement + Trickbot C2), Logistic
+Regression achieves MCC +0.764 vs LLM +0.022 — a factor of ~35x improvement.
+This holds even though both methods were trained on the same attack distribution
+that does not include lateral movement patterns.
+
+FINDING 3: The LLM failure mechanism is "confidently wrong" text templating.
+When operating outside its training distribution, the fine-tuned LLM produces
+fluent, coherent REASON fields that are factually inconsistent with the actual
+flow features. It hallucinates benign explanations for attack flows. Classical
+ML has no equivalent failure mode — it has no explanation capability at all.
+
+FINDING 4: The hard detection floor is shared.
+All methods score near-zero on Kelihos Botnet-3 (P2P spam). This is a
+structural floor for per-flow classifiers — not a limitation of model type.
+
+THESIS TITLE CANDIDATE
+"Flow-Level Network Intrusion Detection with Fine-Tuned Language Models:
+Capability Boundaries and the Out-of-Distribution Challenge"
+
+KEY CONTRIBUTIONS
+1. First systematic comparison of fine-tuned small LLM vs. classical ML for
+   network IDS on real Zeek conn.log across three OOD difficulty tiers.
+2. Quantitative distribution gap analysis showing the LLM failure is training-
+   distribution-bounded, not model-capacity-bounded.
+3. "Confidently wrong" phenomenon: LLMs produce feature-inconsistent explanations
+   for OOD attacks — a novel failure mode absent from classical IDS methods.
+4. Empirical evidence that numeric feature-space generalization (classical ML)
+   outperforms text-space generalization (LLM) for structured network flow data
+   in out-of-distribution settings.
+
+TARGET VENUES
+  IEEE TIFS (Transactions on Information Forensics and Security)
+  ACM CCS Workshop — AISec
+  USENIX ML4Security
+  NDSS DISS workshop
+
+================================================================================
+OPEN ITEMS GOING INTO V10 TRAINING
+================================================================================
+
+  - Step 3 (pending): Add ctu_sme11 + ctu_botnet3 loaders to benchmark_realworld.py
+    ALL_SOURCES so the LLM is evaluated against the full three-tier battery.
+    (Data already in cache — just needs source list + SOURCE_NAMES extension.)
+
+  - Step 4 (pending): Apply CTU_MALWARE_ATTACK_BUDGET=48000 fix to
+    preprocess_config.py and preprocess_zeek.py, then regenerate dataset for V10.
+
+  - Step 5 (pending): Train V10 on RunPod with the new dataset.
+
+  - After training: run full three-probe OOD battery on V10, compare to V9.1
+    and the RF/LR baseline in the thesis comparison table.
+
+  - analyze_gap.py sections 3+4 require a fresh benchmark run (ood_samples
+    field now populated by updated benchmark_realworld.py).
