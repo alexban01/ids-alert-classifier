@@ -26,6 +26,7 @@ from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from preprocess_config import (
+    CTU_MALWARE_ATTACK_BUDGET,
     CTU_MALWARE_SCENARIOS,
     DATASETS,
     EVAL_FILE,
@@ -169,16 +170,32 @@ if __name__ == "__main__":
     print(f"Hard benigns  : {sum(1 for s in benign if s.get('is_hard_benign'))} "
           f"(score >= {HARD_BENIGN_MIN_SCORE})")
 
-    # SF-state attack oversampling: completed/established attacks get 2× weight
-    # to address near-zero recall on SF-state attacks (Credential Access, HTTP
-    # C2, exfil).  S0/SYN attacks keep 1× weight.  k is capped at pool size
-    # so small TRAINING_FACTOR runs don't duplicate entries.
-    sf_attacks    = [s for s in attacks if s.get("conn_state", "-") in ("SF", "S1", "OTH")]
-    other_attacks = [s for s in attacks if s.get("conn_state", "-") not in ("SF", "S1", "OTH")]
-    weights       = [2.0] * len(sf_attacks) + [1.0] * len(other_attacks)
-    k_attacks     = min(FINAL_ATTACK, len(attacks))
-    print(f"  SF/S1/OTH attacks (2× weight): {len(sf_attacks):,} | other: {len(other_attacks):,}")
-    attacks = random.choices(sf_attacks + other_attacks, weights=weights, k=k_attacks)
+    # Source-stratified attack sampling: guarantee CTU-Malware representation.
+    # Without this, CTU-Malware falls to ~19% after the weighted draw because
+    # IoT-23/CTU-13 pools are larger.  Target: 40% (48k / 120k) at full scale.
+    ctu_m  = [s for s in attacks if s["source"] == "ctu_malware"]
+    others = [s for s in attacks if s["source"] != "ctu_malware"]
+
+    n_m = min(CTU_MALWARE_ATTACK_BUDGET, len(ctu_m))
+    n_o = min(FINAL_ATTACK - n_m, len(others))
+    print(f"  CTU-Malware pool: {len(ctu_m):,} → taking {n_m:,}"
+          f"  (budget={CTU_MALWARE_ATTACK_BUDGET:,})")
+
+    # CTU-Malware: simple shuffle + slice (pool already has diverse states)
+    random.shuffle(ctu_m)
+    ctu_m_selected = ctu_m[:n_m]
+
+    # Other attacks: SF oversampling (2× weight for SF/S1/OTH) to address
+    # near-zero recall on completed-connection attacks (Credential Access, C2).
+    sf_others    = [s for s in others if s.get("conn_state", "-") in ("SF", "S1", "OTH")]
+    other_others = [s for s in others if s.get("conn_state", "-") not in ("SF", "S1", "OTH")]
+    weights      = [2.0] * len(sf_others) + [1.0] * len(other_others)
+    print(f"  Other attacks — SF/S1/OTH (2× weight): {len(sf_others):,} | other: {len(other_others):,}"
+          f" → taking {n_o:,}")
+    other_selected = random.choices(sf_others + other_others, weights=weights, k=n_o) if others else []
+
+    attacks = ctu_m_selected + other_selected
+    random.shuffle(attacks)
 
     # 2:1 ratio: benign target is 2× actual attacks taken, capped at pool size.
     # Reserve HARD_BENIGN_TARGET_FRAC of the benign budget for hard negatives

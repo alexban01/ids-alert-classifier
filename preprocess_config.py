@@ -13,7 +13,7 @@ EVAL_FRAC   = 0.10            # fraction of each (source, class) bucket held out
 # ── Scale factor ───────────────────────────────────────────────────────────────
 # Set to 1.0 for full RunPod runs (~360k samples).
 # Set to 0.03–0.1 for fast local validation on RTX 3070.
-TRAINING_FACTOR = 0.2
+TRAINING_FACTOR = 1.0
 
 # ── Per-source caps ────────────────────────────────────────────────────────────
 MAX_PER_SOURCE_CLASS     = int(80_000 * TRAINING_FACTOR)   # default cap per (source, class)
@@ -36,6 +36,15 @@ CTU_MALWARE_SCENARIO_CAP = int(8_000 * TRAINING_FACTOR)    # per scenario       
 # samples are used with no artificial discard.
 FINAL_ATTACK = 120_000
 FINAL_BENIGN = 240_000
+
+# Guaranteed CTU-Malware attack budget within FINAL_ATTACK.
+# Without this, CTU-Malware ends up at ~19% of attack samples after the
+# weighted random.choices draw because it competes with larger IoT-23/CTU-13 pools.
+# 48k / 120k = 40% target share.  Raw CTU-Malware pool (~60k at full scale)
+# comfortably covers this without oversampling.
+# Not scaled by TRAINING_FACTOR (same pattern as FINAL_ATTACK/FINAL_BENIGN):
+# on small local runs, min(budget, pool_size) naturally falls back to pool_size.
+CTU_MALWARE_ATTACK_BUDGET = 48_000
 
 # ── Training-time masking probabilities ───────────────────────────────────────
 CONN_STATE_MASK_PROB = 0.20   # blank conn_state to "-" for this fraction of samples;
