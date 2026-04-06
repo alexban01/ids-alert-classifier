@@ -30,17 +30,18 @@ from peft import PeftModel
 from sklearn.metrics import classification_report, confusion_matrix, matthews_corrcoef
 
 from bench_loaders import (
-    CAP, load_iot23, load_ctu13, load_uwf, load_ctu_normal, load_ctu_win7ad,
+    CAP, load_iot23, load_ctu13, load_uwf, load_ctu_normal,
+    load_ctu_sme11, load_ctu_win7ad, load_ctu_botnet3,
 )
 from behavior_features import build_behavior_contexts, build_host_summaries
-from prompt_utils import SYSTEM_PROMPT, build_prompt, build_host_prompt, extract_verdict
+from prompt_utils import SYSTEM_PROMPT, build_prompt, build_host_prompt, extract_verdict, extract_reason
 
 # ── Config ──────────────────────────────────────────────────────────────────────
 BASE_MODEL     = "Qwen/Qwen2.5-1.5B-Instruct"
 CACHE_FILE     = "results/benchmark_realworld_cache.json"
 REPORT_TXT     = "results/benchmark_realworld_report.txt"
 RESULTS_JSON   = "results/benchmark_realworld_results.json"
-MAX_NEW_TOKENS = 24
+MAX_NEW_TOKENS = 80
 BATCH_SIZE     = 8
 RANDOM_SEED    = 42
 
@@ -67,13 +68,17 @@ SOURCE_NAMES = {
     "ctu13":        "CTU-13          (binetflow)",
     "uwf":          "UWF-ZeekData24  (Zeek conn.log)",
     "ctu_normal":   "CTU-Normal      (Zeek conn.log)",
-    "ctu_win7ad":   "CTU-SME-11 [OOD] (Windows7AD-1)",
+    "ctu_win7ad":   "CTU-SME-11 [OOD-Hard] (Win7AD-1)",
+    "ctu_sme11":    "CTU-SME-11 [OOD-Easy] (Echo)",
+    "ctu_botnet3":  "CTU-Malware3   [OOD-Floor] (Kelihos)",
 }
 
-ALL_SOURCES = ["iot23", "ctu13", "uwf", "ctu_normal", "ctu_win7ad"]
+# OOD sources — held out from training, used for out-of-distribution evaluation.
+OOD_SOURCES  = {"ctu_win7ad", "ctu_sme11", "ctu_botnet3"}
+ALL_SOURCES  = ["iot23", "ctu13", "uwf", "ctu_normal", "ctu_win7ad", "ctu_sme11", "ctu_botnet3"]
 
-# ── Sample generation ──────────────────────────────────────────────────��─────────
-_LOADER_ORDER = ["iot23", "ctu13", "uwf", "ctu_normal", "ctu_win7ad"]
+# ── Sample generation ────────────────────────────────────────────────────────────
+_LOADER_ORDER = ["iot23", "ctu13", "uwf", "ctu_normal", "ctu_win7ad", "ctu_sme11", "ctu_botnet3"]
 
 
 def _run_bench_loader(job_name):
@@ -88,6 +93,10 @@ def _run_bench_loader(job_name):
         return job_name, load_ctu_normal(DATASETS["ctu_normal"])
     if job_name == "ctu_win7ad":
         return job_name, load_ctu_win7ad()
+    if job_name == "ctu_sme11":
+        return job_name, load_ctu_sme11()
+    if job_name == "ctu_botnet3":
+        return job_name, load_ctu_botnet3()
     raise ValueError(f"Unknown loader job: {job_name}")
 
 
@@ -123,11 +132,11 @@ def regen_ood_samples():
     with open(CACHE_FILE) as f:
         samples = json.load(f)
 
-    non_ood = [s for s in samples if s["source"] != "ctu_win7ad"]
+    non_ood = [s for s in samples if s["source"] not in OOD_SOURCES]
     old_ood_n = len(samples) - len(non_ood)
-    print(f"  Dropping {old_ood_n} cached OOD samples")
+    print(f"  Dropping {old_ood_n} cached OOD samples (win7ad + sme11 + botnet3)")
 
-    ood_samples = load_ctu_win7ad()
+    ood_samples = load_ctu_win7ad() + load_ctu_sme11() + load_ctu_botnet3()
     merged = non_ood + ood_samples
     random.seed(RANDOM_SEED)
     random.shuffle(merged)
@@ -262,6 +271,7 @@ def run_inference(model, samples, label):
                           shuffle=False, num_workers=0, pin_memory=True,
                           collate_fn=collate_fn)
     preds    = []
+    reasons  = []
     unknowns = 0
     print(f"\nRunning inference: {label}")
     with torch.no_grad():
@@ -277,9 +287,10 @@ def run_inference(model, samples, label):
                 if verdict == "UNKNOWN":
                     unknowns += 1
                 preds.append(verdict)
+                reasons.append(extract_reason(text))
             print(f"  {min((i+1)*BATCH_SIZE, len(samples))}/{len(samples)}...", end="\r")
     print()
-    return preds, unknowns
+    return preds, unknowns, reasons
 
 
 # ── Model loading ─────────────────────────────────────────────────────────────────
@@ -414,7 +425,7 @@ def print_comparison_table(results, json_output, out_lines):
         "  Fmt Fail   = % of outputs missing VERDICT line",
         "",
         "  Sources: IoT-23 + CTU-13 + UWF-ZeekData24 + CTU-Normal",
-        "  OOD    : CTU-SME-11 Windows7AD-1 — never in training data",
+        "  OOD    : Win7AD-1 (hard) + Echo (easy) + Kelihos (floor) — never in training",
         "  (native Zeek conn.log — NO synthetic field mapping)",
     ]
 
@@ -471,11 +482,12 @@ if __name__ == "__main__":
 
     # ── Filter to OOD only if --ood ──────────────────────────────────────────────
     if ood_only:
-        samples = [s for s in samples if s["source"] == "ctu_win7ad"]
+        samples = [s for s in samples if s["source"] in OOD_SOURCES]
         if not samples:
             print("[ERROR] No OOD samples found in cache. Run with --regen --ood first.")
             sys.exit(1)
-        print(f"[OOD] Running inference on {len(samples)} OOD samples only.")
+        print(f"[OOD] Running inference on {len(samples)} OOD samples only "
+              f"(win7ad + sme11 + botnet3).")
 
     # ── Behavior prompts ─────────────────────────────────────────────────────────
     if no_behavior:
@@ -490,11 +502,11 @@ if __name__ == "__main__":
     ts     = datetime.now().strftime("%Y-%m-%d %H:%M")
     atk_n  = sum(1 for s in samples if s["ground_truth"] == "ATTACK")
     ben_n  = len(samples) - atk_n
-    ood_n  = sum(1 for s in samples if s["source"] == "ctu_win7ad")
+    ood_n  = sum(1 for s in samples if s["source"] in OOD_SOURCES)
     mode   = "OOD-ONLY" if ood_only else "FULL"
     out_lines = [
         f"REAL-WORLD ZEEK BENCHMARK [{mode}] — {ts}",
-        f"Sources: IoT-23, CTU-13, UWF-ZeekData24, CTU-Normal | OOD: CTU-SME-11 (Windows7AD-1)",
+        f"Sources: IoT-23, CTU-13, UWF-ZeekData24, CTU-Normal | OOD: Win7AD-1, Echo, Kelihos",
         f"Samples: {len(samples)} total ({atk_n} attacks / {ben_n} benign) | OOD: {ood_n} | Seed: {RANDOM_SEED}",
     ]
     results     = []
@@ -512,15 +524,15 @@ if __name__ == "__main__":
             print(f"\n[SKIP] {label} — not found at {adapter_path}")
             continue
 
-        model           = load_model(adapter_path)
-        preds, unknowns = run_inference(model, samples, label)
+        model                    = load_model(adapter_path)
+        preds, unknowns, reasons = run_inference(model, samples, label)
         print_report(preds, samples, label, unknowns, out_lines)
-        m               = compute_metrics(preds, samples, unknowns)
+        m                        = compute_metrics(preds, samples, unknowns)
         results.append((label, m))
 
         host_samples = build_host_benchmark_samples(samples, preds)
         if host_samples:
-            host_preds, host_unknowns = run_inference(model, host_samples, f"{label} [host pass-2]")
+            host_preds, host_unknowns, _ = run_inference(model, host_samples, f"{label} [host pass-2]")
             host_m = compute_metrics(host_preds, host_samples, host_unknowns)
         else:
             host_unknowns = 0
@@ -554,6 +566,26 @@ if __name__ == "__main__":
                 "ben_recall": round(sum(p_sub[i] == "FALSE POSITIVE" for i in b_idx) / max(len(b_idx), 1), 4),
             }
 
+        # Per-sample OOD records for gap analysis and failure table.
+        # Covers all three OOD probes; includes "source" for per-probe filtering.
+        ood_sample_records = [
+            {
+                "source":       s["source"],
+                "raw_label":    s["raw_label"],
+                "conn_state":   s.get("conn_state"),
+                "proto":        s.get("proto"),
+                "resp_p":       s.get("resp_p"),
+                "service":      s.get("service"),
+                "orig_bytes":   s.get("orig_bytes"),
+                "resp_bytes":   s.get("resp_bytes"),
+                "ground_truth": s["ground_truth"],
+                "prediction":   preds[i],
+                "reason":       reasons[i],
+            }
+            for i, s in enumerate(samples)
+            if s["source"] in OOD_SOURCES
+        ]
+
         json_output["models"].append({
             "label":      label,
             "accuracy":   round(m["accuracy"],   4),
@@ -561,6 +593,7 @@ if __name__ == "__main__":
             "ben_recall": round(m["ben_recall"], 4),
             "fmt_fail":   round(m["fmt_fail"],   4),
             "mcc":        round(m["mcc"],        4),
+            "ood_samples": ood_sample_records,
             "host_pass2": {
                 "n":          len(host_samples),
                 "accuracy":   round(host_m["accuracy"],   4),
