@@ -1,44 +1,105 @@
-REAL-WORLD ZEEK BENCHMARK [OOD-ONLY] — 2026-04-06 22:40
+REAL-WORLD ZEEK BENCHMARK [FULL] — 2026-04-07 23:39
 Sources: IoT-23, CTU-13, UWF-ZeekData24, CTU-Normal | OOD: Win7AD-1, Echo, Kelihos
-Samples: 6300 total (3300 attacks / 3000 benign) | OOD: 6300 | Seed: 42
+Samples: 15000 total (7500 attacks / 7500 benign) | OOD: 7500 | Seed: 42
 
 ======================================================================
-  MODEL  : v9.1 Fine-tuned
-  Samples: 6300  (attacks: 3300, benign: 3000)
+  MODEL  : v10 Fine-tuned
+  Samples: 15000  (attacks: 7500, benign: 7500)
   Format failures : 0 (0.0%)
-  MCC             : +0.2741  (-1 to +1, higher is better)
+  MCC             : +0.7965  (-1 to +1, higher is better)
 ======================================================================
                 precision    recall  f1-score   support
 
-        ATTACK       0.82      0.28      0.41      3300
-FALSE POSITIVE       0.54      0.93      0.68      3000
+        ATTACK       0.92      0.87      0.90      7500
+FALSE POSITIVE       0.88      0.92      0.90      7500
 
-      accuracy                           0.59      6300
-     macro avg       0.68      0.60      0.55      6300
-  weighted avg       0.69      0.59      0.54      6300
+      accuracy                           0.90     15000
+     macro avg       0.90      0.90      0.90     15000
+  weighted avg       0.90      0.90      0.90     15000
 
 Confusion Matrix  (rows = actual, cols = predicted)
                            ATTACK  FALSE POSITIVE
-  ATTACK                  910 ( 28%)    2390 ( 72%)
-  FALSE POSITIVE          200 (  7%)    2800 ( 93%)
+  ATTACK                 6545 ( 87%)     955 ( 13%)
+  FALSE POSITIVE          579 (  8%)    6921 ( 92%)
 
 --- Per source ---
   Source                               Atk  Recall     Ben  Recall      Acc
   ---------------------------------- ----- -------   ----- -------   ------
-  CTU-Malware3   [OOD-Floor] (Kelihos)   300   86.3%       0    0.0%    86.3%
-  CTU-SME-11 [OOD-Easy] (Echo)        1500   31.6%    1500   96.7%    64.2%
-  CTU-SME-11 [OOD-Hard] (Win7AD-1)    1500   11.8%    1500   89.9%    50.9%
+  CTU-13          (binetflow)         1500  100.0%    1500   99.7%    99.9%
+  CTU-Malware3   [OOD-Floor] (Kelihos)  1500   83.6%       0    0.0%    83.6%
+  CTU-Normal      (Zeek conn.log)        0    0.0%    1500   99.9%    99.9%
+  CTU-SME-11 [OOD-Easy] (Echo)        1500   65.7%    1500   79.1%    72.4%
+  CTU-SME-11 [OOD-Hard] (Win7AD-1)    1500   87.1%    1500   84.4%    85.7%
+  UWF-ZeekData24  (Zeek conn.log)     1500  100.0%    1500   98.3%    99.1%
 
 --- Per label (attacks only) ---
-  From_malicious-To_benign-Discovery           474/1500 ( 32%)
-  From_malicious-To_benign-Human_attacks       172/1279 ( 13%)
-  From_malicious-To_malicious-Malware_C2-Trickbot   5/221 (  2%)
-  Kelihos                                      259/300 ( 86%)
+  Credential Access                            1500/1500 (100%)
+  From_malicious-To_benign-Discovery           985/1500 ( 66%)
+  From_malicious-To_benign-Human_attacks       1121/1279 ( 88%)
+  From_malicious-To_malicious-Malware_C2-Trickbot 185/221 ( 84%)
+  Kelihos                                      1254/1500 ( 84%)
+  flow=From-Botnet-V51-1-ICMP                  228/228 (100%)
+  flow=From-Botnet-V51-1-TCP-CC106-IRC-Not-Encrypted   2/2   (100%)
+  flow=From-Botnet-V51-1-TCP-HTTP-Google-Net-Established-6   2/2   (100%)
+  flow=From-Botnet-V51-1-TCP-WEB-Established     1/1   (100%)
+  flow=From-Botnet-V51-1-UDP-Attempt             5/5   (100%)
+  flow=From-Botnet-V51-1-UDP-DNS                 9/9   (100%)
+  flow=From-Botnet-V51-10-ICMP                 147/147 (100%)
+  flow=From-Botnet-V51-10-TCP-CC106-IRC-Not-Encrypted   1/1   (100%)
+  flow=From-Botnet-V51-10-TCP-HTTP-Google-Net-Established-6   1/1   (100%)
+  flow=From-Botnet-V51-10-TCP-WEB-Established    1/1   (100%)
+  flow=From-Botnet-V51-10-UDP-Attempt            4/4   (100%)
+  flow=From-Botnet-V51-10-UDP-DNS                6/6   (100%)
+  flow=From-Botnet-V51-2-TCP-Established         2/2   (100%)
+  flow=From-Botnet-V51-2-TCP-HTTP-Google-Net-Established-6   2/2   (100%)
+  flow=From-Botnet-V51-2-TCP-WEB-Established     1/1   (100%)
+  flow=From-Botnet-V51-2-UDP-Attempt             4/4   (100%)
+  flow=From-Botnet-V51-2-UDP-DNS                 9/9   (100%)
+  flow=From-Botnet-V51-3-ICMP                  220/220 (100%)
+  flow=From-Botnet-V51-3-TCP-CC106-IRC-Not-Encrypted   1/1   (100%)
+  flow=From-Botnet-V51-3-TCP-Established-HTTP-Ad-62   1/1   (100%)
+  flow=From-Botnet-V51-3-TCP-HTTP-Google-Net-Established-6   1/1   (100%)
+  flow=From-Botnet-V51-3-UDP-Attempt             4/4   (100%)
+  flow=From-Botnet-V51-3-UDP-DNS                 6/6   (100%)
+  flow=From-Botnet-V51-4-ICMP                  141/141 (100%)
+  flow=From-Botnet-V51-4-TCP-Established         2/2   (100%)
+  flow=From-Botnet-V51-4-TCP-Established-HTTP-Ad-62   1/1   (100%)
+  flow=From-Botnet-V51-4-TCP-HTTP-Google-Net-Established-6   1/1   (100%)
+  flow=From-Botnet-V51-4-UDP-Attempt             5/5   (100%)
+  flow=From-Botnet-V51-4-UDP-DNS                 6/6   (100%)
+  flow=From-Botnet-V51-5-ICMP                  200/200 (100%)
+  flow=From-Botnet-V51-5-TCP-CC106-IRC-Not-Encrypted   1/1   (100%)
+  flow=From-Botnet-V51-5-TCP-Established-HTTP-Ad-62   1/1   (100%)
+  flow=From-Botnet-V51-5-TCP-HTTP-Google-Net-Established-6   1/1   (100%)
+  flow=From-Botnet-V51-5-UDP-Attempt             4/4   (100%)
+  flow=From-Botnet-V51-5-UDP-DNS                 6/6   (100%)
+  flow=From-Botnet-V51-6-TCP-CC106-IRC-Not-Encrypted   2/2   (100%)
+  flow=From-Botnet-V51-6-TCP-HTTP-Google-Net-Established-6   1/1   (100%)
+  flow=From-Botnet-V51-6-TCP-WEB-Established     1/1   (100%)
+  flow=From-Botnet-V51-6-UDP-Attempt             7/7   (100%)
+  flow=From-Botnet-V51-6-UDP-DNS                 6/6   (100%)
+  flow=From-Botnet-V51-7-ICMP                  273/273 (100%)
+  flow=From-Botnet-V51-7-TCP-CC106-IRC-Not-Encrypted   2/2   (100%)
+  flow=From-Botnet-V51-7-TCP-HTTP-Google-Net-Established-6   1/1   (100%)
+  flow=From-Botnet-V51-7-TCP-WEB-Established     1/1   (100%)
+  flow=From-Botnet-V51-7-UDP-Attempt             4/4   (100%)
+  flow=From-Botnet-V51-7-UDP-DNS                 6/6   (100%)
+  flow=From-Botnet-V51-8-TCP-CC106-IRC-Not-Encrypted   1/1   (100%)
+  flow=From-Botnet-V51-8-TCP-HTTP-Google-Net-Established-6   1/1   (100%)
+  flow=From-Botnet-V51-8-TCP-WEB-Established     1/1   (100%)
+  flow=From-Botnet-V51-8-UDP-Attempt             6/6   (100%)
+  flow=From-Botnet-V51-8-UDP-DNS                 6/6   (100%)
+  flow=From-Botnet-V51-9-ICMP                  138/138 (100%)
+  flow=From-Botnet-V51-9-TCP-CC106-IRC-Not-Encrypted   1/1   (100%)
+  flow=From-Botnet-V51-9-TCP-Established-HTTP-Ad-62   1/1   (100%)
+  flow=From-Botnet-V51-9-TCP-HTTP-Google-Net-Established-6   1/1   (100%)
+  flow=From-Botnet-V51-9-UDP-Attempt             7/7   (100%)
+  flow=From-Botnet-V51-9-UDP-DNS                 6/6   (100%)
 
 --- Host Pass-2 ---
-  Hosts           : 797
+  Hosts           : 861
   Format failures : 0 (0.0%)
-  Accuracy        : 1.0%
-  Atk Recall      : 0.0%
-  FP Recall       : 100.0%
-  MCC             : +0.0000
+  Accuracy        : 55.3%
+  Atk Recall      : 53.8%
+  FP Recall       : 88.9%
+  MCC             : +0.1711
