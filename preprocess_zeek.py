@@ -210,7 +210,7 @@ if __name__ == "__main__":
     # 2:1 ratio: benign target is 2× actual attacks taken, capped at pool size.
     # Reserve HARD_BENIGN_TARGET_FRAC of the benign budget for hard negatives
     # (flows that look attack-like by state/port/context/behavior).
-    k_benign   = min(FINAL_BENIGN, 2 * k_attacks, len(benign))
+    k_benign   = min(FINAL_BENIGN, 2 * len(attacks), len(benign))
     hard_benign  = [s for s in benign if s.get("is_hard_benign")]
     other_benign = [s for s in benign if not s.get("is_hard_benign")]
 
