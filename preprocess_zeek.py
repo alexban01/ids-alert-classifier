@@ -38,7 +38,7 @@ from preprocess_config import (
     RANDOM_SEED,
     TRAIN_FILE,
 )
-from loader_iot23         import load_iot23
+from loader_iot23         import load_iot23_file
 from loader_ctu13         import load_ctu13_file
 from loader_unsw          import load_unsw
 from loader_cicids        import load_cicids          # noqa: F401 — kept for optional re-enable
@@ -50,8 +50,8 @@ from loader_ctu_malware   import load_ctu_malware_scenario
 def _run_loader_job(job_name, dataset_path):
     """Worker wrapper for ProcessPoolExecutor loader jobs."""
     random.seed(RANDOM_SEED)
-    if job_name == "iot23":
-        return job_name, load_iot23(dataset_path)
+    if job_name == "iot23_single":
+        return job_name, load_iot23_file(dataset_path)
     if job_name == "ctu13_single":
         return job_name, load_ctu13_file(dataset_path)
     if job_name == "unsw":
@@ -98,6 +98,15 @@ if __name__ == "__main__":
     # ── Load all sources ──────────────────────────────────────────────────────
     # Each CTU-13 binetflow file and each CTU-Malware scenario is its own
     # parallel job — independent parse with no shared state.
+    _iot23_files = sorted(
+        os.path.join(root, fname)
+        for root, _, files in os.walk(DATASETS["iot23"])
+        for fname in files
+        if fname == "conn.log.labeled"
+    )
+    if not _iot23_files:
+        print(f"[WARN] No conn.log.labeled files found under {DATASETS['iot23']} — skipping")
+
     _ctu13_files = sorted(
         os.path.join(root, fname)
         for root, _, files in os.walk(DATASETS["ctu13"])
@@ -108,10 +117,11 @@ if __name__ == "__main__":
         print(f"[WARN] No CTU-13 binetflow files found in {DATASETS['ctu13']} — skipping")
 
     loader_jobs = [
-        ("iot23",      DATASETS["iot23"]),
         ("unsw",       DATASETS["unsw"]),
         ("uwf",        DATASETS["uwf"]),
         ("ctu_normal", DATASETS["ctu_normal"]),
+    ] + [
+        ("iot23_single", fp) for fp in _iot23_files
     ] + [
         ("ctu13_single", fp) for fp in _ctu13_files
     ] + [
@@ -119,7 +129,7 @@ if __name__ == "__main__":
         for sid, fam, url in CTU_MALWARE_SCENARIOS
     ]
     if args.ctu_only:
-        loader_jobs = [(n, p) for n, p in loader_jobs if n not in ("iot23", "unsw")]
+        loader_jobs = [(n, p) for n, p in loader_jobs if n not in ("iot23_single", "unsw")]
         print("[INFO] --ctu-only: skipping IoT-23 and UNSW-NB15")
     if args.no_uwf:
         loader_jobs = [(n, p) for n, p in loader_jobs if n != "uwf"]

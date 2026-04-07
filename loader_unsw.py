@@ -36,7 +36,6 @@ def load_unsw(dataset_dir):
 
     print(f"[UNSW-NB15] Loading {len(files)} file(s) from {dataset_dir}")
     samples  = {"ATTACK": [], "FALSE POSITIVE": []}
-    row_cap  = (MAX_PER_SOURCE_CLASS + MAX_PER_SOURCE_CLASS) * 4
 
     for fpath in files:
         print(f"  Reading {os.path.basename(fpath)} ...")
@@ -69,34 +68,60 @@ def load_unsw(dataset_dir):
 
         df = df.replace([float("inf"), float("-inf")], float("nan")).dropna(subset=[label_col])
 
+        # Truncate before any column extraction to avoid processing millions of rows.
+        # 2× cap (was 8×) with early-exit once both buckets are full.
+        row_cap  = (MAX_PER_SOURCE_CLASS + MAX_PER_SOURCE_CLASS) * 2
+        df = df.head(row_cap)
+
+        def _col(name, default):
+            if name and name in df.columns:
+                return df[name].fillna(default).astype(str).str.strip().tolist()
+            return [str(default)] * len(df)
+
+        ts_vals    = _col(ts_col,    "")
+        srch_vals  = _col(src_h_col, "")
+        dsth_vals  = _col(dst_h_col, "")
+        sport_vals = _col(sport_col, "-")
+        dport_vals = _col(dport_col, "-")
+        proto_vals = _col(proto_col, "unknown")
+        svc_vals   = _col(svc_col,   "-")
+        dur_vals   = _col(dur_col,   "0")
+        sb_vals    = _col(sbytes_col,"0")
+        db_vals    = _col(dbytes_col,"0")
+        state_vals = _col(state_col, "-")
+        sp_vals    = _col(spkts_col, "0")
+        dp_vals    = _col(dpkts_col, "0")
+        label_vals = df[label_col].tolist()
+
         rows = []
         attacks = benign = 0
 
-        for _, row in df.iterrows():
-            lv = row[label_col]
+        for i, lv in enumerate(label_vals):
             try:
                 verdict = "ATTACK" if int(float(lv)) == 1 else "FALSE POSITIVE"
             except (ValueError, TypeError):
                 verdict = "ATTACK" if str(lv).strip() not in ("0", "Normal", "BENIGN") else "FALSE POSITIVE"
 
             rows.append({
-                "ts":         str(row[ts_col]).strip()     if ts_col     else None,
-                "orig_h":     str(row[src_h_col]).strip()  if src_h_col  else None,
-                "orig_p":     str(row[sport_col]).strip()  if sport_col  else "-",
-                "resp_h":     str(row[dst_h_col]).strip()  if dst_h_col  else None,
-                "resp_p":     str(row[dport_col]).strip()  if dport_col  else "-",
-                "proto":      str(row[proto_col]).strip()  if proto_col  else "unknown",
-                "service":    str(row[svc_col]).strip()    if svc_col    else "-",
-                "duration":   str(row[dur_col]).strip()    if dur_col    else "0",
-                "orig_bytes": str(row[sbytes_col]).strip() if sbytes_col else "0",
-                "resp_bytes": str(row[dbytes_col]).strip() if dbytes_col else "0",
-                "conn_state": str(row[state_col]).strip()  if state_col  else "-",
-                "orig_pkts":  str(row[spkts_col]).strip()  if spkts_col  else "0",
-                "resp_pkts":  str(row[dpkts_col]).strip()  if dpkts_col  else "0",
+                "ts":         ts_vals[i],
+                "orig_h":     srch_vals[i],
+                "orig_p":     sport_vals[i],
+                "resp_h":     dsth_vals[i],
+                "resp_p":     dport_vals[i],
+                "proto":      proto_vals[i],
+                "service":    svc_vals[i],
+                "duration":   dur_vals[i],
+                "orig_bytes": sb_vals[i],
+                "resp_bytes": db_vals[i],
+                "conn_state": state_vals[i],
+                "orig_pkts":  sp_vals[i],
+                "resp_pkts":  dp_vals[i],
                 "verdict":    verdict,
             })
+            if verdict == "ATTACK": attacks += 1
+            else:                   benign  += 1
 
-            if len(rows) >= row_cap:
+            if attacks >= MAX_PER_SOURCE_CLASS and benign >= MAX_PER_SOURCE_CLASS:
                 break
 
         behavior_ctxs = build_behavior_contexts(rows)
