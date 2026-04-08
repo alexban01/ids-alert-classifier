@@ -25,6 +25,8 @@ import random
 from collections import Counter, defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
+from tqdm import tqdm
+
 from preprocess_config import (
     CTU_MALWARE_ATTACK_BUDGET,
     CTU_MALWARE_SCENARIOS,
@@ -141,15 +143,19 @@ if __name__ == "__main__":
             executor.submit(_run_loader_job, job_name, dataset_path): job_name
             for job_name, dataset_path in loader_jobs
         }
-        for future in as_completed(futures):
-            job_name = futures[future]
-            try:
-                _, job_samples = future.result()
-            except Exception as e:
-                print(f"[ERROR] Loader '{job_name}' failed: {e}")
-                job_samples = []
-            all_samples.extend(job_samples)
-            print(f"[DONE] Loader '{job_name}': {len(job_samples)} samples")
+        with tqdm(total=len(loader_jobs), desc="Loading", unit="loader",
+                  bar_format="{l_bar}{bar}| {n}/{total} [{elapsed}<{remaining}]") as pbar:
+            for future in as_completed(futures):
+                job_name = futures[future]
+                try:
+                    _, job_samples = future.result()
+                except Exception as e:
+                    tqdm.write(f"[ERROR] Loader '{job_name}' failed: {e}")
+                    job_samples = []
+                all_samples.extend(job_samples)
+                tqdm.write(f"[DONE] {job_name}: {len(job_samples):,} samples"
+                           f"  (total so far: {len(all_samples):,})")
+                pbar.update(1)
 
     # CICIDS2017 disabled in v7: CICFlowMeter produces proto="unknown" and
     # conn_state="-" for every flow — both most-discriminative Zeek features
