@@ -1,0 +1,216 @@
+================================================================================
+IDS ALERT CLASSIFIER — THESIS DEVELOPMENT NOTES (continued from thesis_notes_8.txt)
+Fine-tuning Qwen2.5-1.5B-Instruct for network intrusion detection
+================================================================================
+
+This file summarises the V10 experiment as a self-contained change/result/
+interpretation unit suitable for direct use in the thesis Methods and Results
+chapters.  See thesis_notes_7.txt for the V9.1 baseline and gap analysis;
+thesis_notes_8.txt for the raw development log of this iteration.
+
+================================================================================
+1. WHAT CHANGED IN V10
+================================================================================
+
+V10 introduces one training-data composition change relative to V9.1.
+All other parameters are identical: same base model (Qwen2.5-1.5B-Instruct),
+same LoRA config (r=16, alpha=32), same 3 epochs, same learning rate (2e-4),
+same prompt format, same dataset sources.
+
+THE CHANGE: CTU-Malware reserved attack budget
+-----------------------------------------------
+In V9.1, attack samples were drawn from all sources in a single weighted pool.
+Because IoT-23 (~80k attacks) and CTU-13 (~80k attacks) have much larger pools
+than CTU-Malware (~60k attacks across 10 scenarios), random downsampling to
+FINAL_ATTACK=120k consistently gave CTU-Malware only ~19% of the attack budget
+(~23k samples) regardless of the per-source caps.
+
+V10 adds a reserved allocation:
+
+    CTU_MALWARE_ATTACK_BUDGET = 48,000   (40% of FINAL_ATTACK=120k)
+
+Implementation: CTU-Malware samples are drawn first (min(budget, pool) = 48k),
+then the remaining 72k attack slots are filled from other sources with the
+existing SF-oversampling logic.  The raw CTU-Malware pool of ~60k comfortably
+covers the 48k budget without duplication.
+
+Effect on training composition:
+    CTU-Malware attacks:  ~23k (V9.1)  →  ~48k (V10)   (+25k, +108%)
+    Other attacks:        ~97k (V9.1)  →  ~72k (V10)   (-25k, -26%)
+
+No other changes were made to the training pipeline for this run.
+
+================================================================================
+2. MEASUREMENT CHANGE: THREE-PROBE OOD BATTERY
+================================================================================
+
+V10 also formalises the OOD evaluation into a three-tier battery that was only
+partially in place for V9.1.  This is a measurement change only — it does not
+affect training.
+
+    PRIMARY  — CTU-SME-11 Win7AD-1 [OOD-Hard]
+                Windows 7 Active Directory server, lateral movement + Trickbot C2.
+                89% REJ/RSTR rejected-connection attempts, 11% Trickbot C2 flows.
+                V9.1 recall: 11.3%.  Used as primary OOD probe in all versions.
+
+    MEDIUM   — CTU-SME-11 Amazon Echo [OOD-Easy / now reclassified OOD-Medium]
+                Inbound internet scans against an IoT device (Amazon Echo).
+                Structurally similar to IoT-23 training data (S0 scan flows).
+                V9.1 recall: 31.6%.  Added in V10 as the "easy" OOD probe.
+
+    FLOOR    — CTU-Malware Botnet-3 Kelihos [OOD-Floor]
+                P2P spam botnet.  Per-flow traffic resembles normal web/email.
+                V9.1 recall: ~3%.  Added in V10 to document the structural floor.
+
+The three probes allow the thesis to characterise OOD performance across a
+spectrum rather than a single adversarial example.
+
+================================================================================
+3. V10 RESULTS
+================================================================================
+
+HEADLINE (balanced 7500 attack / 7500 benign, seed 42, 0 format failures)
+    MCC      : +0.7965
+    Accuracy : 90.0%
+    Atk Recall (overall): 87.3%   Atk Precision: 91.9%
+    FP  Recall (overall): 92.3%   FP  Precision: 88.1%
+
+PER-SOURCE BREAKDOWN
+    Source                           Atk Recall   FP Recall   Acc
+    -------------------------------- ----------   ---------   ----
+    CTU-13            (in-dist)        100.0%       99.7%     99.9%
+    UWF-ZeekData24    (in-dist)        100.0%       98.3%     99.1%
+    CTU-Normal        (in-dist)           —         99.9%     99.9%
+    Win7AD-1          [OOD-Hard]        87.1%       84.4%     85.7%
+    Kelihos           [OOD-Floor]       83.6%          —      83.6%
+    Echo              [OOD-Medium]      65.7%       79.1%     72.4%
+
+ATTACK-TYPE BREAKDOWN (selected)
+    Credential Access (UWF)                        : 100%  (1500/1500)
+    CTU-13 botnet flows (all variants)             : 100%
+    Win7AD-1 lateral movement (Human_attacks)      :  87.6% (1121/1279)
+    Win7AD-1 Trickbot C2                           :  83.7%  (185/221)
+    Kelihos (P2P spam)                             :  83.6% (1254/1500)
+    Echo Discovery (inbound internet scans)        :  65.7%  (985/1500)
+
+HOST PASS-2 (host-level aggregation)
+    MCC: +0.1711   Accuracy: 55.3%   Atk Recall: 53.8%   FP Recall: 88.9%
+    Still poor; see Section 5.
+
+================================================================================
+4. KEY FINDINGS
+================================================================================
+
+FINDING A — Win7AD-1 improvement: +75.8 pp from a single composition change
+----------------------------------------------------------------------
+V9.1: Win7AD-1 attack recall 11.3%  (169 / 1500)
+V10:  Win7AD-1 attack recall 87.1% (1307 / 1500)
+
+This is the central result.  The only change between runs was CTU-Malware's
+share of the attack budget rising from ~19% to 40%.  CTU-Malware includes
+SMB scanning, botnet C2, and port-sweep flows — structurally closer to
+Win7AD-1 lateral movement than the IoT S0/UDP floods that dominated V9.1.
+
+The V9.1 baseline analysis (thesis_notes_7.txt) established classical ML
+benchmarks for Win7AD-1:
+    Logistic Regression: 78.2% recall
+    Random Forest:       64.9% recall
+
+V10 exceeds both.  The narrative shift for the thesis is significant: what
+thesis_notes_7 framed as "the gap classical ML cannot close" is now closed by
+adjusting training data composition alone.
+
+FINDING B — Kelihos: structural floor reclassification needed
+----------------------------------------------------------------------
+V9.1 Kelihos recall: ~3%   V10 Kelihos recall: 83.6%
+
+This is unexpected.  Kelihos was designated the "hard structural floor" on the
+premise that P2P spam traffic is per-flow indistinguishable from normal traffic.
+Classical ML also scored ~0% MCC on Kelihos in the V9.1 era.  83.6% recall
+contradicts this.
+
+The most likely explanation: CTU-Malware training scenarios include botnet
+families with overlapping flow characteristics (periodic low-volume TCP/UDP
+to many IPs on non-standard ports), and V10's increased CTU-Malware budget
+exposed the model to enough of these patterns to partially generalise to Kelihos.
+
+IMPORTANT — Verify OOD status: check whether CTU-Malware-Capture-Botnet-3
+(Kelihos) or a close structural analogue is included in the V10 training set
+via loader_ctu_malware.py / preprocess_config.py.  If it is, the 83.6% result
+is in-distribution, not OOD, and must be labelled accordingly in the thesis.
+If it is not, the result is a genuine positive transfer finding.
+
+FINDING C — Echo underperforms Win7AD-1 (reclassify from OOD-Easy to OOD-Medium)
+----------------------------------------------------------------------
+Echo attack recall: 65.7% — lower than Win7AD-1 (87.1%), which was the
+designated hard probe.  Echo's attacks are "From_malicious-To_benign-Discovery"
+inbound scans: completed (SF) connections to varied ports from external IPs.
+These resemble legitimate probes and background internet noise.
+
+Despite IoT-23 being in-distribution, and despite Echo being structurally
+described as "similar to IoT-23 scans," the model does not transfer: IoT-23
+scans are predominantly S0 (no response), while Echo Discovery attacks are SF
+(completed handshake) — a key structural difference the model appears to track.
+
+Action for thesis: relabel Echo as OOD-Medium throughout.  The progression
+Win7AD-1 (87.1%) > Echo (65.7%) is counterintuitive and warrants one paragraph
+of explanation in the Results section.
+
+FINDING D — In-distribution performance remains near-perfect
+----------------------------------------------------------------------
+CTU-13, UWF, and CTU-Normal all score ≥ 98.3% on both recall dimensions.
+The composition shift did not degrade known-source performance.  This confirms
+that increasing CTU-Malware's attack budget at the expense of IoT-23/CTU-13
+does not cause catastrophic forgetting of in-distribution attack patterns.
+
+================================================================================
+5. FINDINGS NOT CHANGED BY V10
+================================================================================
+
+HOST PASS-2 STILL INEFFECTIVE
+    MCC +0.1711 is unchanged from V9.1's level.  Host-level aggregation via
+    majority vote on flow predictions does not generalise.  This is a
+    methodological limitation, not a training data problem.  Thesis treatment:
+    mention as a negative result ("flow-level accuracy does not trivially compose
+    into host-level attribution") and note it as future work.
+
+================================================================================
+6. THESIS NARRATIVE — REVISED FRAMING
+================================================================================
+
+BEFORE V10 (thesis_notes_7 framing):
+    "Fine-tuned LLMs match classical ML on known families but fail sharply on
+    OOD lateral movement.  The gap is the finding."
+
+AFTER V10:
+    "Training data composition is the dominant factor in OOD generalization for
+    flow-level LLM classifiers.  A 40% CTU-Malware attack budget (vs. 19%) is
+    sufficient to push Win7AD-1 recall from 11.3% to 87.1%, exceeding Logistic
+    Regression (78.2%) and Random Forest (64.9%) on the same OOD set.  The gap
+    documented in V9.1 was attributable to attack-family underrepresentation,
+    not to a fundamental architectural limitation of fine-tuned language models."
+
+The V9.1 → V10 comparison itself becomes the thesis's strongest evidence: a
+single hyperparameter change (attack budget allocation) produces a +75.8 pp
+improvement on a held-out OOD set.  This is a stronger, more principled
+contribution than "our model reaches X% on benchmark Y."
+
+================================================================================
+7. OPEN ITEMS
+================================================================================
+
+  1. Verify Kelihos OOD status (see Finding B above).  This determines whether
+     the 83.6% result belongs in the OOD or in-distribution column of the table.
+
+  2. REASON extraction on V10 Win7AD-1 false negatives.  The 12.9% miss rate
+     (193 flows) should be inspected to check whether the "confidently wrong"
+     pattern from V9.1 persists.  Run analyze_gap.py sections 3-4 on the V10
+     results JSON.
+
+  3. Classical ML re-run.  Rerun baseline_ml.py against the V10 benchmark cache
+     to produce a direct V10 LLM vs. LR vs. RF comparison table for the thesis.
+
+  4. Echo failure mode analysis.  Determine whether the 65.7% Discovery recall
+     is due to SF vs. S0 mismatch (hypothesis above), port profile difference,
+     or something else.  This informs whether Echo should be kept as a probe
+     in future versions.
