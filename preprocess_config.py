@@ -13,7 +13,7 @@ EVAL_FRAC   = 0.10            # fraction of each (source, class) bucket held out
 # ── Scale factor ───────────────────────────────────────────────────────────────
 # Set to 1.0 for full RunPod runs (~360k samples).
 # Set to 0.03–0.1 for fast local validation on RTX 3070.
-TRAINING_FACTOR = 1.0
+TRAINING_FACTOR = 0.1
 
 # ── Per-source caps ────────────────────────────────────────────────────────────
 MAX_PER_SOURCE_CLASS     = int(80_000 * TRAINING_FACTOR)   # default cap per (source, class)
@@ -64,7 +64,7 @@ HARD_BENIGN_TARGET_FRAC = 0.35  # reserve up to this fraction of the benign budg
 CTU_MALWARE_DIR = "datasets/ctu-malware/"   # download cache for bro logs + binetflow
 
 DATASETS = {
-    "iot23":      "datasets/iot-23/iot_23_datasets_small.tar.gz",
+    "iot23":      "datasets/iot-23/",
     "ctu13":      "datasets/ctu-13/CTU-13-Dataset/",
     "unsw":       "datasets/unsw-nb15/",
     "cicids":     ".",          # looks for *.pcap_ISCX.csv in cwd
