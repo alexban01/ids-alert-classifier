@@ -13,7 +13,7 @@ EVAL_FRAC   = 0.10            # fraction of each (source, class) bucket held out
 # ── Scale factor ───────────────────────────────────────────────────────────────
 # Set to 1.0 for full RunPod runs (~360k samples).
 # Set to 0.03–0.1 for fast local validation on RTX 3070.
-TRAINING_FACTOR = 0.5
+TRAINING_FACTOR = 1.0
 
 # ── Per-source caps ────────────────────────────────────────────────────────────
 MAX_PER_SOURCE_CLASS     = int(80_000 * TRAINING_FACTOR)   # default cap per (source, class)
@@ -25,12 +25,12 @@ IOT23_FILE_BENIGN_CAP    = max(50, int(1_000 * TRAINING_FACTOR))
 CTU_NORMAL_CAP           = int(100_000 * TRAINING_FACTOR)  # only significant SF benign source
 
 # CTU balance knobs — tune these to control CTU-13 vs CTU-Malware contribution.
-# CTU-13 has 13 binetflow files; CTU-Malware has 10 scenarios.
-# Total ceiling: CTU-13 = 13 × CTU13_FILE_CAP, CTU-Malware = 10 × CTU_MALWARE_SCENARIO_CAP.
+# CTU-13 has 13 binetflow files; CTU-Malware has 20 scenarios (v11).
+# Total ceiling: CTU-13 = 13 × CTU13_FILE_CAP, CTU-Malware = 20 × CTU_MALWARE_SCENARIO_CAP.
 # Raise CTU_MALWARE_SCENARIO_CAP and lower CTU13_FILE_CAP to shift weight toward
 # diverse botnet families (the OOD-relevant data) and away from 2011 CTU-13 captures.
 CTU13_FILE_CAP           = int(4_000 * TRAINING_FACTOR)    # per binetflow file  → 52k max total
-CTU_MALWARE_SCENARIO_CAP = int(8_000 * TRAINING_FACTOR)    # per scenario        → 80k max total
+CTU_MALWARE_SCENARIO_CAP = int(8_000 * TRAINING_FACTOR)    # per scenario        → 160k max total
 
 # ── Final ratio targets ────────────────────────────────────────────────────────
 # v7: 2:1 benign:attack — real networks are overwhelmingly benign; 1:1 training
@@ -43,11 +43,11 @@ FINAL_BENIGN = 240_000
 # Guaranteed CTU-Malware attack budget within FINAL_ATTACK.
 # Without this, CTU-Malware ends up at ~19% of attack samples after the
 # weighted random.choices draw because it competes with larger IoT-23/CTU-13 pools.
-# 48k / 120k = 40% target share.  Raw CTU-Malware pool (~60k at full scale)
-# comfortably covers this without oversampling.
+# v10: 48k / 120k = 40% with 10 scenarios (~60k raw pool).
+# v11: 54k / 120k = 45% with 20 scenarios (~120k raw pool).
 # Not scaled by TRAINING_FACTOR (same pattern as FINAL_ATTACK/FINAL_BENIGN):
 # on small local runs, min(budget, pool_size) naturally falls back to pool_size.
-CTU_MALWARE_ATTACK_BUDGET = 48_000
+CTU_MALWARE_ATTACK_BUDGET = 54_000
 
 # ── Training-time masking probabilities ───────────────────────────────────────
 CONN_STATE_MASK_PROB = 0.20   # blank conn_state to "-" for this fraction of samples;
@@ -100,6 +100,26 @@ CTU_MALWARE_SCENARIOS = [
      "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-54"),
     ("Botnet-78-2", "Zeus",
      "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-78-2"),
+    # v11 additions — 10 new scenarios (4 new families + 6 additional captures)
+    # All verified to have bro/conn.log + labeled binetflow.
+    ("Botnet-25-1", "Zbot",
+     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-25-1"),
+    ("Botnet-25-2", "Zbot",
+     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-25-2"),
+    ("Botnet-47",   "DonBot",
+     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-47"),
+    ("Botnet-49",   "Murlo",
+     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-49"),
+    ("Botnet-50",   "Neris-v2",
+     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-50"),
+    ("Botnet-51",   "Rbot-v2",
+     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-51"),
+    ("Botnet-55",   "Neris-2014",
+     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-55"),
+    ("Botnet-61-1", "Sality",
+     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-61-1"),
+    ("Botnet-64",   "FastFlux",
+     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-64"),
 ]
 
 # ── Reason pools ───────────────────────────────────────────────────────────────

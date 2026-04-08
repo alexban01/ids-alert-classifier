@@ -25,6 +25,7 @@ def pick_reason(verdict):
 
 
 def score_hard_benign(proto, conn_state, service="-", resp_port="-", orig_port="-",
+                      orig_bytes="-",
                       http_ctx=None, dns_ctx=None, ssl_ctx=None, behavior_ctx=None):
     """Return (score, flags) for benign samples that look attack-like.
 
@@ -102,6 +103,19 @@ def score_hard_benign(proto, conn_state, service="-", resp_port="-", orig_port="
         score += 1
         flags.append("udp_dns")
 
+    # Windows UDP broadcast (LLMNR/mDNS/NetBIOS): ~1040 bytes outbound, zero response,
+    # ephemeral dest port (>=49152).  These score <=2 without this rule and miss the
+    # hard-benign threshold, causing 15%+ FP rate on Win7AD-1 enterprise benign traffic.
+    try:
+        orig_bytes_i = int(float(str(orig_bytes or "0").strip()))
+    except (ValueError, TypeError):
+        orig_bytes_i = 0
+    if (proto_s == "udp" and state_s == "S0"
+            and 700 <= orig_bytes_i <= 1500
+            and resp_port_i is not None and resp_port_i >= 49152):
+        score += 3
+        flags.append("udp_broadcast_like")
+
     if behavior_ctx:
         score += 1
         flags.append("behavior_ctx")
@@ -139,6 +153,7 @@ def make_sample(proto, duration, orig_pkts, resp_pkts,
     if verdict == "FALSE POSITIVE":
         hard_benign_score, hard_benign_flags = score_hard_benign(
             proto, conn_state, service=service, resp_port=resp_port, orig_port=orig_port,
+            orig_bytes=orig_bytes,
             http_ctx=http_ctx, dns_ctx=dns_ctx, ssl_ctx=ssl_ctx, behavior_ctx=behavior_ctx,
         )
 
