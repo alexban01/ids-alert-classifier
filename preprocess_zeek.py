@@ -50,7 +50,13 @@ from loader_ctu_malware   import load_ctu_malware_scenario
 
 
 def _run_loader_job(job_name, dataset_path):
-    """Worker wrapper for ProcessPoolExecutor loader jobs."""
+    """Worker wrapper for ProcessPoolExecutor loader jobs.
+
+    Redirects stdout to /dev/null so per-loader print output doesn't
+    interleave with the tqdm bar in the main process.
+    """
+    import sys
+    sys.stdout = open(os.devnull, "w")
     random.seed(RANDOM_SEED)
     if job_name == "iot23_single":
         return job_name, load_iot23_file(dataset_path)
