@@ -13,7 +13,7 @@ ctu13_single).  This avoids re-decompressing the 8.7 GB tar.gz on every run.
 import os
 
 from behavior_features import build_behavior_contexts
-from preprocess_config import IOT23_FILE_BENIGN_CAP, MAX_PER_SOURCE_CLASS
+from preprocess_config import IOT23_FILE_ATTACK_CAP, IOT23_FILE_BENIGN_CAP
 from preprocess_sample import make_sample
 
 
@@ -21,12 +21,12 @@ def load_iot23_file(filepath):
     """Parse a single IoT-23 conn.log.labeled file and return samples.
 
     Called as an independent parallel job from preprocess_zeek.py.
-    Attack cap: MAX_PER_SOURCE_CLASS (global subsampling handles excess).
+    Attack cap: IOT23_FILE_ATTACK_CAP (matches CTU13_FILE_CAP to prevent S0-flood dominance).
     Benign cap: IOT23_FILE_BENIGN_CAP (keeps S0-UDP benign low per file).
     """
     samples = {"ATTACK": [], "FALSE POSITIVE": []}
     rows = []
-    row_cap = (MAX_PER_SOURCE_CLASS + IOT23_FILE_BENIGN_CAP) * 2
+    row_cap = (IOT23_FILE_ATTACK_CAP + IOT23_FILE_BENIGN_CAP) * 2
     attacks = benign = 0
 
     with open(filepath, errors="replace") as f:
@@ -67,14 +67,14 @@ def load_iot23_file(filepath):
             if verdict == "ATTACK": attacks += 1
             else:                   benign  += 1
 
-            if attacks >= MAX_PER_SOURCE_CLASS and benign >= IOT23_FILE_BENIGN_CAP:
+            if attacks >= IOT23_FILE_ATTACK_CAP and benign >= IOT23_FILE_BENIGN_CAP:
                 break
             if len(rows) >= row_cap:
                 break
 
     behavior_ctxs = build_behavior_contexts(rows)
     for row, behavior_ctx in zip(rows, behavior_ctxs):
-        cap    = IOT23_FILE_BENIGN_CAP if row["verdict"] == "FALSE POSITIVE" else MAX_PER_SOURCE_CLASS
+        cap    = IOT23_FILE_BENIGN_CAP if row["verdict"] == "FALSE POSITIVE" else IOT23_FILE_ATTACK_CAP
         bucket = samples[row["verdict"]]
         if len(bucket) < cap:
             bucket.append(make_sample(
