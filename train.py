@@ -41,8 +41,8 @@ torch.backends.cudnn.benchmark        = True
 MODEL        = "Qwen/Qwen2.5-1.5B-Instruct"
 DATASET      = "zeek_dataset.jsonl"       # train split from preprocess_zeek.py
 EVAL_DATASET = "zeek_dataset_eval.jsonl"  # held-out eval split (source-stratified)
-OUTPUT_DIR   = "./v10-ids-model"           # training checkpoints
-ADAPTER_DIR  = "./v10-ids-lora-adapter"    # final adapter
+OUTPUT_DIR   = "./v11-ids-model"           # training checkpoints
+ADAPTER_DIR  = "./v11-ids-lora-adapter"    # final adapter
 
 # ── 4-bit quantization ──────────────────────────────────────────────────────
 # QLoRA: 4-bit base model stays the same — adapter output is hardware-agnostic.

@@ -20,6 +20,10 @@ v9.0-ids-model/
 v9.0-ids-lora-adapter/
 v9.1-ids-model/
 v9.1-ids-lora-adapter/
+v10-ids-model/
+v10-ids-lora-adapter/
+v11-ids-model/
+v11-ids-lora-adapter/
 *-ids-lora-adapter-merged/
 *.gguf
 **/model.safetensors

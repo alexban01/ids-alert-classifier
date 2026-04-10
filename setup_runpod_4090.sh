@@ -1,12 +1,11 @@
 #!/bin/bash
 # Run this on the RunPod pod after SSH/terminal access.
-# Assumes the Runpod Pytorch 2.8.0 template (CUDA 12.8, Ubuntu 24.04).
-# Target GPU: RTX 5090 (32 GB VRAM)
+# Target GPU: RTX 4090 (24 GB VRAM), CUDA 12.8, Ubuntu 24.04.
 #
 # Usage:
-#   1. Upload zeek_dataset.jsonl + train.py to /workspace/
-#   2. Run: bash setup_runpod.sh
-#   3. Run: python train.py
+#   1. Upload zeek_dataset.jsonl + zeek_dataset_eval.jsonl + train.py to /workspace/
+#   2. Run: bash setup_runpod_4090.sh
+#   3. Run: python train.py --runpod
 #   4. Download v11-ids-lora-adapter/ when done
 
 set -e
@@ -14,11 +13,11 @@ set -e
 echo "── Installing PyTorch (cu128, force-reinstall to override any mismatched build) ──"
 pip install torch torchvision torchaudio \
     --index-url https://download.pytorch.org/whl/cu128 \
-    --force-reinstall
+    --force-reinstall --quiet
 
 echo ""
 echo "── Installing training dependencies ──"
-pip install --upgrade \
+pip install --upgrade --quiet \
     transformers \
     peft \
     trl \
