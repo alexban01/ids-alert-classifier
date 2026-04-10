@@ -37,6 +37,7 @@ def load_ctu_normal(dataset_dir):
         buffered_benign = 0
 
         with open(fpath) as f:
+            _batch = 0
             for line in f:
                 if line.startswith("#"):
                     continue

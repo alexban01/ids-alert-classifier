@@ -13,7 +13,7 @@ EVAL_FRAC   = 0.10            # fraction of each (source, class) bucket held out
 # ── Scale factor ───────────────────────────────────────────────────────────────
 # Set to 1.0 for full RunPod runs (~360k samples).
 # Set to 0.03–0.1 for fast local validation on RTX 3070.
-TRAINING_FACTOR = 1.0
+TRAINING_FACTOR = 0.5
 
 # ── Per-source caps ────────────────────────────────────────────────────────────
 MAX_PER_SOURCE_CLASS     = int(80_000 * TRAINING_FACTOR)   # default cap per (source, class)
@@ -45,11 +45,12 @@ FINAL_BENIGN = 240_000
 # Guaranteed CTU-Malware attack budget within FINAL_ATTACK.
 # Without this, CTU-Malware ends up at ~19% of attack samples after the
 # weighted random.choices draw because it competes with larger IoT-23/CTU-13 pools.
-# v10: 48k / 120k = 40% with 10 scenarios (~60k raw pool).
-# v11: 54k / 120k = 45% with 20 scenarios (~120k raw pool).
+# v11 actual pool: ~16k attacks (14 of 19 scenarios have data; 5 return 0).
+# Budget set just above actual pool so all CTU-Malware attacks are always taken.
+# Raise if more scenarios get fixed and pool grows.
 # Not scaled by TRAINING_FACTOR (same pattern as FINAL_ATTACK/FINAL_BENIGN):
 # on small local runs, min(budget, pool_size) naturally falls back to pool_size.
-CTU_MALWARE_ATTACK_BUDGET = 54_000
+CTU_MALWARE_ATTACK_BUDGET = 20_000
 
 # ── Training-time masking probabilities ───────────────────────────────────────
 CONN_STATE_MASK_PROB = 0.20   # blank conn_state to "-" for this fraction of samples;
@@ -106,8 +107,7 @@ CTU_MALWARE_SCENARIOS = [
     # All verified to have bro/conn.log + labeled binetflow.
     ("Botnet-25-1", "Zbot",
      "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-25-1"),
-    ("Botnet-25-2", "Zbot",
-     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-25-2"),
+    # Botnet-25-2: binetflow downloaded but Label column entirely empty — unlabeled capture
     ("Botnet-47",   "DonBot",
      "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-47"),
     ("Botnet-49",   "Murlo",
@@ -116,12 +116,9 @@ CTU_MALWARE_SCENARIOS = [
      "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-50"),
     ("Botnet-51",   "Rbot-v2",
      "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-51"),
-    ("Botnet-55",   "Neris-2014",
-     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-55"),
-    ("Botnet-61-1", "Sality",
-     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-61-1"),
-    ("Botnet-64",   "FastFlux",
-     "https://mcfp.felk.cvut.cz/publicDatasets/CTU-Malware-Capture-Botnet-64"),
+    # Botnet-55: binetflow Label column entirely empty — unlabeled capture
+    # Botnet-61-1: binetflow Label column entirely empty — unlabeled capture
+    # Botnet-64: binetflow Label column entirely empty — unlabeled capture
 ]
 
 # ── Reason pools ───────────────────────────────────────────────────────────────

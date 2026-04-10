@@ -141,8 +141,16 @@ def build_binetflow_lookup(path):
             if header is None:
                 header = [h.strip() for h in row]
                 idx    = {h: i for i, h in enumerate(header)}
+                # Some captures (e.g. Botnet-25-1) use "Label(Normal:CC:Background)"
+                # instead of plain "Label" — treat any header starting with "Label" as
+                # the label column.
+                if "Label" not in idx:
+                    for h in header:
+                        if h.startswith("Label"):
+                            idx["Label"] = idx[h]
+                            break
                 needed = {"Proto", "SrcAddr", "Sport", "DstAddr", "Dport", "Label"}
-                missing = needed - set(header)
+                missing = needed - set(idx)
                 if missing:
                     raise ValueError(f"binetflow missing columns: {missing}\nGot: {header}")
                 continue

@@ -48,7 +48,6 @@ from loader_uwf           import load_uwf
 from loader_ctu_normal    import load_ctu_normal
 from loader_ctu_malware   import load_ctu_malware_scenario
 
-
 def _run_loader_job(job_name, dataset_path):
     """Worker wrapper for ProcessPoolExecutor loader jobs.
 
@@ -149,8 +148,7 @@ if __name__ == "__main__":
             executor.submit(_run_loader_job, job_name, dataset_path): job_name
             for job_name, dataset_path in loader_jobs
         }
-        with tqdm(total=len(loader_jobs), desc="Loading", unit="loader",
-                  bar_format="{l_bar}{bar}| {n}/{total} [{elapsed}<{remaining}]") as pbar:
+        with tqdm(total=len(loader_jobs), desc="Loading", unit="jobs") as pbar:
             for future in as_completed(futures):
                 job_name = futures[future]
                 try:
@@ -235,7 +233,13 @@ if __name__ == "__main__":
         selected_hard  = hard_benign[:hard_keep]
         remaining      = k_benign - len(selected_hard)
         random.shuffle(other_benign)
-        benign = selected_hard + other_benign[:remaining]
+        selected_other = other_benign[:remaining]
+        # Non-hard pool exhausted — fill the rest from remaining hard benigns (score-ranked)
+        if len(selected_other) < remaining:
+            extra_hard     = hard_benign[hard_keep:]
+            fill           = remaining - len(selected_other)
+            selected_other = selected_other + extra_hard[:fill]
+        benign = selected_hard + selected_other
         random.shuffle(benign)
 
     final_train = attacks + benign
@@ -278,3 +282,23 @@ if __name__ == "__main__":
         avg_score = (sum(s.get("hard_benign_score", 0) for s in train_hard_benign
                          if s["source"] == src) / max(n, 1))
         print(f"   {src:12s}: {n:>7,}  (avg score {avg_score:.1f})")
+
+    # ── Attack composition sanity check ──────────────────────────────────────
+    # Warn if any single source dominates the attack pool.  At TRAINING_FACTOR=0.5
+    # UWF reached 44.7% of attacks because the other pools were halved while
+    # FINAL_ATTACK stayed at 120k — causing the model to over-learn short SF TCP.
+    ATTACK_SOURCE_WARN_PCT = 25.0
+    n_atk_total = max(len(attacks), 1)
+    atk_by_source = Counter(s["source"] for s in attacks)
+    warnings_found = False
+    for src, n_src in atk_by_source.most_common():
+        pct = 100 * n_src / n_atk_total
+        if pct > ATTACK_SOURCE_WARN_PCT:
+            print(f"\n⚠  ATTACK COMPOSITION WARNING: '{src}' = {pct:.1f}% of attacks "
+                  f"({n_src:,} / {n_atk_total:,}) — exceeds {ATTACK_SOURCE_WARN_PCT:.0f}% threshold.")
+            print(f"   Consider lowering TRAINING_FACTOR or raising the cap for other sources.")
+            warnings_found = True
+    if not warnings_found:
+        top_src, top_n = atk_by_source.most_common(1)[0]
+        print(f"\n✅ Attack composition OK: top source '{top_src}' = "
+              f"{100*top_n/n_atk_total:.1f}% (threshold {ATTACK_SOURCE_WARN_PCT:.0f}%)")
