@@ -401,16 +401,6 @@ The thesis argument from these numbers:
      The factor=0.5 run is a provisional result; Win7AD-1 and the overall MCC
      number should not be cited in the thesis as the V11 result.
 
-  2. Confirm UWF contribution at factor=1.0.
-     Verify that UWF's share of the attack pool is within the expected range
-     (~10-15%) before training.  Add a preprocessing check if needed.
-
-  3. setup_runpod.sh (5090) should be updated to use --force-reinstall cu128,
-     matching setup_runpod_4090.sh.  Otherwise future 5090 runs will OOM at
-     batch sizes that previously worked.
-
-  4. [RESOLVED] Kelihos OOD status — see Section 7 below.
-
 ================================================================================
 7. KELIHOS OOD STATUS VERIFICATION
 ================================================================================
