@@ -42,7 +42,7 @@ CACHE_FILE     = "results/benchmark_realworld_cache.json"
 REPORT_TXT     = "results/benchmark_realworld_report.txt"
 RESULTS_JSON   = "results/benchmark_realworld_results.json"
 MAX_NEW_TOKENS = 80
-BATCH_SIZE     = 8
+BATCH_SIZE     = 12
 RANDOM_SEED    = 42
 
 MODELS = [
@@ -54,6 +54,8 @@ MODELS = [
     # ("v9.0 ckpt-1420 (ep1)",   "./v9.0-ids-model/checkpoint-1420"),
     # ("v9.1 ckpt-1186 (ep1)",   "./v9.1-ids-model/checkpoint-1186"),
     ("v9.1 Fine-tuned",        "./v9.1-ids-lora-adapter"),
+    ("v11 ckpt-11313 (ep1)",   "./v11-ids-model/checkpoint-11313"),
+    ("v11 ckpt-22626 (ep2)",   "./v11-ids-model/checkpoint-22626"),
 ]
 
 DATASETS = {

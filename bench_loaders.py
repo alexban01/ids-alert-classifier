@@ -31,7 +31,7 @@ import pandas as pd
 from prompt_utils import build_prompt
 
 # ── Constants ───────────────────────────────────────────────────────────────────
-CAP = 1500   # max samples per (source, class)
+CAP = 300 # max samples per (source, class)
 
 # CTU-SME-11 archives — Zenodo record 7958259
 # Echo (RETIRED): inbound internet background scanning, invalid OOD ground truth
@@ -79,77 +79,113 @@ def make_sample(proto, duration, orig_pkts, resp_pkts,
 # ── Standard loaders ────────────────────────────────────────────────────────────
 
 def load_iot23(archive_path):
-    """Native Zeek conn.log.labeled from IoT-23 tar.gz.
+    """Native Zeek conn.log.labeled from IoT-23 tar.gz or extracted directory.
+
+    Accepts either:
+      - a .tar.gz archive path (streams directly)
+      - a directory path (walks for conn.log.labeled files)
 
     Last tab field bundles: tunnel_parents label detailed-label (space-separated).
     Detailed label examples: C&C, DDoS, Okiru, PartOfAHorizontalPortScan, etc.
     """
-    if not os.path.isfile(archive_path):
+    # Resolve: if archive_path is a directory, walk it; otherwise open as tar.gz.
+    # Also check for extracted sibling directory (strip .tar.gz suffix).
+    extracted_dir = None
+    if os.path.isdir(archive_path):
+        extracted_dir = archive_path
+    elif archive_path.endswith(".tar.gz"):
+        candidate = archive_path[:-7]  # strip .tar.gz
+        if os.path.isdir(candidate):
+            extracted_dir = candidate
+        # Also check parent dir if archive basename stripped gives a subdirectory
+        parent = os.path.dirname(archive_path)
+        if extracted_dir is None and os.path.isdir(parent):
+            # Walk parent for conn.log.labeled — covers the iot-23/ extracted layout
+            found_files = glob.glob(os.path.join(parent, "**", "conn.log.labeled"), recursive=True)
+            if found_files:
+                extracted_dir = parent
+
+    if extracted_dir is None and not os.path.isfile(archive_path):
         print(f"[SKIP] IoT-23 not found: {archive_path}")
         return []
 
-    print(f"[IoT-23] Opening {archive_path} ...")
     buckets = defaultdict(list)
 
-    with tarfile.open(archive_path, "r:gz") as tf:
-        members = [m for m in tf.getmembers()
-                   if m.name.endswith("conn.log.labeled") and m.isfile()]
-        print(f"  {len(members)} conn.log.labeled file(s)")
-
-        for member in members:
-            f = tf.extractfile(member)
-            if f is None:
-                continue
-            for raw in f:
+    def _process_lines(lines, file_label):
+        for raw in lines:
+            if isinstance(raw, bytes):
                 line = raw.decode("utf-8", errors="replace").strip()
-                if not line or line.startswith("#"):
-                    continue
-                parts = line.split("\t")
-                if len(parts) < 21:
-                    continue
+            else:
+                line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split("\t")
+            if len(parts) < 21:
+                continue
 
-                last = parts[-1]
-                if "Malicious" in last:
-                    verdict = "ATTACK"
-                elif "Benign" in last:
-                    verdict = "FALSE POSITIVE"
-                else:
+            last = parts[-1]
+            if "Malicious" in last:
+                verdict = "ATTACK"
+            elif "Benign" in last:
+                verdict = "FALSE POSITIVE"
+            else:
+                continue
+
+            if len(buckets[verdict]) >= CAP:
+                continue
+
+            sub = last.split()
+            detailed = sub[2] if len(sub) >= 3 else sub[-1] if sub else "-"
+            raw_label = detailed if verdict == "ATTACK" else "Benign"
+
+            try:
+                buckets[verdict].append(make_sample(
+                    proto      = parts[6],
+                    duration   = parts[8],
+                    orig_pkts  = parts[16],
+                    resp_pkts  = parts[18],
+                    orig_bytes = parts[9],
+                    resp_bytes = parts[10],
+                    conn_state = parts[11],
+                    ground_truth = verdict,
+                    source     = "iot23",
+                    raw_label  = raw_label,
+                    service    = parts[7],
+                    orig_port  = parts[3],
+                    resp_port  = parts[5],
+                    ts         = parts[0],
+                    uid        = parts[1],
+                    orig_h     = parts[2],
+                    resp_h     = parts[4],
+                    group_id   = file_label,
+                ))
+            except IndexError:
+                continue
+
+            if all(len(v) >= CAP for v in buckets.values()):
+                return True  # signal early stop
+        return False
+
+    if extracted_dir is not None:
+        log_files = glob.glob(os.path.join(extracted_dir, "**", "conn.log.labeled"), recursive=True)
+        print(f"[IoT-23] Found {len(log_files)} conn.log.labeled file(s) in {extracted_dir}")
+        for path in log_files:
+            with open(path, "r", errors="replace") as f:
+                done = _process_lines(f, path)
+            if done:
+                break
+    else:
+        print(f"[IoT-23] Opening archive {archive_path} ...")
+        with tarfile.open(archive_path, "r:gz") as tf:
+            members = [m for m in tf.getmembers()
+                       if m.name.endswith("conn.log.labeled") and m.isfile()]
+            print(f"  {len(members)} conn.log.labeled file(s)")
+            for member in members:
+                f = tf.extractfile(member)
+                if f is None:
                     continue
-
-                if len(buckets[verdict]) >= CAP:
-                    continue
-
-                # Extract detailed label (3rd space-token in last field)
-                sub = last.split()
-                detailed = sub[2] if len(sub) >= 3 else sub[-1] if sub else "-"
-                raw_label = detailed if verdict == "ATTACK" else "Benign"
-
-                try:
-                    buckets[verdict].append(make_sample(
-                        proto      = parts[6],
-                        duration   = parts[8],
-                        orig_pkts  = parts[16],
-                        resp_pkts  = parts[18],
-                        orig_bytes = parts[9],
-                        resp_bytes = parts[10],
-                        conn_state = parts[11],
-                        ground_truth = verdict,
-                        source     = "iot23",
-                        raw_label  = raw_label,
-                        service    = parts[7],
-                        orig_port  = parts[3],
-                        resp_port  = parts[5],
-                        ts         = parts[0],
-                        uid        = parts[1],
-                        orig_h     = parts[2],
-                        resp_h     = parts[4],
-                        group_id   = member.name,
-                    ))
-                except IndexError:
-                    continue
-
-                # Stop early if both buckets are full
-                if all(len(v) >= CAP for v in buckets.values()):
+                done = _process_lines(f, member.name)
+                if done:
                     break
 
     atk = len(buckets["ATTACK"])
