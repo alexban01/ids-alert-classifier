@@ -214,6 +214,30 @@ if __name__ == "__main__":
           f" → taking {n_o:,}")
     other_selected = random.choices(sf_others + other_others, weights=weights, k=n_o) if others else []
 
+    # ── Per-source hard cap on the weighted draw ───────────────────────────────
+    # random.choices (with replacement) + 2× SF weight can push SF-heavy sources
+    # (e.g. UWF Credential Access) above the composition threshold even when
+    # loader caps are respected.  Trim to 25% of FINAL_ATTACK per source, then
+    # refill the shortfall from sources still under cap.
+    _src_draw_cap = int(FINAL_ATTACK * 0.25)
+    _src_drawn    = Counter(s["source"] for s in other_selected)
+    if any(c > _src_draw_cap for c in _src_drawn.values()):
+        random.shuffle(other_selected)
+        _seen, _kept = Counter(), []
+        for s in other_selected:
+            if _seen[s["source"]] < _src_draw_cap:
+                _kept.append(s)
+                _seen[s["source"]] += 1
+        shortfall = n_o - len(_kept)
+        if shortfall > 0:
+            _refill_pool = [s for s in (sf_others + other_others)
+                            if _seen[s["source"]] < _src_draw_cap]
+            if _refill_pool:
+                _rw = [2.0 if s.get("conn_state", "-") in ("SF", "S1", "OTH") else 1.0
+                       for s in _refill_pool]
+                _kept.extend(random.choices(_refill_pool, weights=_rw, k=shortfall))
+        other_selected = _kept
+
     attacks = ctu_m_selected + other_selected
     random.shuffle(attacks)
 

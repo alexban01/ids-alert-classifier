@@ -13,7 +13,7 @@ EVAL_FRAC   = 0.10            # fraction of each (source, class) bucket held out
 # ── Scale factor ───────────────────────────────────────────────────────────────
 # Set to 1.0 for full RunPod runs (~360k samples).
 # Set to 0.03–0.1 for fast local validation on RTX 3070.
-TRAINING_FACTOR = 0.5
+TRAINING_FACTOR = 1.0
 
 # ── Per-source caps ────────────────────────────────────────────────────────────
 MAX_PER_SOURCE_CLASS     = int(80_000 * TRAINING_FACTOR)   # default cap per (source, class)
@@ -22,9 +22,12 @@ IOT23_BENIGN_CAP         = int(20_000 * TRAINING_FACTOR)   # IoT-23 benign is 89
 # Per-file caps for IoT-23 parallel dispatch.
 # Attack cap matches CTU13_FILE_CAP so IoT-23 (~50k total) competes fairly with
 # CTU-13 (~52k) and UNSW (~40k) in the weighted draw — prevents S0-flood dominance.
-IOT23_FILE_ATTACK_CAP    = int(5_000 * TRAINING_FACTOR)
+IOT23_FILE_ATTACK_CAP    = int(3_000 * TRAINING_FACTOR)
 IOT23_FILE_BENIGN_CAP    = max(50, int(1_000 * TRAINING_FACTOR))
 CTU_NORMAL_CAP           = int(100_000 * TRAINING_FACTOR)  # only significant SF benign source
+UWF_ATTACK_CAP           = int(25_000 * TRAINING_FACTOR)   # Credential Access + Defense Evasion
+                                                            # re-enabled in v8.1 — cap prevents UWF
+                                                            # from dominating the attack pool
 
 # CTU balance knobs — tune these to control CTU-13 vs CTU-Malware contribution.
 # CTU-13 has 13 binetflow files; CTU-Malware has 20 scenarios (v11).
@@ -50,7 +53,7 @@ FINAL_BENIGN = 240_000
 # Raise if more scenarios get fixed and pool grows.
 # Not scaled by TRAINING_FACTOR (same pattern as FINAL_ATTACK/FINAL_BENIGN):
 # on small local runs, min(budget, pool_size) naturally falls back to pool_size.
-CTU_MALWARE_ATTACK_BUDGET = 20_000
+CTU_MALWARE_ATTACK_BUDGET = 24_000
 
 # ── Training-time masking probabilities ───────────────────────────────────────
 CONN_STATE_MASK_PROB = 0.20   # blank conn_state to "-" for this fraction of samples;

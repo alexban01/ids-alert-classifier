@@ -16,7 +16,7 @@ import os
 import pandas as pd
 
 from behavior_features import build_behavior_contexts
-from preprocess_config import MAX_PER_SOURCE_CLASS
+from preprocess_config import MAX_PER_SOURCE_CLASS, UWF_ATTACK_CAP
 from preprocess_sample import make_sample
 
 _UWF_ALLOWED_TACTICS = {"Credential Access", "Defense Evasion"}
@@ -121,7 +121,8 @@ def load_uwf(dataset_dir):
         behavior_ctxs = build_behavior_contexts(rows)
         for row, behavior_ctx in zip(rows, behavior_ctxs):
             bucket = samples[row["verdict"]]
-            if len(bucket) >= MAX_PER_SOURCE_CLASS:
+            cap = UWF_ATTACK_CAP if row["verdict"] == "ATTACK" else MAX_PER_SOURCE_CLASS
+            if len(bucket) >= cap:
                 continue
             bucket.append(make_sample(
                 row["proto"], row["duration"], row["orig_pkts"], row["resp_pkts"],
