@@ -18,7 +18,7 @@ if RUNPOD:
     GRAD_ACCUM           = 1      # effective batch = 24
     GRAD_CHECKPOINTING   = False  # 32 GB has headroom even at max_length=1024
     PIN_MEMORY           = True
-    NUM_WORKERS          = 4
+    NUM_WORKERS          = 0      # CUDA+fork unstable on Linux regardless of hardware; bottleneck is GPU not JSONL loading
     EPOCHS               = 3
     MAX_LENGTH           = 512
 else:

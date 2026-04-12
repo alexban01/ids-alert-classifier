@@ -5,26 +5,44 @@
 #
 # Usage:
 #   1. Upload zeek_dataset.jsonl + zeek_dataset_eval.jsonl + train.py to /workspace/
-#   2. Run: bash setup_runpod.sh
+#   2. Run: bash setup_runpod.sh [--torch29]
 #   3. Run: python train.py --runpod
 #   4. Download v12-ids-lora-adapter/ when done
+#
+# Flags:
+#   --torch29   Force-reinstall torch 2.9.0+cu128 instead of using the template's 2.8.0.
+#               Use if the template torch causes OOM or kernel errors. torch 2.10/2.11
+#               have incomplete SM_120 (Blackwell) support and fall back to unoptimized
+#               kernel paths on RTX 5090, causing OOM at batch=12+.
 
 set -e
 
-echo "── Installing PyTorch (cu128, force-reinstall to override any mismatched build) ──"
-pip install torch torchvision torchaudio \
-    --index-url https://download.pytorch.org/whl/cu128 \
-    --force-reinstall
+TORCH29=0
+for arg in "$@"; do
+    case $arg in
+        --torch29) TORCH29=1 ;;
+    esac
+done
 
-echo ""
-echo "── Installing training dependencies ──"
-pip install --upgrade \
-    transformers \
-    peft \
-    trl \
-    bitsandbytes \
-    datasets \
-    accelerate \
+if [ "$TORCH29" = "1" ]; then
+    echo "── Installing PyTorch 2.9.0+cu128 (--torch29) ──"
+    pip install torch==2.9.0+cu128 torchvision torchaudio \
+        --index-url https://download.pytorch.org/whl/cu128 \
+        --force-reinstall
+    echo ""
+else
+    echo "── Using template PyTorch 2.8.0 (pass --torch29 to override) ──"
+    echo ""
+fi
+
+echo "── Installing training dependencies (pinned to local versions) ──"
+pip install \
+    transformers==5.3.0 \
+    peft==0.18.1 \
+    trl==0.29.1 \
+    bitsandbytes==0.49.2 \
+    datasets==4.8.4 \
+    accelerate==1.13.0 \
     scikit-learn
 
 echo ""
