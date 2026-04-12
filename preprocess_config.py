@@ -255,6 +255,12 @@ ATTACK_REASONS = [
     # ── Multi-log context: SSL/TLS (Phase 3 — used when ssl.log is available) ─
     "SSL/TLS connection with a self-signed certificate or failed certificate validation is consistent with malware C2 over HTTPS without a legitimate PKI chain.",
     "Use of an obsolete TLS version (SSLv3, TLSv1.0) or weak cipher suite (RC4, NULL, EXPORT) in an established connection may indicate legacy malware C2 or an adversary-in-the-middle setup.",
+
+    # ── Windows RPC / DCE exploitation (Murlo Botnet-49) ─────────────────────
+    "S0 or RSTO TCP connection to port 135 (Windows DCE/RPC endpoint mapper) from a host outside the local Windows domain segment indicates unsolicited RPC service probing consistent with lateral movement reconnaissance or Windows exploitation (Murlo pattern).",
+
+    # ── ICMP host-discovery sweep (Rbot-v2 Botnet-51) ────────────────────────
+    "Many short ICMP flows to distinct destination IPs with small consistent orig_bytes and zero or near-zero resp_bytes indicate an automated ping sweep for host discovery — distinct from an ICMP flood in that traffic targets many unique IPs at low rate rather than saturating a single destination.",
 ]
 
 BENIGN_REASONS = [
@@ -306,6 +312,12 @@ BENIGN_REASONS = [
 
     # ── Industrial / internal (complement to ICS attack reason) ─────────────
     "TCP connection to Modbus (502) or OPC-UA (4840) from a known engineering workstation IP within the OT network segment is consistent with authorized SCADA operations.",
+
+    # ── Windows protocol complements (SMB, RDP, DCE/RPC, LLMNR/mDNS) ─────────
+    "TCP connection to port 445 (SMB/CIFS) from an internal host to another internal host with SF state and moderate bidirectional byte exchange is consistent with authorized Windows file sharing, domain authentication, or Group Policy retrieval.",
+    "Established TCP connection to port 3389 (RDP) with large bidirectional byte exchange and clean SF completion is consistent with an authorized remote desktop session by an IT administrator or remote worker.",
+    "Short SF TCP connection to port 135 (Windows DCE/RPC endpoint mapper) from an internal host with small symmetric byte exchange is consistent with normal Active Directory service discovery or distributed COM object binding.",
+    "UDP S0 flow to a high-numbered ephemeral port (≥49152) with 700–1500 orig_bytes and zero resp_bytes is consistent with a Windows link-local multicast name resolution broadcast (LLMNR, mDNS, or NetBIOS) that received no reply — normal behavior when no local resolver handles the queried name.",
 
     # ── Background / misc ─────────────────────────────────────────────────────
     "Short S0 or RSTO connection to a common port with zero bytes is consistent with a firewall probe, NAT keepalive, or connection refused response.",
