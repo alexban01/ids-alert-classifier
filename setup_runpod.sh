@@ -4,10 +4,10 @@
 # Target GPU: RTX 5090 (32 GB VRAM)
 #
 # Usage:
-#   1. Upload zeek_dataset.jsonl + train.py to /workspace/
+#   1. Upload zeek_dataset.jsonl + zeek_dataset_eval.jsonl + train.py to /workspace/
 #   2. Run: bash setup_runpod.sh
-#   3. Run: python train.py
-#   4. Download v11-ids-lora-adapter/ when done
+#   3. Run: python train.py --runpod
+#   4. Download v12-ids-lora-adapter/ when done
 
 set -e
 
@@ -52,4 +52,4 @@ fi
 echo ""
 echo "── Ready ──"
 echo "Run:  cd /workspace && python train.py --runpod"
-echo "Then: scp -P <port> -i ~/.ssh/runpod root@<host>:/workspace/v11-ids-lora-adapter/ ."
+echo "Then: scp -P <port> -i ~/.ssh/runpod root@<host>:/workspace/v12-ids-lora-adapter/ ."
