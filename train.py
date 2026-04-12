@@ -20,7 +20,7 @@ if RUNPOD:
     PIN_MEMORY           = True
     NUM_WORKERS          = 4
     EPOCHS               = 3
-    MAX_LENGTH           = 1024
+    MAX_LENGTH           = 512
 else:
     BATCH                = 3
     GRAD_ACCUM           = 8      # effective batch = 24 (6×4)
@@ -28,7 +28,7 @@ else:
     PIN_MEMORY           = False
     NUM_WORKERS          = 0      # CUDA+fork unstable on local Linux. fork() copies the parent's CUDA context into worker processes — those handles are invalid in the child, causing deadlocks or corruption. spawn would fix it but adds complexity; workers=0 is simpler since the bottleneck is the GPU, not JSONL loading.
     EPOCHS               = 1
-    MAX_LENGTH           = 768
+    MAX_LENGTH           = 512
 
 print(f"Target: {'RunPod RTX 5090' if RUNPOD else 'Local RTX 3070'}  "
       f"| batch={BATCH}  accum={GRAD_ACCUM}  effective={BATCH*GRAD_ACCUM}  "
