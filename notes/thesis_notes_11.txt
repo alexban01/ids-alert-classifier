@@ -1,0 +1,210 @@
+================================================================================
+IDS ALERT CLASSIFIER — THESIS DEVELOPMENT NOTES (continued from thesis_notes_10.txt)
+Fine-tuning Qwen2.5-1.5B-Instruct for network intrusion detection
+================================================================================
+
+This file covers the V12 experiment: root-cause analysis of the V11
+composition bias, the preprocessing fixes implemented before the V12 training
+run, and the rationale for V12 being the final thesis model.
+See thesis_notes_10.txt for V11 results and the classical ML baseline.
+
+================================================================================
+1. ROOT CAUSE ANALYSIS — V11 ATTACK COMPOSITION BIAS
+================================================================================
+
+V11 was trained at TRAINING_FACTOR=0.5 (unintentionally, due to the RTX 5090
+OOM regression documented in thesis_notes_10.txt Section 4).  The benchmark
+showed that Win7AD-1 attack recall regressed -29.3 pp relative to V9.1 and
+was attributed to UWF composition dominance.  This section documents the
+exact mechanism so it does not recur.
+
+--- 1.1  Two compounding effects ---
+
+Effect 1: smaller per-source pools at factor=0.5.
+    At TRAINING_FACTOR=0.5, all per-source caps are halved:
+        MAX_PER_SOURCE_CLASS: 40k  (was 80k)
+        IOT23_FILE_ATTACK_CAP: 2.5k per file  (was 5k)
+    But FINAL_ATTACK stays at 120k — the total attack budget is not scaled.
+    When IoT-23 and CTU-13 caps are halved their pools shrink, leaving more
+    of the 120k slots to be filled by UWF, which still has a large pool.
+
+Effect 2: random.choices with replacement + 2× SF oversampling weight.
+    The non-CTU-Malware attacks are drawn via random.choices(..., weights,
+    k=n_o), which samples with replacement.  SF/S1/OTH flows carry 2× weight
+    to improve recall on completed-connection attacks (C2, Credential Access).
+    UWF attacks are exclusively Credential Access (short SF TCP to port 4848
+    or 445) — nearly 100% SF-state.  Because SF samples get twice the draw
+    probability, UWF's effective over-representation scales with its SF
+    fraction, not just its pool size.
+
+Combined: at factor=0.5, UWF's halved pool was still large relative to the
+shrunken IoT-23/CTU-13 pools, and every UWF sample carried a 2× draw weight.
+Result: UWF constituted approximately 44.7% of the 120k attack budget —
+nearly half the attack training data was a single homogeneous tactic
+(short SF TCP Credential Access), causing the model to over-learn that
+signature and misclassify Win7AD-1's Trickbot C2 and REJ/RSTR flows.
+
+--- 1.2  Evidence: composition warning at factor=1.0 ---
+
+After upgrading to factor=1.0, a composition check (added in V11) still
+fired for two sources:
+
+    UWF:   31.8% of attacks (38,102 / 120,000) — exceeds 25% threshold
+    IoT-23: 29.3% of attacks (35,137 / 120,000) — exceeds 25% threshold
+
+UWF at 31.8% at factor=1.0 (where pools are full) confirms that Effect 2
+persists independently of Effect 1: even with full pools, the 2× SF weight
+causes UWF to exceed its pool-proportional share in the final draw.
+
+================================================================================
+2. PREPROCESSING FIXES FOR V12
+================================================================================
+
+Three fixes were implemented to address the composition bias.
+
+--- 2.1  Loader-level per-source attack caps ---
+
+UWF_ATTACK_CAP = 25,000 (new constant in preprocess_config.py).
+    Applied in loader_uwf.py separately from MAX_PER_SOURCE_CLASS.
+    Bounds the UWF attack pool before it enters the weighted draw.
+    Benign samples from UWF remain at MAX_PER_SOURCE_CLASS.
+
+IOT23_FILE_ATTACK_CAP: 5,000 → 3,000 per file.
+    IoT-23 has ~10 active files; at 5k/file the aggregate pool exceeded 30k.
+    At 3k/file the aggregate stays below 30k, keeping IoT-23 under the
+    25% composition threshold after the weighted draw.
+
+--- 2.2  Post-draw per-source hard cap with refill ---
+
+The loader-level caps reduce pool size but cannot fully prevent Effect 2:
+a source with a high SF fraction still gets over-selected in the weighted
+draw regardless of pool size.  A post-draw cap was added in preprocess_zeek.py
+immediately after the random.choices call:
+
+    _src_draw_cap = int(FINAL_ATTACK * 0.25)   # 30,000 at full scale
+    if any source in other_selected exceeds _src_draw_cap:
+        shuffle and trim other_selected to cap per source
+        refill shortfall from pool of under-represented sources,
+        preserving the SF/non-SF 2× weight for the refill draw
+
+This is a hard guarantee: regardless of factor, SF fraction, or pool sizes,
+no non-CTU-Malware source can contribute more than 25% of FINAL_ATTACK to
+the attack training pool.  The mechanism is transparent in the preprocessing
+output — the composition warning prints for each source that required trimming.
+
+--- 2.3  CTU-Malware attack budget: 20k → 24k ---
+
+At factor=1.0 with 15 scenarios, the actual CTU-Malware attack pool is
+approximately 23,918 flows.  The budget was 20,000, leaving ~4k botnet
+flows unused.  Raising to 24,000 ensures the full pool is always consumed,
+giving the model maximum exposure to diverse botnet families.
+
+Note: the budget is not scaled by TRAINING_FACTOR (same as FINAL_ATTACK),
+so on small local validation runs min(budget, pool_size) naturally falls back
+to the pool size with no wasted budget.
+
+================================================================================
+3. REASON POOL COMPLETENESS AUDIT (V12)
+================================================================================
+
+The ATTACK_REASONS and BENIGN_REASONS pools were audited against every
+training source included in V12.  Two attack families added in V11 (Murlo,
+Rbot-v2) had no matching attack reasons.  The V11 hard-benign UDP broadcast
+rule introduced a new benign flow type with no corresponding reason.  Four
+benign port asymmetries were also identified.
+
+--- 3.1  Missing attack reasons (added for V12) ---
+
+Port 135 DCE/RPC exploitation — Murlo (Botnet-49):
+    Murlo's flow signature is 77% TCP to port 135 with S_ state (Argus
+    SYN-only, equivalent to Zeek S0).  Port 135 is Windows DCE/RPC / RPC
+    Endpoint Mapper.  No existing reason described exploitation of this
+    vector.  Added: S0/RSTO TCP to port 135 from outside the local Windows
+    domain segment as RPC exploitation or lateral movement reconnaissance.
+
+ICMP host-discovery sweep — Rbot-v2 (Botnet-51):
+    Rbot-v2 is 99.6% ICMP with binetflow states UNK/ECO/ROB (ICMP-specific).
+    The existing ICMP reason targets DoS floods ("very high packet count +
+    large orig_bytes to a single destination").  Rbot-v2 sends low-rate ICMP
+    echo requests to many unique destination IPs — a host discovery sweep,
+    not a flood.  Added a reason distinguishing multi-host sweep (many unique
+    dest IPs, small consistent orig_bytes, near-zero resp_bytes) from
+    single-destination saturation.
+
+--- 3.2  Missing benign reasons (added for V12) ---
+
+Four benign reasons were added to balance attack-side coverage of Windows
+ports that also appear in legitimate enterprise traffic:
+
+    Legitimate SMB/CIFS (port 445):
+        Three attack reasons cover port 445 exploitation (EternalBlue, worm
+        propagation, Defense Evasion).  No benign reason existed for
+        authorized Windows file sharing or domain authentication on port 445.
+
+    Legitimate RDP (port 3389):
+        Attack reason covers RDP brute force.  No benign complement for an
+        authorized IT admin or remote worker session existed.
+
+    Legitimate Windows DCE/RPC (port 135):
+        New attack reason for Murlo requires a benign counterpart for normal
+        Active Directory service discovery and COM object binding on port 135.
+
+    Windows LLMNR/mDNS/NetBIOS UDP S0 (port ≥49152):
+        The V11 hard-benign scoring rule assigns +3 points to UDP S0 flows
+        matching the LLMNR/mDNS/NetBIOS broadcast pattern (700–1500 orig_bytes,
+        zero resp_bytes, ephemeral destination port).  These flows appear
+        frequently in the hard-benign training pool, but no reason described
+        why they are benign — the model fell back to generic UDP descriptions.
+        Added an explicit reason citing Windows link-local multicast name
+        resolution (LLMNR, mDNS, NetBIOS) as the expected source.
+
+Pool size after V12 additions: 77 attack reasons (was 75), 48 benign reasons
+(was 44).
+
+================================================================================
+4. V12 DESIGN SUMMARY AND THESIS RATIONALE
+================================================================================
+
+V12 is not an architectural change — it is the factor=1.0 training run that
+V11 was intended to be.  The V11 design (r=32, lora_alpha=64, 15 CTU-Malware
+scenarios, UWF Credential Access + Defense Evasion, hard-benign UDP broadcast
+rule, max_length=1024) is correct.  The V11 training run was compromised by
+the unintentional factor=0.5 setting.
+
+V12 changes relative to V11 (design, not training run):
+    - TRAINING_FACTOR: 0.5 → 1.0
+    - UWF_ATTACK_CAP = 25,000 (new)
+    - IOT23_FILE_ATTACK_CAP: 5k → 3k per file
+    - Post-draw per-source hard cap (25% of FINAL_ATTACK = 30k) with refill
+    - CTU_MALWARE_ATTACK_BUDGET: 20k → 24k (full pool)
+    - Reason pool: +2 attack, +4 benign (completeness)
+    - Output dirs: v12-ids-model / v12-ids-lora-adapter
+
+Expected V12 benchmark results:
+    - Win7AD-1 attack recall: recovery to ~84–87% (V10 level; the V11
+      regression was entirely attributable to the factor=0.5 UWF bias)
+    - Echo attack recall: ≥75% (maintained or improved)
+    - Kelihos attack recall: ~81–83% (stable; not the target of any V12 change)
+    - IoT-23 FP recall: ~99% (preserved from V11)
+    - Overall MCC: target +0.88–0.90
+
+V12 is designated the final thesis model.  Further training iterations would
+require either a new data source with qualitatively different coverage (e.g.,
+encrypted C2 via legitimate HTTPS traffic) or an architectural change (e.g.,
+a larger base model).  Neither is warranted given the documented OOD ceiling
+and the thesis timeline.
+
+--- 4.1  Why no further iterations are warranted ---
+
+The primary OOD gap — Kelihos recall capped at ~81–83% — is not a training
+data problem.  As established in thesis_notes_10.txt Section 7, the model
+detects Kelihos via positive transfer from IoT-23 S0/UDP scan patterns, not
+from family-specific training.  Adding more Kelihos-like training data is
+not possible (Botnet-3 is the OOD hold-out); adding more IoT-23 data would
+not change the structural generalization already achieved.
+
+The Win7AD-1 / Trickbot C2 gap is expected to close at factor=1.0 based on
+V10's 87.1% Win7AD-1 recall (which was also a factor=1.0 run).  If V12
+does not recover to V10 levels on Win7AD-1 after the composition fixes, the
+residual gap would warrant investigation — but should not trigger another
+full training iteration without a clear hypothesis about the cause.
