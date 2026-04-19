@@ -30,8 +30,11 @@ import os
 import csv
 import random
 import urllib.request
-import torch
 from collections import defaultdict
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import torch
 from sklearn.metrics import classification_report, confusion_matrix, matthews_corrcoef
 
 from classify_conn_log import (

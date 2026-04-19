@@ -4,31 +4,14 @@ datasets/
 # Generated training data
 *.jsonl
 
-# Model outputs — checkpoints, adapters, GGUF
-v4-ids-model/
-v4-ids-lora-adapter/
-v5-ids-model/
-v5-ids-lora-adapter/
-v6-ids-model/
-v6-ids-lora-adapter/
-v7-ids-model/
-v7-ids-lora-adapter/
-v7.1-ids-model/
-v8-ids-model/
-v8.1-ids-model/
-v9.0-ids-model/
-v9.0-ids-lora-adapter/
-v9.1-ids-model/
-v9.1-ids-lora-adapter/
-v10-ids-model/
-v10-ids-lora-adapter/
-v11-ids-model/
-v11-ids-lora-adapter/
+# Model outputs — checkpoints, adapters, merged, GGUF
+v*-ids-model/
+v*-ids-lora-adapter/
 *-ids-lora-adapter-merged/
 *.gguf
 **/model.safetensors
 
-# Checkpoint artifacts (large, not needed in git — use LFS for final adapters)
+# Checkpoint artifacts (large, not needed in git)
 **/tokenizer.json
 **/optimizer.pt
 **/rng_state.pth

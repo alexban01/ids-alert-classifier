@@ -20,11 +20,14 @@ Loaders:
 """
 
 import os
+import sys
 import re
 import tarfile
 import glob
 import urllib.request
 from collections import defaultdict
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pandas as pd
 

@@ -18,10 +18,14 @@ Usage:
     .venv/bin/python classify_conn_log.py conn.log --http-log http.log --ssl-log ssl.log
 """
 
+import os
 import sys
 import json
 import urllib.request
 import urllib.error
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import PeftModel

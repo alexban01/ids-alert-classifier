@@ -10,10 +10,13 @@ Usage:
     .venv/bin/python test_novel_cases.py [MODEL]
 """
 
+import os
 import sys
 import json
 import urllib.request
 import urllib.error
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from prompt_utils import SYSTEM_PROMPT, build_prompt, extract_verdict
 

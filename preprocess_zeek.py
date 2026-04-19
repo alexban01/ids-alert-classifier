@@ -7,16 +7,16 @@ Outputs:
 
 Module layout
 ─────────────
-  preprocess_config.py     — caps, ratio targets, masking probs, reason pools
-  preprocess_sample.py     — score_hard_benign(), make_sample(), pick_reason()
-  zeek_log_utils.py        — Zeek TSV parser + CTU-Malware download helpers
-  loader_iot23.py          — IoT-23 conn.log.labeled (tar.gz)
-  loader_ctu13.py          — CTU-13 binetflow (tar.bz2)
-  loader_unsw.py           — UNSW-NB15 parquet / CSV
-  loader_cicids.py         — CICIDS2017 CICFlowMeter CSVs (disabled in v7+)
-  loader_uwf.py            — UWF-ZeekData24 Spark CSV
-  loader_ctu_normal.py     — CTU-Normal benign Zeek conn.log
-  loader_ctu_malware.py    — CTU-Malware-Capture multi-log enriched samples
+  preprocess_config.py            — caps, ratio targets, masking probs, reason pools
+  preprocess_sample.py            — score_hard_benign(), make_sample(), pick_reason()
+  zeek_log_utils.py               — Zeek TSV parser + CTU-Malware download helpers
+  loaders/loader_iot23.py         — IoT-23 conn.log.labeled (tar.gz)
+  loaders/loader_ctu13.py         — CTU-13 binetflow (tar.bz2)
+  loaders/loader_unsw.py          — UNSW-NB15 parquet / CSV
+  loaders/loader_cicids.py        — CICIDS2017 CICFlowMeter CSVs (disabled in v7+)
+  loaders/loader_uwf.py           — UWF-ZeekData24 Spark CSV
+  loaders/loader_ctu_normal.py    — CTU-Normal benign Zeek conn.log
+  loaders/loader_ctu_malware.py   — CTU-Malware-Capture multi-log enriched samples
 """
 
 import json
@@ -40,13 +40,13 @@ from preprocess_config import (
     RANDOM_SEED,
     TRAIN_FILE,
 )
-from loader_iot23         import load_iot23_file
-from loader_ctu13         import load_ctu13_file
-from loader_unsw          import load_unsw
-from loader_cicids        import load_cicids          # noqa: F401 — kept for optional re-enable
-from loader_uwf           import load_uwf
-from loader_ctu_normal    import load_ctu_normal
-from loader_ctu_malware   import load_ctu_malware_scenario
+from loaders.loader_iot23         import load_iot23_file
+from loaders.loader_ctu13         import load_ctu13_file
+from loaders.loader_unsw          import load_unsw
+from loaders.loader_cicids        import load_cicids          # noqa: F401 — kept for optional re-enable
+from loaders.loader_uwf           import load_uwf
+from loaders.loader_ctu_normal    import load_ctu_normal
+from loaders.loader_ctu_malware   import load_ctu_malware_scenario
 
 def _run_loader_job(job_name, dataset_path):
     """Worker wrapper for ProcessPoolExecutor loader jobs.

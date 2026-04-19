@@ -6,11 +6,15 @@ Usage:
 """
 
 import os
+import sys
 import json
 import random
+from datetime import datetime
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import torch
 import pandas as pd
-from datetime import datetime
 from torch.utils.data import DataLoader, Dataset
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import PeftModel

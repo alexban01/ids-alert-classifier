@@ -16,6 +16,7 @@ Examples:
     .venv/bin/python benchmark_ollama.py ids-classifier --cache results/benchmark_samples_v4.json
 """
 
+import os
 import sys
 import json
 import time
@@ -23,6 +24,9 @@ import urllib.request
 import urllib.error
 from datetime import datetime
 from collections import defaultdict
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from sklearn.metrics import classification_report, confusion_matrix, matthews_corrcoef
 
 from prompt_utils import SYSTEM_PROMPT, extract_verdict
