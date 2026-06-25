@@ -57,7 +57,8 @@ Arch Linux managed environment — system `python3`/`pip3` refuse to install pac
 │   ├── merge_adapter.py      #   Merge LoRA adapter into base model for GGUF
 │   ├── analyze_gap.py        #   Distribution gap analysis
 │   ├── baseline_ml.py        #   Random Forest / Logistic Regression baseline
-│   ├── setup_runpod.sh       #   RunPod pod setup (5090)
+│   ├── setup_runpod.py       #   RunPod pod setup (5090) — parallel deps+model, single-file
+│   ├── setup_runpod.sh       #   RunPod pod setup (5090) — legacy bash, superseded by .py
 │   └── setup_runpod_4090.sh  #   RunPod pod setup (4090)
 │
 ├── tests/                    # Test files
@@ -87,7 +88,16 @@ Arch Linux managed environment — system `python3`/`pip3` refuse to install pac
 
 ## Training
 
-Run on RunPod pod: `python train.py` (after `bash scripts/setup_runpod.sh`)
+Run on RunPod pod (single command — installs deps + prefetches base model in
+parallel via `uv`, then trains):
+
+```bash
+python scripts/setup_runpod.py --train            # add --torch29 on RTX 5090/Blackwell
+```
+
+`setup_runpod.py` supersedes `setup_runpod.sh`. Use `--train` to chain straight into
+`train.py --runpod`; omit it to set up only. Upload `zeek_dataset.jsonl` +
+`zeek_dataset_eval.jsonl` to `/workspace` first.
 
 Train and eval datasets are pre-split by `preprocess_zeek.py` using source-stratified
 sampling (10% per source/class bucket) — `zeek_dataset.jsonl` + `zeek_dataset_eval.jsonl`.

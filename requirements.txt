@@ -2,7 +2,7 @@
 pandas
 
 # ── Training / inference (RunPod RTX 5090 or local RTX 3070) ─────────────────
-# torch is installed separately (CUDA-specific wheel) — see setup_runpod.sh.
+# torch is installed separately (CUDA-specific wheel) — see scripts/setup_runpod.py.
 # Install locally with: pip install torch --index-url https://download.pytorch.org/whl/cu128
 transformers
 peft
