@@ -53,9 +53,9 @@ MODELS = [
     # ("v8.1 Fine-tuned",      "./v8.1-ids-lora-adapter"),
     # ("v9.0 ckpt-1420 (ep1)",   "./v9.0-ids-model/checkpoint-1420"),
     # ("v9.1 ckpt-1186 (ep1)",   "./v9.1-ids-model/checkpoint-1186"),
-    ("v9.1 Fine-tuned",        "./v9.1-ids-lora-adapter"),
+    # ("v9.1 Fine-tuned",        "./v9.1-ids-lora-adapter"),   # superseded by v11
     ("v11 ckpt-11313 (ep1)",   "./v11-ids-model/checkpoint-11313"),
-    ("v11 ckpt-22626 (ep2)",   "./v11-ids-model/checkpoint-22626"),
+    ("v11 ckpt-22626 (ep2)",   "./v11-ids-model/checkpoint-22626"),   # best (eval_loss 0.1570)
 ]
 
 DATASETS = {
