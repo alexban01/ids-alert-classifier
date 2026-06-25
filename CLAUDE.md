@@ -101,23 +101,34 @@ gradient_accumulation_steps = 6     # effective batch = 24
 **Shared settings:**
 ```python
 optim = "paged_adamw_8bit"
-num_train_epochs = 3
+num_train_epochs = 2                 # --epochs (default 2); load_best keeps best eval_loss
+packing = True                       # --no-pack to disable; ~20% cheaper/epoch, objective unchanged
 learning_rate = 2e-4
 lr_scheduler_type = "cosine_with_restarts"
-lr_scheduler_kwargs = {"num_cycles": 3}
+lr_scheduler_kwargs = {"num_cycles": EPOCHS}   # one cosine restart per epoch
 warmup_ratio = 0.03
 weight_decay = 0.01
 bf16 = True
-gradient_checkpointing = True
+gradient_checkpointing = True        # RunPod path sets this False (32 GB headroom)
 eval_strategy = "epoch"
 load_best_model_at_end = True
 metric_for_best_model = "eval_loss"
 save_strategy = "epoch"
+save_total_limit = 2
 max_length = 512
-logging_steps = 250
-dataloader_num_workers = 4
+logging_steps = 100
+dataloader_num_workers = 0
 dataloader_pin_memory = True
 ```
+
+**Cost knobs** (RunPod RTX 5090, ~$0.44/hr — cost = GPU-hours): training set is
+~241k samples, token lengths mean 296 / p99 500 (so `max_length=512` is right and
+not a lever). To train cheaper: `packing=True` (default) cuts opt-steps to 0.69×
+and ~20% of tokens/epoch, `--epochs 2` saves ~33% vs 3, `--eval-subset 6000` trims
+eval forward work to ~0.19×, and `TRAINING_FACTOR` in `preprocess_config.py` scales
+the dataset (and cost) linearly at the expense of coverage. Measured (real tokenizer
++ bin-packing, no training): combined default run (2 epochs + packing) ≈ **0.53×**
+the train compute of the old 3-epoch unpacked run — roughly **half** the GPU-hours.
 
 **Inference runs locally on RTX 3070** — adapter is hardware-agnostic.
 

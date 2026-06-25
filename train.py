@@ -10,16 +10,30 @@ import os
 parser = argparse.ArgumentParser()
 parser.add_argument("--runpod", action="store_true",
                     help="Use RunPod RTX 5090 settings (batch=24, no grad checkpointing)")
+parser.add_argument("--epochs", type=int, default=2,
+                    help="Training epochs (default 2). load_best_model_at_end keeps the "
+                         "best-eval_loss checkpoint, so 2 epochs ≈ 3 in quality but ~33%% cheaper.")
+parser.add_argument("--no-pack", action="store_true",
+                    help="Disable sequence packing. Packing (default ON) concatenates the "
+                         "variable-length samples (mean 296 tok) into full max_length sequences. "
+                         "Measured on the real set: 241k seqs -> 165k packed (0.69x steps), ~20%% "
+                         "fewer tokens/epoch. The run trains on the full sequence either way "
+                         "(no completion-only masking), so packing does not change the loss objective.")
+parser.add_argument("--eval-subset", type=int, default=6000,
+                    help="Cap eval set to this many samples (0 = use all). Eval runs every epoch "
+                         "purely to pick the best checkpoint by eval_loss; 6k is plenty and saves "
+                         "most of the eval-pass cost vs the full 31k held-out set.")
 args = parser.parse_args()
-RUNPOD = args.runpod
+RUNPOD  = args.runpod
+EPOCHS  = args.epochs
+PACKING = not args.no_pack
 
 if RUNPOD:
     BATCH                = 24
     GRAD_ACCUM           = 1      # effective batch = 24
-    GRAD_CHECKPOINTING   = False  # 32 GB has headroom even at max_length=1024
+    GRAD_CHECKPOINTING   = False  # 32 GB has headroom even at max_length=512
     PIN_MEMORY           = True
     NUM_WORKERS          = 0      # CUDA+fork unstable on Linux regardless of hardware; bottleneck is GPU not JSONL loading
-    EPOCHS               = 3
     MAX_LENGTH           = 512
 else:
     BATCH                = 4
@@ -27,12 +41,11 @@ else:
     GRAD_CHECKPOINTING   = True   # required for 8 GB VRAM; 1024 tokens needs smaller batch
     PIN_MEMORY           = False
     NUM_WORKERS          = 0      # CUDA+fork unstable on local Linux. fork() copies the parent's CUDA context into worker processes — those handles are invalid in the child, causing deadlocks or corruption. spawn would fix it but adds complexity; workers=0 is simpler since the bottleneck is the GPU, not JSONL loading.
-    EPOCHS               = 3
     MAX_LENGTH           = 512
 
 print(f"Target: {'RunPod RTX 5090' if RUNPOD else 'Local RTX 3070'}  "
       f"| batch={BATCH}  accum={GRAD_ACCUM}  effective={BATCH*GRAD_ACCUM}  "
-      f"max_length={MAX_LENGTH}")
+      f"max_length={MAX_LENGTH}  epochs={EPOCHS}  packing={PACKING}")
 
 # ── Speed ────────────────────────────────────────────────────────────────────
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -82,6 +95,13 @@ lora_config = LoraConfig(
 train_dataset = load_dataset("json", data_files=DATASET)["train"]
 eval_dataset  = load_dataset("json", data_files=EVAL_DATASET)["train"]
 
+# Eval is only used to pick the best checkpoint by eval_loss — a stable metric that
+# does not need the full 31k held-out set. Subsample (the eval file is already
+# source-stratified and shuffled by preprocess_zeek.py) to cut eval-pass cost.
+if args.eval_subset and len(eval_dataset) > args.eval_subset:
+    eval_dataset = eval_dataset.shuffle(seed=42).select(range(args.eval_subset))
+    print(f"Eval subsampled to {len(eval_dataset)} samples (--eval-subset {args.eval_subset})")
+
 # ── Training ─────────────────────────────────────────────────────────────────
 trainer = SFTTrainer(
     model=model,
@@ -98,11 +118,15 @@ trainer = SFTTrainer(
         # ── Precision ────────────────────────────────────────────────────
         gradient_checkpointing=GRAD_CHECKPOINTING,
         bf16=True,
+        # ── Throughput ───────────────────────────────────────────────────
+        # Packing fills each max_length sequence with multiple short samples,
+        # cutting opt-steps 241k->165k seqs (0.69x) and ~20% tokens/epoch.
+        packing=PACKING,
         # ── Schedule ─────────────────────────────────────────────────────
         num_train_epochs=EPOCHS,
         learning_rate=2e-4,
         lr_scheduler_type="cosine_with_restarts",
-        lr_scheduler_kwargs={"num_cycles": 3},
+        lr_scheduler_kwargs={"num_cycles": EPOCHS},  # one cosine restart per epoch
         warmup_ratio=0.03,
         weight_decay=0.01,
         # ── Data loading ─────────────────────────────────────────────────
@@ -112,6 +136,7 @@ trainer = SFTTrainer(
         logging_steps=100,
         eval_strategy="epoch",
         save_strategy="epoch",
+        save_total_limit=2,            # keep best + last; avoid disk churn from every epoch
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
         max_length=MAX_LENGTH,   # v10: extended for multi-log prompts (http/dns/ssl/behavior context)
