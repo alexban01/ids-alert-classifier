@@ -16,14 +16,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import torch
 import pandas as pd
 from torch.utils.data import DataLoader, Dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-from peft import PeftModel
 from sklearn.metrics import classification_report, confusion_matrix, matthews_corrcoef
 
-from prompt_utils import SYSTEM_PROMPT, build_prompt, extract_verdict
+from infer_utils import BASE_MODEL, chat_text, load_lora_model, load_tokenizer
+from prompt_utils import build_prompt, extract_verdict
 
 # ── Config ────────────────────────────────────────────────────────────────────
-BASE_MODEL      = "Qwen/Qwen2.5-1.5B-Instruct"
 BENCHMARK_CACHE = "results/benchmark_samples_v4.json"
 REPORT_TXT      = "results/benchmark_v6_report.txt"
 RESULTS_JSON    = "results/benchmark_v6_results.json"
@@ -131,14 +129,7 @@ _tokenizer = None
 
 class PromptDataset(Dataset):
     def __init__(self, samples):
-        self.texts = [
-            _tokenizer.apply_chat_template(
-                [{"role": "system", "content": SYSTEM_PROMPT},
-                 {"role": "user",   "content": s["prompt"]}],
-                tokenize=False, add_generation_prompt=True,
-            )
-            for s in samples
-        ]
+        self.texts = [chat_text(_tokenizer, s["prompt"]) for s in samples]
     def __len__(self):         return len(self.texts)
     def __getitem__(self, idx): return self.texts[idx]
 
@@ -230,14 +221,8 @@ def print_report(preds, samples, label, unknowns, out_lines):
 
 # ── Model loading ─────────────────────────────────────────────────────────────
 def load_model(adapter_path):
-    bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
-                              bnb_4bit_compute_dtype=torch.bfloat16)
     print(f"Loading base + adapter from {adapter_path} ...")
-    base  = AutoModelForCausalLM.from_pretrained(BASE_MODEL, quantization_config=bnb,
-                                                  device_map="cuda")
-    model = PeftModel.from_pretrained(base, adapter_path)
-    model.eval()
-    return model
+    return load_lora_model(adapter_path)
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
@@ -254,9 +239,7 @@ if __name__ == "__main__":
     else:
         samples = generate_benchmark_samples()
 
-    _tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, padding_side="left")
-    if _tokenizer.pad_token is None:
-        _tokenizer.pad_token = _tokenizer.eos_token
+    _tokenizer = load_tokenizer(BASE_MODEL)
 
     out_lines   = [f"v4 vs v6 BENCHMARK — {datetime.now().strftime('%Y-%m-%d %H:%M')}",
                    f"Samples: {len(samples)} | Dataset: CICIDS2017 | Seed: {RANDOM_SEED}"]

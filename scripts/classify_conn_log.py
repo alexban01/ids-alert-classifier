@@ -27,36 +27,25 @@ import urllib.error
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-from peft import PeftModel
 
 from behavior_features import build_behavior_contexts, build_host_summaries
+from infer_utils import BASE_MODEL, chat_text, load_lora_model, load_tokenizer
 from prompt_utils import SYSTEM_PROMPT, build_prompt, build_host_prompt, extract_verdict
+from zeek_log_utils import (
+    build_dns_lookup,
+    build_http_lookup,
+    build_ssl_lookup,
+    conn_row_from_parts,
+    parse_zeek_log,
+)
 
 # ── Config ────────────────────────────────────────────────────────────────────
-BASE_MODEL       = "Qwen/Qwen2.5-1.5B-Instruct"
-ADAPTER_DIR      = "./v9.0-ids-lora-adapter"
+ADAPTER_DIR      = "./v9.1-ids-lora-adapter"
 OLLAMA_MODEL     = "ids-classifier"
 OLLAMA_URL       = "http://localhost:11434/api/generate"
 CONN_LOG         = "real_conn/conn.log.5"
 MAX_NEW_TOKENS   = 80
 BATCH_SIZE       = 8
-
-# ── Zeek conn.log field indices (tab-separated, 21-field standard format) ─────
-#  0:ts  1:uid  2:id.orig_h  3:id.orig_p  4:id.resp_h  5:id.resp_p
-#  6:proto  7:service  8:duration  9:orig_bytes  10:resp_bytes
-# 11:conn_state  12:local_orig  13:local_resp  14:missed_bytes  15:history
-# 16:orig_pkts  17:orig_ip_bytes  18:resp_pkts  19:resp_ip_bytes
-# 20:tunnel_parents
-F_PROTO      = 6
-F_SERVICE    = 7
-F_DURATION   = 8
-F_ORIG_BYTES = 9
-F_RESP_BYTES = 10
-F_CONN_STATE = 11
-F_ORIG_PKTS  = 16
-F_RESP_PKTS  = 18
-
 
 # ── Parse conn.log ─────────────────────────────────────────────────────────────
 def parse_conn_log(path, limit=None):
@@ -68,120 +57,28 @@ def parse_conn_log(path, limit=None):
             parts = line.strip().split("\t")
             if len(parts) < 19:
                 continue
-            rows.append({
-                "ts":         parts[0],
-                "uid":        parts[1],
-                "orig_h":     parts[2],
-                "orig_p":     parts[3],
-                "resp_h":     parts[4],
-                "resp_p":     parts[5],
-                "proto":      parts[F_PROTO],
-                "service":    parts[F_SERVICE],
-                "duration":   parts[F_DURATION],
-                "orig_bytes": parts[F_ORIG_BYTES],
-                "resp_bytes": parts[F_RESP_BYTES],
-                "conn_state": parts[F_CONN_STATE],
-                "orig_pkts":  parts[F_ORIG_PKTS],
-                "resp_pkts":  parts[F_RESP_PKTS],
-            })
+            rows.append(conn_row_from_parts(parts, with_uid=True))
             if limit and len(rows) >= limit:
                 break
     return rows
 
 
-# ── Auxiliary Zeek log parsers ─────────────────────────────────────────────────
-
-def _parse_zeek_log(path):
-    """Parse a Zeek TSV log (#fields header), return list of row dicts."""
-    rows   = []
-    fields = None
-    sep    = "\t"
-    unset  = {"-", "(empty)"}
-    with open(path, errors="replace") as f:
-        for line in f:
-            line = line.rstrip("\n")
-            if line.startswith("#fields"):
-                fields = line[len("#fields"):].strip().split(sep)
-            elif line.startswith("#separator"):
-                raw = line.split()[-1]
-                sep = (bytes(raw, "utf-8").decode("unicode_escape")
-                       if "\\x" in raw else raw)
-            elif line.startswith("#empty_field"):
-                unset.add(line.split(sep)[-1])
-            elif line.startswith("#unset_field"):
-                unset.add(line.split(sep)[-1])
-            elif line.startswith("#") or not line.strip():
-                continue
-            elif fields is not None:
-                parts = line.split(sep)
-                row = {k: (None if (parts[i] if i < len(parts) else "-") in unset
-                           else (parts[i] if i < len(parts) else None))
-                       for i, k in enumerate(fields)}
-                rows.append(row)
-    return rows
-
+# ── Auxiliary Zeek log parsers (shared builders + a count print) ───────────────
 
 def build_uid_http(http_log_path):
-    """Build uid → http_ctx dict from Zeek http.log."""
-    lookup = {}
-    for row in _parse_zeek_log(http_log_path):
-        uid = row.get("uid")
-        if not uid or uid in lookup:
-            continue
-        lookup[uid] = {
-            "method":        row.get("method"),
-            "host":          row.get("host"),
-            "uri":           row.get("uri"),
-            "user_agent":    row.get("user_agent"),
-            "status_code":   row.get("status_code"),
-            "resp_body_len": row.get("response_body_len"),
-        }
+    lookup = build_http_lookup(http_log_path)
     print(f"  http.log: {len(lookup)} uid entries")
     return lookup
 
 
 def build_uid_dns(dns_log_path):
-    """Build uid → dns_ctx dict from Zeek dns.log."""
-    lookup = {}
-    for row in _parse_zeek_log(dns_log_path):
-        uid = row.get("uid")
-        if not uid or uid in lookup:
-            continue
-        answers_raw = row.get("answers") or ""
-        ttls_raw    = row.get("TTLs") or row.get("ttls") or ""
-        lookup[uid] = {
-            "query":      row.get("query"),
-            "answers":    answers_raw.split(",")[0].strip() or None,
-            "qtype_name": row.get("qtype_name"),
-            "ttl":        ttls_raw.split(",")[0].strip() or None,
-            "rcode_name": row.get("rcode_name"),
-        }
+    lookup = build_dns_lookup(dns_log_path)
     print(f"  dns.log:  {len(lookup)} uid entries")
     return lookup
 
 
 def build_uid_ssl(ssl_log_path):
-    """Build uid → ssl_ctx dict from Zeek ssl.log."""
-    lookup = {}
-    for row in _parse_zeek_log(ssl_log_path):
-        uid = row.get("uid")
-        if not uid or uid in lookup:
-            continue
-        issuer_raw  = row.get("issuer")  or ""
-        subject_raw = row.get("subject") or ""
-        if not issuer_raw or issuer_raw == subject_raw:
-            issuer = "Self-Signed"
-        else:
-            cn = next((p.replace("CN=", "").strip()
-                       for p in issuer_raw.split(",")
-                       if p.strip().startswith("CN=")), issuer_raw)
-            issuer = cn[:48]
-        lookup[uid] = {
-            "version":           row.get("version"),
-            "cipher":            row.get("cipher"),
-            "issuer":            issuer,
-            "validation_status": row.get("validation_status"),
-        }
+    lookup = build_ssl_lookup(ssl_log_path)
     print(f"  ssl.log:  {len(lookup)} uid entries")
     return lookup
 
@@ -243,31 +140,13 @@ def classify_ollama(prompts):
 # ── HuggingFace inference ──────────────────────────────────────────────────────
 def load_hf_model():
     print(f"Loading {ADAPTER_DIR} ...")
-    bnb = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
-    )
-    base  = AutoModelForCausalLM.from_pretrained(
-        BASE_MODEL, quantization_config=bnb, device_map="cuda"
-    )
-    model = PeftModel.from_pretrained(base, ADAPTER_DIR)
-    model.eval()
-    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, padding_side="left")
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    model     = load_lora_model(ADAPTER_DIR)
+    tokenizer = load_tokenizer()
     return model, tokenizer
 
 
 def classify_hf_batch(model, tokenizer, prompts):
-    texts = [
-        tokenizer.apply_chat_template(
-            [{"role": "system", "content": SYSTEM_PROMPT},
-             {"role": "user",   "content": p}],
-            tokenize=False, add_generation_prompt=True,
-        )
-        for p in prompts
-    ]
+    texts = [chat_text(tokenizer, p) for p in prompts]
     inputs    = tokenizer(texts, return_tensors="pt", padding=True,
                           truncation=True, max_length=1024)
     inputs    = {k: v.to("cuda") for k, v in inputs.items()}

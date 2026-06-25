@@ -6,14 +6,13 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-from peft import PeftModel
 
-from prompt_utils import SYSTEM_PROMPT, build_prompt, extract_verdict
+from infer_utils import chat_text, load_lora_model, load_tokenizer
+from prompt_utils import build_prompt, extract_verdict
+from zeek_log_utils import conn_row_from_parts
 
 # ── Config ────────────────────────────────────────────────────────────────────
-BASE_MODEL  = "Qwen/Qwen2.5-1.5B-Instruct"
-ADAPTER_DIR = "./v4-ids-lora-adapter"
+ADAPTER_DIR = "./v9.1-ids-lora-adapter"
 WEIRD_LOG   = "weird.log"
 CONN_LOG    = "conn.log"
 MAX_NEW_TOKENS = 80
@@ -30,20 +29,7 @@ def parse_conn_log(path):
             parts = line.strip().split("\t")
             if len(parts) < 19:
                 continue
-            flows[parts[1]] = {
-                "proto":      parts[6],
-                "duration":   parts[8],
-                "orig_bytes": parts[9],
-                "resp_bytes": parts[10],
-                "conn_state": parts[11],
-                "orig_pkts":  parts[16],
-                "resp_pkts":  parts[18],
-                "orig_h":     parts[2],
-                "orig_p":     parts[3],
-                "resp_h":     parts[4],
-                "resp_p":     parts[5],
-                "service":    parts[7],
-            }
+            flows[parts[1]] = conn_row_from_parts(parts)
     return flows
 
 # ── Parse weird.log ──────────────────────────────────────────────────────────
@@ -73,17 +59,7 @@ def parse_weird_log(path):
 
 # ── Inference ─────────────────────────────────────────────────────────────────
 def classify_batch(model, tokenizer, prompts):
-    texts = [
-        tokenizer.apply_chat_template(
-            [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user",   "content": p},
-            ],
-            tokenize=False,
-            add_generation_prompt=True,
-        )
-        for p in prompts
-    ]
+    texts = [chat_text(tokenizer, p) for p in prompts]
     inputs = tokenizer(
         texts,
         return_tensors="pt",
@@ -160,20 +136,8 @@ if __name__ == "__main__":
 
     # Load model
     print(f"Loading base model + LoRA adapter from {adapter_dir} ...")
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
-    )
-    base = AutoModelForCausalLM.from_pretrained(
-        BASE_MODEL, quantization_config=bnb_config, device_map="cuda",
-    )
-    model = PeftModel.from_pretrained(base, adapter_dir)
-    model.eval()
-
-    tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, padding_side="left")
-    if tokenizer.pad_token is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    model     = load_lora_model(adapter_dir)
+    tokenizer = load_tokenizer()
 
     # Classify in batches
     verdicts = []

@@ -41,6 +41,7 @@ from classify_conn_log import (
     parse_conn_log, build_prompts, load_hf_model, classify_hf,
     ADAPTER_DIR,
 )
+from zeek_log_utils import norm_key
 
 # ── Binetflow helpers ──────────────────────────────────────────────────────────
 
@@ -62,14 +63,6 @@ def _url_to_local(url):
     filename = f"{parent}_{basename}" if parent else basename
     os.makedirs(CAPTURE_DIR, exist_ok=True)
     return os.path.join(CAPTURE_DIR, filename)
-
-
-def _norm_key(proto, ip_a, port_a, ip_b, port_b):
-    """Normalise 5-tuple so (A→B) and (B→A) produce the same key."""
-    pair_a = (ip_a.strip(), str(port_a).strip())
-    pair_b = (ip_b.strip(), str(port_b).strip())
-    lo, hi = (pair_a, pair_b) if pair_a <= pair_b else (pair_b, pair_a)
-    return (proto.strip().lower(), lo[0], lo[1], hi[0], hi[1])
 
 
 def binetflow_label(raw_label):
@@ -132,7 +125,7 @@ def load_binetflow(path_or_url):
             if label is None:
                 continue
 
-            key = _norm_key(proto, src_ip, sport, dst_ip, dport)
+            key = norm_key(proto, src_ip, sport, dst_ip, dport)
             if key not in lookup or label == "ATTACK":
                 lookup[key] = label
 
@@ -189,7 +182,7 @@ if __name__ == "__main__":
     unmatched    = 0
 
     for r in rows:
-        key   = _norm_key(r["proto"], r["orig_h"], r["orig_p"], r["resp_h"], r["resp_p"])
+        key   = norm_key(r["proto"], r["orig_h"], r["orig_p"], r["resp_h"], r["resp_p"])
         label = gt_lookup.get(key)
         if label is None:
             unmatched += 1

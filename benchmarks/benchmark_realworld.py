@@ -27,8 +27,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
 from torch.utils.data import DataLoader, Dataset
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
-from peft import PeftModel
 from sklearn.metrics import classification_report, confusion_matrix, matthews_corrcoef
 
 from bench_loaders import (
@@ -36,10 +34,10 @@ from bench_loaders import (
     load_ctu_sme11, load_ctu_win7ad, load_ctu_botnet3,
 )
 from behavior_features import build_behavior_contexts, build_host_summaries
-from prompt_utils import SYSTEM_PROMPT, build_prompt, build_host_prompt, extract_verdict, extract_reason
+from infer_utils import BASE_MODEL, chat_text, load_lora_model, load_tokenizer
+from prompt_utils import build_prompt, build_host_prompt, extract_verdict, extract_reason
 
 # ── Config ──────────────────────────────────────────────────────────────────────
-BASE_MODEL     = "Qwen/Qwen2.5-1.5B-Instruct"
 CACHE_FILE     = "results/benchmark_realworld_cache.json"
 REPORT_TXT     = "results/benchmark_realworld_report.txt"
 RESULTS_JSON   = "results/benchmark_realworld_results.json"
@@ -252,14 +250,7 @@ _tokenizer = None
 
 class PromptDataset(Dataset):
     def __init__(self, samples):
-        self.texts = [
-            _tokenizer.apply_chat_template(
-                [{"role": "system", "content": SYSTEM_PROMPT},
-                 {"role": "user",   "content": s["prompt"]}],
-                tokenize=False, add_generation_prompt=True,
-            )
-            for s in samples
-        ]
+        self.texts = [chat_text(_tokenizer, s["prompt"]) for s in samples]
 
     def __len__(self):        return len(self.texts)
     def __getitem__(self, i): return self.texts[i]
@@ -299,14 +290,8 @@ def run_inference(model, samples, label):
 
 # ── Model loading ─────────────────────────────────────────────────────────────────
 def load_model(adapter_path):
-    bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
-                              bnb_4bit_compute_dtype=torch.bfloat16)
     print(f"\nLoading {adapter_path} ...")
-    base  = AutoModelForCausalLM.from_pretrained(BASE_MODEL, quantization_config=bnb,
-                                                  device_map="cuda")
-    model = PeftModel.from_pretrained(base, adapter_path)
-    model.eval()
-    return model
+    return load_lora_model(adapter_path)
 
 
 # ── Reporting ─────────────────────────────────────────────────────────────────────
@@ -499,9 +484,7 @@ if __name__ == "__main__":
     else:
         samples = rebuild_prompts_with_behavior(samples)
 
-    _tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL, padding_side="left")
-    if _tokenizer.pad_token is None:
-        _tokenizer.pad_token = _tokenizer.eos_token
+    _tokenizer = load_tokenizer(BASE_MODEL)
 
     ts     = datetime.now().strftime("%Y-%m-%d %H:%M")
     atk_n  = sum(1 for s in samples if s["ground_truth"] == "ATTACK")

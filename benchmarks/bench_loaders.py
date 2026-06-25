@@ -32,6 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pandas as pd
 
 from prompt_utils import build_prompt
+from zeek_log_utils import conn_row_from_parts
 
 # ── Constants ───────────────────────────────────────────────────────────────────
 CAP = 300 # max samples per (source, class)
@@ -388,24 +389,25 @@ def load_ctu_normal(dataset_dir):
                 parts = line.strip().split("\t")
                 if len(parts) < 21:
                     continue
+                row = conn_row_from_parts(parts, with_uid=True)
                 samples.append(make_sample(
-                    proto      = parts[6],
-                    duration   = parts[8],
-                    orig_pkts  = parts[16],
-                    resp_pkts  = parts[18],
-                    orig_bytes = parts[9],
-                    resp_bytes = parts[10],
-                    conn_state = parts[11],
+                    proto      = row["proto"],
+                    duration   = row["duration"],
+                    orig_pkts  = row["orig_pkts"],
+                    resp_pkts  = row["resp_pkts"],
+                    orig_bytes = row["orig_bytes"],
+                    resp_bytes = row["resp_bytes"],
+                    conn_state = row["conn_state"],
                     ground_truth = "FALSE POSITIVE",
                     source     = "ctu_normal",
                     raw_label  = "Benign",
-                    service    = parts[7],
-                    orig_port  = parts[3],
-                    resp_port  = parts[5],
-                    ts         = parts[0],
-                    uid        = parts[1],
-                    orig_h     = parts[2],
-                    resp_h     = parts[4],
+                    service    = row["service"],
+                    orig_port  = row["orig_p"],
+                    resp_port  = row["resp_p"],
+                    ts         = row["ts"],
+                    uid        = row["uid"],
+                    orig_h     = row["orig_h"],
+                    resp_h     = row["resp_h"],
                     group_id   = os.path.basename(fpath),
                 ))
 
@@ -659,24 +661,25 @@ def load_ctu_botnet3():
             parts = line.strip().split("\t")
             if len(parts) < 21:
                 continue
+            row = conn_row_from_parts(parts, with_uid=True)
             samples.append(make_sample(
-                proto        = parts[6],
-                duration     = parts[8],
-                orig_pkts    = parts[16],
-                resp_pkts    = parts[18],
-                orig_bytes   = parts[9],
-                resp_bytes   = parts[10],
-                conn_state   = parts[11],
+                proto        = row["proto"],
+                duration     = row["duration"],
+                orig_pkts    = row["orig_pkts"],
+                resp_pkts    = row["resp_pkts"],
+                orig_bytes   = row["orig_bytes"],
+                resp_bytes   = row["resp_bytes"],
+                conn_state   = row["conn_state"],
                 ground_truth = "ATTACK",
                 source       = "ctu_botnet3",
                 raw_label    = "Kelihos",
-                service      = parts[7],
-                orig_port    = parts[3],
-                resp_port    = parts[5],
-                ts           = parts[0],
-                uid          = parts[1],
-                orig_h       = parts[2],
-                resp_h       = parts[4],
+                service      = row["service"],
+                orig_port    = row["orig_p"],
+                resp_port    = row["resp_p"],
+                ts           = row["ts"],
+                uid          = row["uid"],
+                orig_h       = row["orig_h"],
+                resp_h       = row["resp_h"],
             ))
 
     print(f"  CTU-Malware Botnet-3 (OOD): {len(samples)} attacks, 0 benign")

@@ -1,14 +1,5 @@
 # IDS Alert Classifier — Fine-Tuning Project
 
-## Claude-specific reinforcement
-
-- Default mode in this repository is **review-only**.
-- Unless the user explicitly tells Claude to write code, Claude should restrict itself to:
-  - reviewing `master...development` (or whatever the current implementation branch is)
-  - summarizing risks and missing tests
-- If implementation is requested, keep the change as small as possible and state clearly that this is an explicit override of the default contract.
-
-
 Fine-tune `Qwen/Qwen2.5-1.5B-Instruct` via QLoRA to classify network flows as
 **ATTACK** or **FALSE POSITIVE**, targeting deployment against Zeek conn.log / PCAP captures.
 
@@ -30,8 +21,9 @@ Arch Linux managed environment — system `python3`/`pip3` refuse to install pac
 ├── preprocess_config.py      # Caps, ratio targets, masking probs, reason pools
 ├── preprocess_sample.py      # score_hard_benign(), make_sample(), pick_reason()
 ├── prompt_utils.py           # Shared build_prompt, SYSTEM_PROMPT, extract_verdict
+├── infer_utils.py            # Shared 4-bit+LoRA model load, tokenizer, chat templating
 ├── behavior_features.py      # Behavioral context features for enriched prompts
-├── zeek_log_utils.py         # Zeek TSV parser + CTU-Malware download helpers
+├── zeek_log_utils.py         # Zeek TSV parser + conn.log row helper + CTU-Malware helpers
 ├── Modelfile                 # Ollama config — Qwen2.5 chat template, temperature 0
 ├── requirements.txt
 │
@@ -82,7 +74,7 @@ Arch Linux managed environment — system `python3`/`pip3` refuse to install pac
 
 - **Base:** `Qwen/Qwen2.5-1.5B-Instruct`
 - **Quantization:** 4-bit NF4 (BitsAndBytes), bf16 compute dtype
-- **LoRA:** r=16, lora_alpha=32, dropout=0.05, bias=none
+- **LoRA:** r=32, lora_alpha=64, dropout=0.05, bias=none
 - **Target modules:** `q_proj`, `k_proj`, `v_proj`, `o_proj`, `gate_proj`, `up_proj`, `down_proj` (7 modules — all attention + MLP)
 
 ## Training

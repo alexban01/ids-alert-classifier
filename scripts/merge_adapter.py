@@ -34,7 +34,7 @@ BASE_MODEL = "Qwen/Qwen2.5-1.5B-Instruct"
 
 # ── Parse args ─────────────────────────────────────────────────────────────────
 args        = sys.argv[1:]
-adapter_dir = "v6-ids-lora-adapter"
+adapter_dir = "v9.1-ids-lora-adapter"
 out_dir     = None
 use_cpu     = False
 i = 0

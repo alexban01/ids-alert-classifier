@@ -15,6 +15,7 @@ import os
 from behavior_features import build_behavior_contexts
 from preprocess_config import IOT23_FILE_ATTACK_CAP, IOT23_FILE_BENIGN_CAP
 from preprocess_sample import make_sample
+from zeek_log_utils import conn_row_from_parts
 
 
 def load_iot23_file(filepath):
@@ -48,22 +49,9 @@ def load_iot23_file(filepath):
             except IndexError:
                 continue
 
-            rows.append({
-                "ts":         parts[0],
-                "orig_h":     parts[2],
-                "orig_p":     parts[3],
-                "resp_h":     parts[4],
-                "resp_p":     parts[5],
-                "proto":      parts[6],
-                "service":    parts[7],
-                "duration":   parts[8],
-                "orig_bytes": parts[9],
-                "resp_bytes": parts[10],
-                "conn_state": parts[11],
-                "orig_pkts":  parts[16],
-                "resp_pkts":  parts[18],
-                "verdict":    verdict,
-            })
+            row = conn_row_from_parts(parts)
+            row["verdict"] = verdict
+            rows.append(row)
             if verdict == "ATTACK": attacks += 1
             else:                   benign  += 1
 

@@ -13,6 +13,7 @@ import os
 from behavior_features import build_behavior_contexts
 from preprocess_config import CTU_NORMAL_CAP
 from preprocess_sample import make_sample
+from zeek_log_utils import conn_row_from_parts
 
 
 def load_ctu_normal(dataset_dir):
@@ -48,21 +49,7 @@ def load_ctu_normal(dataset_dir):
                 if len(samples) >= CTU_NORMAL_CAP:
                     break
 
-                rows.append({
-                    "ts":         parts[0],
-                    "orig_h":     parts[2],
-                    "orig_p":     parts[3],
-                    "resp_h":     parts[4],
-                    "resp_p":     parts[5],
-                    "proto":      parts[6],
-                    "service":    parts[7],
-                    "duration":   parts[8],
-                    "orig_bytes": parts[9],
-                    "resp_bytes": parts[10],
-                    "conn_state": parts[11],
-                    "orig_pkts":  parts[16],
-                    "resp_pkts":  parts[18],
-                })
+                rows.append(conn_row_from_parts(parts))
                 buffered_benign += 1
                 count += 1
 

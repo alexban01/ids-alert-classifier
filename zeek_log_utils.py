@@ -14,6 +14,42 @@ import urllib.request
 from preprocess_config import CTU_MALWARE_DIR
 
 
+# ── Standard Zeek conn.log field layout (21-field TSV) ──────────────────────────
+# Shared by every loader/script that splits a conn.log line on tabs.
+#  0:ts  1:uid  2:id.orig_h  3:id.orig_p  4:id.resp_h  5:id.resp_p
+#  6:proto  7:service  8:duration  9:orig_bytes  10:resp_bytes
+# 11:conn_state  12:local_orig  13:local_resp  14:missed_bytes  15:history
+# 16:orig_pkts  17:orig_ip_bytes  18:resp_pkts  19:resp_ip_bytes  20:tunnel_parents
+CONN_MIN_FIELDS = 19  # need through resp_pkts (index 18)
+
+
+def conn_row_from_parts(parts, with_uid=False):
+    """Map a tab-split standard Zeek conn.log line to the canonical row dict.
+
+    Callers must ensure ``len(parts) >= CONN_MIN_FIELDS`` (or 21 if they require
+    tunnel_parents/labels). orig_pkts/resp_pkts fall back to "-" when absent so
+    short conn.log variants degrade gracefully rather than raising IndexError.
+    """
+    row = {
+        "ts":         parts[0],
+        "orig_h":     parts[2],
+        "orig_p":     parts[3],
+        "resp_h":     parts[4],
+        "resp_p":     parts[5],
+        "proto":      parts[6],
+        "service":    parts[7],
+        "duration":   parts[8],
+        "orig_bytes": parts[9],
+        "resp_bytes": parts[10],
+        "conn_state": parts[11],
+        "orig_pkts":  parts[16] if len(parts) > 16 else "-",
+        "resp_pkts":  parts[18] if len(parts) > 18 else "-",
+    }
+    if with_uid:
+        row["uid"] = parts[1]
+    return row
+
+
 # ── Generic Zeek log parser ────────────────────────────────────────────────────
 
 def parse_zeek_log(path):
