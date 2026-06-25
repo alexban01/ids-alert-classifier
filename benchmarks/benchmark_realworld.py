@@ -13,6 +13,8 @@ Usage:
     --regen --ood   Regenerate only the OOD samples in the cache, then run
                     OOD-only inference (does not touch other source caches).
     --no-behavior   Keep prompts conn-only (skip [BEHAVIOR] rebuild).
+    --host-pass2    Run the host-level aggregation pass (OFF by default — it is a
+                    documented null result; see thesis_notes_12.txt).
 """
 
 import os
@@ -42,7 +44,7 @@ CACHE_FILE     = "results/benchmark_realworld_cache.json"
 REPORT_TXT     = "results/benchmark_realworld_report.txt"
 RESULTS_JSON   = "results/benchmark_realworld_results.json"
 MAX_NEW_TOKENS = 80
-BATCH_SIZE     = 12
+BATCH_SIZE     = 24
 RANDOM_SEED    = 42
 
 MODELS = [
@@ -454,6 +456,7 @@ if __name__ == "__main__":
     regen       = "--regen"       in sys.argv
     ood_only    = "--ood"         in sys.argv
     no_behavior = "--no-behavior" in sys.argv
+    host_pass2  = "--host-pass2"  in sys.argv   # off by default (null result; see thesis_notes_12)
 
     # ── Sample loading / cache management ───────────────────────────────────────
     if regen and ood_only:
@@ -517,25 +520,31 @@ if __name__ == "__main__":
         m                        = compute_metrics(preds, samples, unknowns)
         results.append((label, m))
 
-        host_samples = build_host_benchmark_samples(samples, preds)
-        if host_samples:
-            host_preds, host_unknowns, _ = run_inference(model, host_samples, f"{label} [host pass-2]")
-            host_m = compute_metrics(host_preds, host_samples, host_unknowns)
-        else:
-            host_unknowns = 0
-            host_m = {"accuracy": 0.0, "atk_recall": 0.0, "ben_recall": 0.0, "fmt_fail": 0.0, "mcc": 0.0}
-        host_lines = [
-            f"\n--- Host Pass-2 ---",
-            f"  Hosts           : {len(host_samples)}",
-            f"  Format failures : {host_unknowns} ({100*host_unknowns/max(len(host_samples),1):.1f}%)",
-            f"  Accuracy        : {host_m['accuracy']:.1%}",
-            f"  Atk Recall      : {host_m['atk_recall']:.1%}",
-            f"  FP Recall       : {host_m['ben_recall']:.1%}",
-            f"  MCC             : {host_m['mcc']:+.4f}",
-        ]
-        for line in host_lines:
-            print(line)
-        out_lines.extend(host_lines)
+        # ── Host Pass-2 (host-level aggregation) — OFF by default (--host-pass2) ──
+        # Null result: aggregating per-flow predictions into a host verdict does NOT
+        # beat per-flow classification (MCC ~0.03, FP recall ~33% — flags most benign
+        # hosts). Kept behind a flag for reproducibility; see thesis_notes_12.txt.
+        host_samples = []
+        host_m = {"accuracy": 0.0, "atk_recall": 0.0, "ben_recall": 0.0, "fmt_fail": 0.0, "mcc": 0.0}
+        if host_pass2:
+            host_samples = build_host_benchmark_samples(samples, preds)
+            if host_samples:
+                host_preds, host_unknowns, _ = run_inference(model, host_samples, f"{label} [host pass-2]")
+                host_m = compute_metrics(host_preds, host_samples, host_unknowns)
+            else:
+                host_unknowns = 0
+            host_lines = [
+                f"\n--- Host Pass-2 ---",
+                f"  Hosts           : {len(host_samples)}",
+                f"  Format failures : {host_unknowns} ({100*host_unknowns/max(len(host_samples),1):.1f}%)",
+                f"  Accuracy        : {host_m['accuracy']:.1%}",
+                f"  Atk Recall      : {host_m['atk_recall']:.1%}",
+                f"  FP Recall       : {host_m['ben_recall']:.1%}",
+                f"  MCC             : {host_m['mcc']:+.4f}",
+            ]
+            for line in host_lines:
+                print(line)
+            out_lines.extend(host_lines)
 
         src_metrics = {}
         for src in ALL_SOURCES:

@@ -1,0 +1,132 @@
+================================================================================
+IDS ALERT CLASSIFIER — THESIS DEVELOPMENT NOTES (continued from thesis_notes_11.txt)
+Fine-tuning Qwen2.5-1.5B-Instruct for network intrusion detection
+================================================================================
+
+This file covers the V11 OOD-only benchmark re-run (2026-06-26, after restoring
+IoT-23 and regenerating the V12 training data): per-checkpoint selection, the
+per-attack-type out-of-distribution breakdown, the out-of-distribution framing
+of the Trickbot result, and the host-level aggregation null result.
+See thesis_notes_10.txt for the full-source V11 numbers and the classical ML
+baseline; thesis_notes_11.txt for the V11->V12 composition fixes.
+
+Command: .venv/bin/python benchmarks/benchmark_realworld.py --ood
+Probes (held out from training): Win7AD-1 (hard), Echo (easy), Kelihos (floor).
+1500 OOD samples: 900 attacks / 600 benign.
+
+================================================================================
+1. CHECKPOINT SELECTION — eval_loss MIS-SELECTS THE OOD-BEST CHECKPOINT
+================================================================================
+
+V11 saved two checkpoints. Epoch 2 has the lower eval_loss (0.1570 vs 0.1608),
+so load_best_model_at_end / best_model_checkpoint selects it. But on the OOD
+probes epoch 1 is clearly better:
+
+    Checkpoint            OOD MCC   Atk Recall   FP Recall   Accuracy
+    ------------------    -------   ----------   ---------   --------
+    ep1 (ckpt-11313)      +0.699       76.4%       94.8%       83.8%
+    ep2 (ckpt-22626)      +0.600       71.1%       90.0%       78.7%
+    ------------------    -------   ----------   ---------   --------
+    delta (ep2 - ep1)     -0.099       -5.3pp      -4.8pp      -5.1pp
+
+Epoch 2 overfits: lower held-out eval_loss but worse generalization to unseen
+distributions. eval_loss is measured on the in-distribution eval split, which
+does not reflect OOD behaviour.
+
+IMPLICATION FOR V12: do NOT ship the auto-saved adapter (load_best_model_at_end
+writes the lowest-eval_loss checkpoint, i.e. the epoch-2 analogue). Benchmark
+every saved checkpoint on the OOD probes and select by OOD MCC, then deploy that
+checkpoint. This also independently justifies the 2-epoch schedule (epoch 1 is
+already the generalization peak here).
+
+================================================================================
+2. PER-ATTACK-TYPE OOD BREAKDOWN (ep1) — LATERAL MOVEMENT SOLVED
+================================================================================
+
+Per-source (ep1):
+    Win7AD-1 (hard) : 73.0% atk recall / 93.0% benign recall
+    Echo (easy)     : 75.7% atk recall / 96.7% benign recall
+    Kelihos (floor) : 80.7% atk recall  (benign-free source)
+
+Win7AD-1's 300 attack flows decompose into two attack types, and the per-label
+recall tells the real story:
+
+    Attack type                         ep1 recall      ep2 recall
+    --------------------------------    ----------      ----------
+    Human_attacks (lateral, REJ/RSTR)   94% (74/79)     77% (61/79)
+    Trickbot C2 (RSTO -> 4134/22299)    66% (145/221)   48% (106/221)
+
+Lateral movement was the original "publishable gap": 13% recall in v9.1, where
+the classical LR baseline reached ~75%. It is now 94% on ep1 — effectively
+solved by the training-composition work (REJ/RSTR + AD-port attack coverage).
+The v9.1 "LR beats LLM 35x on OOD" framing no longer holds.
+
+Because Trickbot is the majority of Win7AD-1 (221/300), it alone determines the
+probe score: lifting Trickbot recall from 66% to ~85% would pull Win7AD-1 to
+~87% (the V10 level) with no other change.
+
+Benign recall held (93-97% on ep1) — the attack-recall gains did not cost
+benign precision.
+
+================================================================================
+3. OOD FRAMING — 66% ON AN UNSEEN MALWARE FAMILY IS A POSITIVE RESULT
+================================================================================
+
+Trickbot is NOT one of the training malware families (the 15 CTU-Malware
+scenarios do not include it), and no synthetic Trickbot data is used. The model
+classifies Trickbot C2 flows purely by generalizing from other command-and-
+control patterns it learned. 66% recall (ep1) on a fully out-of-distribution
+family, from a 1.5B model, is a genuine generalization result, not a failure.
+
+The 66% reads as a "gap" only against V10's ~87% on the same unseen probe — i.e.
+there is headroom — but in absolute OOD terms it demonstrates transfer to an
+unseen attack family. The thesis should report it as such.
+
+Kelihos (the designated "structural floor") catches 80.7% (ep1) / 83.3% (ep2),
+not ~0%. The "structurally undetectable P2P-spam floor" framing from earlier
+notes is stale and should be revisited.
+
+DECISION (deferred): whether to add targeted Trickbot-like coverage (RSTO to
+uncommon high ports) is deferred until after the V12 (factor=1.0) run is trained
+and benchmarked. V12's composition fix may already move Trickbot; only if it
+falls short of target do we consider adding coverage — and only via training-side
+data, never touching the held-out probe.
+
+================================================================================
+4. HOST-LEVEL AGGREGATION — NULL RESULT
+================================================================================
+
+A second "host pass" was tested: per-flow predictions for each originating host
+are aggregated into a host summary and the model is asked a second time whether
+the whole host is malicious (host truth = ATTACK if any of its flows is attack).
+The motivation was operational — analysts care which hosts are compromised more
+than which individual flows are.
+
+Result (OOD, 231 hosts):
+    Checkpoint     Accuracy   Atk Recall   FP Recall    MCC
+    -----------    --------   ----------   ---------    ------
+    ep1            73.6%        74.7%        33.3%      +0.029
+    ep2            71.9%        72.0%        66.7%      +0.136
+
+MCC is near zero (statistically no better than chance), and FP recall collapses
+(33% on ep1 — it mislabels two of every three benign hosts) because the
+"any-flow-attack => host-attack" aggregation biases strongly toward ATTACK.
+
+CONCLUSION: host-level aggregation was tested and did not improve on per-flow
+classification. It is retired from the default benchmark and gated behind a
+--host-pass2 flag (off by default) purely for reproducibility.
+
+================================================================================
+5. ACTIONS TAKEN / OPEN
+================================================================================
+
+Taken:
+  - benchmark_realworld.py MODELS repointed to V11 (v9.1 retired).
+  - Host Pass-2 gated behind --host-pass2 (off by default).
+  - current-state.md updated with the OOD findings above.
+
+Open (post-V12):
+  - Train V12 (factor=1.0) and benchmark every checkpoint on OOD; select by OOD
+    MCC, not eval_loss.
+  - Re-evaluate Trickbot recall; decide on targeted coverage only if needed.
+  - Revisit the "Kelihos = structural floor" framing in the thesis.
