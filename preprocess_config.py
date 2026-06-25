@@ -53,7 +53,7 @@ FINAL_BENIGN = 240_000
 # Raise if more scenarios get fixed and pool grows.
 # Not scaled by TRAINING_FACTOR (same pattern as FINAL_ATTACK/FINAL_BENIGN):
 # on small local runs, min(budget, pool_size) naturally falls back to pool_size.
-CTU_MALWARE_ATTACK_BUDGET = 24_000
+CTU_MALWARE_ATTACK_BUDGET = 48_000
 
 # ── Training-time masking probabilities ───────────────────────────────────────
 CONN_STATE_MASK_PROB = 0.20   # blank conn_state to "-" for this fraction of samples;
