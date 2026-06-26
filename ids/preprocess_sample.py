@@ -9,14 +9,14 @@ Provides:
 
 import random
 
-from preprocess_config import (
+from ids.preprocess_config import (
     CONN_STATE_MASK_PROB,
     CONTEXT_MASK_PROB,
     HARD_BENIGN_MIN_SCORE,
     ATTACK_REASONS,
     BENIGN_REASONS,
 )
-from prompt_utils import SYSTEM_PROMPT, build_prompt
+from ids.prompt_utils import SYSTEM_PROMPT, build_prompt
 
 
 def pick_reason(verdict):

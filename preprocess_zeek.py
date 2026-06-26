@@ -27,7 +27,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 from tqdm import tqdm
 
-from preprocess_config import (
+from ids.preprocess_config import (
     CTU_MALWARE_ATTACK_BUDGET,
     CTU_MALWARE_SCENARIOS,
     DATASETS,
@@ -40,13 +40,13 @@ from preprocess_config import (
     RANDOM_SEED,
     TRAIN_FILE,
 )
-from loaders.loader_iot23         import load_iot23_file
-from loaders.loader_ctu13         import load_ctu13_file
-from loaders.loader_unsw          import load_unsw
-from loaders.loader_cicids        import load_cicids          # noqa: F401 — kept for optional re-enable
-from loaders.loader_uwf           import load_uwf
-from loaders.loader_ctu_normal    import load_ctu_normal
-from loaders.loader_ctu_malware   import load_ctu_malware_scenario
+from ids.loaders.loader_iot23         import load_iot23_file
+from ids.loaders.loader_ctu13         import load_ctu13_file
+from ids.loaders.loader_unsw          import load_unsw
+from ids.loaders.loader_cicids        import load_cicids          # noqa: F401 — kept for optional re-enable
+from ids.loaders.loader_uwf           import load_uwf
+from ids.loaders.loader_ctu_normal    import load_ctu_normal
+from ids.loaders.loader_ctu_malware   import load_ctu_malware_scenario
 
 def _run_loader_job(job_name, dataset_path):
     """Worker wrapper for ProcessPoolExecutor loader jobs.

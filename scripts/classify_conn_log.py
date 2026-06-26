@@ -28,10 +28,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
 
-from behavior_features import build_behavior_contexts, build_host_summaries
-from infer_utils import BASE_MODEL, chat_text, load_lora_model, load_tokenizer
-from prompt_utils import SYSTEM_PROMPT, build_prompt, build_host_prompt, extract_verdict
-from zeek_log_utils import (
+from ids.behavior_features import build_behavior_contexts, build_host_summaries
+from ids.infer_utils import BASE_MODEL, chat_text, load_lora_model, load_tokenizer
+from ids.prompt_utils import SYSTEM_PROMPT, build_prompt, build_host_prompt, extract_verdict
+from ids.zeek_log_utils import (
     build_dns_lookup,
     build_http_lookup,
     build_ssl_lookup,
@@ -40,7 +40,7 @@ from zeek_log_utils import (
 )
 
 # ── Config ────────────────────────────────────────────────────────────────────
-ADAPTER_DIR      = "./v9.1-ids-lora-adapter"
+ADAPTER_DIR      = "./models/v9.1-ids-lora-adapter"
 OLLAMA_MODEL     = "ids-classifier"
 OLLAMA_URL       = "http://localhost:11434/api/generate"
 CONN_LOG         = "real_conn/conn.log.5"

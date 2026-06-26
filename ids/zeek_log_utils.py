@@ -11,7 +11,7 @@ import os
 import re
 import urllib.request
 
-from preprocess_config import CTU_MALWARE_DIR
+from ids.preprocess_config import CTU_MALWARE_DIR
 
 
 # ── Standard Zeek conn.log field layout (21-field TSV) ──────────────────────────

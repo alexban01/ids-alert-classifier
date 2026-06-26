@@ -15,9 +15,9 @@ import os
 
 import pandas as pd
 
-from behavior_features import build_behavior_contexts
-from preprocess_config import MAX_PER_SOURCE_CLASS, UWF_ATTACK_CAP
-from preprocess_sample import make_sample
+from ids.behavior_features import build_behavior_contexts
+from ids.preprocess_config import MAX_PER_SOURCE_CLASS, UWF_ATTACK_CAP
+from ids.preprocess_sample import make_sample
 
 _UWF_ALLOWED_TACTICS = {"Credential Access", "Defense Evasion"}
 

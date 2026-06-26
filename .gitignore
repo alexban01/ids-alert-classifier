@@ -4,7 +4,9 @@ datasets/
 # Generated training data
 *.jsonl
 
-# Model outputs — checkpoints, adapters, merged, GGUF
+# Model outputs — checkpoints, adapters, merged, GGUF (all under models/)
+models/
+# legacy root-level locations (kept so old checkouts stay clean)
 v*-ids-model/
 v*-ids-lora-adapter/
 *-ids-lora-adapter-merged/

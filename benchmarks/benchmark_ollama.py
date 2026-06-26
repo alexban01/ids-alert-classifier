@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sklearn.metrics import classification_report, confusion_matrix, matthews_corrcoef
 
-from prompt_utils import SYSTEM_PROMPT, extract_verdict
+from ids.prompt_utils import SYSTEM_PROMPT, extract_verdict
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 OLLAMA_GENERATE_URL = "http://localhost:11434/api/generate"

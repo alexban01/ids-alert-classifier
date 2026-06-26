@@ -24,25 +24,26 @@ Arch Linux managed environment — system `python3`/`pip3` refuse to install pac
 ## Project Structure
 
 ```
-├── train.py                  # QLoRA fine-tuning via SFTTrainer
-├── preprocess_zeek.py        # Build training JSONL from all sources
-├── preprocess_config.py      # Caps, ratio targets, masking probs, reason pools
-├── preprocess_sample.py      # score_hard_benign(), make_sample(), pick_reason()
-├── prompt_utils.py           # Shared build_prompt, SYSTEM_PROMPT, extract_verdict
-├── infer_utils.py            # Shared 4-bit+LoRA model load, tokenizer, chat templating
-├── behavior_features.py      # Behavioral context features for enriched prompts
-├── zeek_log_utils.py         # Zeek TSV parser + conn.log row helper + CTU-Malware helpers
+├── train.py                  # QLoRA fine-tuning via SFTTrainer (entry point)
+├── preprocess_zeek.py        # Build training JSONL from all sources (entry point)
 ├── Modelfile                 # Ollama config — Qwen2.5 chat template, temperature 0
 ├── requirements.txt
 │
-├── loaders/                  # Dataset loaders (imported by preprocess_zeek.py)
-│   ├── loader_iot23.py       #   IoT-23 conn.log.labeled (tar.gz)
-│   ├── loader_ctu13.py       #   CTU-13 binetflow (tar.bz2)
-│   ├── loader_unsw.py        #   UNSW-NB15 parquet / CSV
-│   ├── loader_cicids.py      #   CICIDS2017 CICFlowMeter CSVs (disabled in v7+)
-│   ├── loader_uwf.py         #   UWF-ZeekData24 Spark CSV
-│   ├── loader_ctu_normal.py  #   CTU-Normal benign Zeek conn.log
-│   └── loader_ctu_malware.py #   CTU-Malware-Capture multi-log enriched samples
+├── ids/                      # Shared library package (import as `ids.<module>`)
+│   ├── preprocess_config.py  #   Caps, ratio targets, masking probs, reason pools
+│   ├── preprocess_sample.py  #   score_hard_benign(), make_sample(), pick_reason()
+│   ├── prompt_utils.py       #   Shared build_prompt, SYSTEM_PROMPT, extract_verdict
+│   ├── infer_utils.py        #   Shared 4-bit+LoRA model load, tokenizer, chat templating
+│   ├── behavior_features.py  #   Behavioral context features for enriched prompts
+│   ├── zeek_log_utils.py     #   Zeek TSV parser + conn.log row helper + CTU-Malware helpers
+│   └── loaders/              #   Dataset loaders (imported by preprocess_zeek.py)
+│       ├── loader_iot23.py       #   IoT-23 conn.log.labeled (tar.gz)
+│       ├── loader_ctu13.py       #   CTU-13 binetflow (tar.bz2)
+│       ├── loader_unsw.py        #   UNSW-NB15 parquet / CSV
+│       ├── loader_cicids.py      #   CICIDS2017 CICFlowMeter CSVs (disabled in v7+)
+│       ├── loader_uwf.py         #   UWF-ZeekData24 Spark CSV
+│       ├── loader_ctu_normal.py  #   CTU-Normal benign Zeek conn.log
+│       └── loader_ctu_malware.py #   CTU-Malware-Capture multi-log enriched samples
 │
 ├── benchmarks/               # Benchmark scripts
 │   ├── benchmark_realworld.py  # Primary: real Zeek sources (IoT-23, CTU-13, UWF, CTU-Normal)
@@ -66,17 +67,24 @@ Arch Linux managed environment — system `python3`/`pip3` refuse to install pac
 │   └── test_novel_cases.py
 │
 ├── notes/                    # Research notes & thesis notes
+├── thesis/                   # Thesis drafts
 ├── results/                  # Benchmark reports & result JSONs
 ├── real_conn/                # Real Zeek conn.log files for testing
+├── models/                   # Training checkpoints, adapters, merged (gitignored)
 ├── datasets/                 # Raw datasets (gitignored)
 └── llama.cpp/                # External tool (gitignored)
 ```
 
+**Import convention:** entry-point scripts run from the project root
+(`.venv/bin/python preprocess_zeek.py`, `.venv/bin/python benchmarks/benchmark_realworld.py`).
+Shared code lives in the `ids/` package and is imported as `from ids.<module> import …`
+(e.g. `from ids.prompt_utils import build_prompt`). Scripts under `benchmarks/`,
+`scripts/`, and `tests/` add the project root to `sys.path` so `import ids` resolves.
+
 **Gitignored (regenerable):**
 - `datasets/` — IoT-23, CTU-13, UNSW-NB15, UWF-ZeekData24, CTU-Normal
-- `*.jsonl` — train/eval splits from preprocess_zeek.py
-- `v*-ids-model/`, `v*-ids-lora-adapter/` — training checkpoints & adapters
-- `*-ids-lora-adapter-merged/`, `*.gguf` — merged models for Ollama
+- `*.jsonl` — train/eval splits from preprocess_zeek.py (kept at root: train CWD + RunPod upload)
+- `models/` — all training checkpoints, LoRA adapters, merged models, and `*.gguf`
 - `llama.cpp/`, `test_captures/`
 
 ## Model Architecture

@@ -35,9 +35,9 @@ from bench_loaders import (
     CAP, load_iot23, load_ctu13, load_uwf, load_ctu_normal,
     load_ctu_sme11, load_ctu_win7ad, load_ctu_botnet3,
 )
-from behavior_features import build_behavior_contexts, build_host_summaries
-from infer_utils import BASE_MODEL, chat_text, load_lora_model, load_tokenizer
-from prompt_utils import build_prompt, build_host_prompt, extract_verdict, extract_reason
+from ids.behavior_features import build_behavior_contexts, build_host_summaries
+from ids.infer_utils import BASE_MODEL, chat_text, load_lora_model, load_tokenizer
+from ids.prompt_utils import build_prompt, build_host_prompt, extract_verdict, extract_reason
 
 # ── Config ──────────────────────────────────────────────────────────────────────
 CACHE_FILE     = "results/benchmark_realworld_cache.json"
@@ -48,16 +48,16 @@ BATCH_SIZE     = 24
 RANDOM_SEED    = 42
 
 MODELS = [
-    # ("v4 Fine-tuned",        "./v4-ids-lora-adapter"),
-    # ("v6 Fine-tuned",        "./v6-ids-lora-adapter"),
-    # ("v7.1 Fine-tuned",      "./v7.1-ids-lora-adapter"),
-    # ("v8 ckpt-1500 (ep1)",   "./v8-ids-model/checkpoint-1500"),
-    # ("v8.1 Fine-tuned",      "./v8.1-ids-lora-adapter"),
-    # ("v9.0 ckpt-1420 (ep1)",   "./v9.0-ids-model/checkpoint-1420"),
-    # ("v9.1 ckpt-1186 (ep1)",   "./v9.1-ids-model/checkpoint-1186"),
-    # ("v9.1 Fine-tuned",        "./v9.1-ids-lora-adapter"),   # superseded by v11
-    ("v11 ckpt-11313 (ep1)",   "./v11-ids-model/checkpoint-11313"),
-    ("v11 ckpt-22626 (ep2)",   "./v11-ids-model/checkpoint-22626"),   # best (eval_loss 0.1570)
+    # ("v4 Fine-tuned",        "./models/v4-ids-lora-adapter"),
+    # ("v6 Fine-tuned",        "./models/v6-ids-lora-adapter"),
+    # ("v7.1 Fine-tuned",      "./models/v7.1-ids-lora-adapter"),
+    # ("v8 ckpt-1500 (ep1)",   "./models/v8-ids-model/checkpoint-1500"),
+    # ("v8.1 Fine-tuned",      "./models/v8.1-ids-lora-adapter"),
+    # ("v9.0 ckpt-1420 (ep1)",   "./models/v9.0-ids-model/checkpoint-1420"),
+    # ("v9.1 ckpt-1186 (ep1)",   "./models/v9.1-ids-model/checkpoint-1186"),
+    # ("v9.1 Fine-tuned",        "./models/v9.1-ids-lora-adapter"),   # superseded by v11
+    ("v11 ckpt-11313 (ep1)",   "./models/v11-ids-model/checkpoint-11313"),
+    ("v11 ckpt-22626 (ep2)",   "./models/v11-ids-model/checkpoint-22626"),   # best (eval_loss 0.1570)
 ]
 
 DATASETS = {

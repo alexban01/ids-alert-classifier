@@ -18,7 +18,7 @@ import urllib.error
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from prompt_utils import SYSTEM_PROMPT, build_prompt, extract_verdict
+from ids.prompt_utils import SYSTEM_PROMPT, build_prompt, extract_verdict
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
 MODEL      = sys.argv[1] if len(sys.argv) > 1 else "ids-classifier"

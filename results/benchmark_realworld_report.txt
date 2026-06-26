@@ -1,94 +1,53 @@
-REAL-WORLD ZEEK BENCHMARK [OOD-ONLY] — 2026-06-23 20:07
+REAL-WORLD ZEEK BENCHMARK [OOD-ONLY] — 2026-06-26 02:09
 Sources: IoT-23, CTU-13, UWF-ZeekData24, CTU-Normal | OOD: Win7AD-1, Echo, Kelihos
 Samples: 1500 total (900 attacks / 600 benign) | OOD: 1500 | Seed: 42
-
-======================================================================
-  MODEL  : v9.1 Fine-tuned
-  Samples: 1500  (attacks: 900, benign: 600)
-  Format failures : 0 (0.0%)
-  MCC             : +0.6092  (-1 to +1, higher is better)
-======================================================================
-                precision    recall  f1-score   support
-
-        ATTACK       0.89      0.77      0.82       900
-FALSE POSITIVE       0.71      0.85      0.78       600
-
-      accuracy                           0.80      1500
-     macro avg       0.80      0.81      0.80      1500
-  weighted avg       0.82      0.80      0.80      1500
-
-Confusion Matrix  (rows = actual, cols = predicted)
-                           ATTACK  FALSE POSITIVE
-  ATTACK                  694 ( 77%)     206 ( 23%)
-  FALSE POSITIVE           90 ( 15%)     510 ( 85%)
-
---- Per source ---
-  Source                               Atk  Recall     Ben  Recall      Acc
-  ---------------------------------- ----- -------   ----- -------   ------
-  CTU-Malware3   [OOD-Floor] (Kelihos)   300   81.3%       0    0.0%    81.3%
-  CTU-SME-11 [OOD-Easy] (Echo)         300   66.3%     300   79.7%    73.0%
-  CTU-SME-11 [OOD-Hard] (Win7AD-1)     300   83.7%     300   90.3%    87.0%
-
---- Per label (attacks only) ---
-  From_malicious-To_benign-Discovery           199/300 ( 66%)
-  From_malicious-To_benign-Human_attacks        66/79  ( 84%)
-  From_malicious-To_malicious-Malware_C2-Trickbot 185/221 ( 84%)
-  Kelihos                                      244/300 ( 81%)
-
---- Host Pass-2 ---
-  Hosts           : 231
-  Format failures : 0 (0.0%)
-  Accuracy        : 55.0%
-  Atk Recall      : 54.7%
-  FP Recall       : 66.7%
-  MCC             : +0.0681
 
 ======================================================================
   MODEL  : v11 ckpt-11313 (ep1)
   Samples: 1500  (attacks: 900, benign: 600)
   Format failures : 0 (0.0%)
-  MCC             : +0.6937  (-1 to +1, higher is better)
+  MCC             : +0.6990  (-1 to +1, higher is better)
 ======================================================================
                 precision    recall  f1-score   support
 
         ATTACK       0.96      0.76      0.85       900
-FALSE POSITIVE       0.72      0.95      0.82       600
+FALSE POSITIVE       0.73      0.95      0.82       600
 
-      accuracy                           0.83      1500
-     macro avg       0.84      0.85      0.83      1500
-  weighted avg       0.86      0.83      0.84      1500
+      accuracy                           0.84      1500
+     macro avg       0.84      0.86      0.84      1500
+  weighted avg       0.87      0.84      0.84      1500
 
 Confusion Matrix  (rows = actual, cols = predicted)
                            ATTACK  FALSE POSITIVE
-  ATTACK                  683 ( 76%)     217 ( 24%)
+  ATTACK                  688 ( 76%)     212 ( 24%)
   FALSE POSITIVE           31 (  5%)     569 ( 95%)
 
 --- Per source ---
   Source                               Atk  Recall     Ben  Recall      Acc
   ---------------------------------- ----- -------   ----- -------   ------
   CTU-Malware3   [OOD-Floor] (Kelihos)   300   80.7%       0    0.0%    80.7%
-  CTU-SME-11 [OOD-Easy] (Echo)         300   75.0%     300   96.7%    85.8%
-  CTU-SME-11 [OOD-Hard] (Win7AD-1)     300   72.0%     300   93.0%    82.5%
+  CTU-SME-11 [OOD-Easy] (Echo)         300   75.7%     300   96.7%    86.2%
+  CTU-SME-11 [OOD-Hard] (Win7AD-1)     300   73.0%     300   93.0%    83.0%
 
 --- Per label (attacks only) ---
-  From_malicious-To_benign-Discovery           225/300 ( 75%)
+  From_malicious-To_benign-Discovery           227/300 ( 76%)
   From_malicious-To_benign-Human_attacks        74/79  ( 94%)
-  From_malicious-To_malicious-Malware_C2-Trickbot 142/221 ( 64%)
+  From_malicious-To_malicious-Malware_C2-Trickbot 145/221 ( 66%)
   Kelihos                                      242/300 ( 81%)
 
 --- Host Pass-2 ---
   Hosts           : 231
   Format failures : 0 (0.0%)
-  Accuracy        : 72.7%
-  Atk Recall      : 73.8%
+  Accuracy        : 73.6%
+  Atk Recall      : 74.7%
   FP Recall       : 33.3%
-  MCC             : +0.0257
+  MCC             : +0.0292
 
 ======================================================================
   MODEL  : v11 ckpt-22626 (ep2)
   Samples: 1500  (attacks: 900, benign: 600)
   Format failures : 0 (0.0%)
-  MCC             : +0.6011  (-1 to +1, higher is better)
+  MCC             : +0.6001  (-1 to +1, higher is better)
 ======================================================================
                 precision    recall  f1-score   support
 
@@ -96,46 +55,44 @@ Confusion Matrix  (rows = actual, cols = predicted)
 FALSE POSITIVE       0.68      0.90      0.77       600
 
       accuracy                           0.79      1500
-     macro avg       0.80      0.81      0.79      1500
+     macro avg       0.79      0.81      0.79      1500
   weighted avg       0.82      0.79      0.79      1500
 
 Confusion Matrix  (rows = actual, cols = predicted)
                            ATTACK  FALSE POSITIVE
-  ATTACK                  641 ( 71%)     259 ( 29%)
+  ATTACK                  640 ( 71%)     260 ( 29%)
   FALSE POSITIVE           60 ( 10%)     540 ( 90%)
 
 --- Per source ---
   Source                               Atk  Recall     Ben  Recall      Acc
   ---------------------------------- ----- -------   ----- -------   ------
   CTU-Malware3   [OOD-Floor] (Kelihos)   300   83.3%       0    0.0%    83.3%
-  CTU-SME-11 [OOD-Easy] (Echo)         300   74.7%     300   87.7%    81.2%
+  CTU-SME-11 [OOD-Easy] (Echo)         300   74.3%     300   87.7%    81.0%
   CTU-SME-11 [OOD-Hard] (Win7AD-1)     300   55.7%     300   92.3%    74.0%
 
 --- Per label (attacks only) ---
-  From_malicious-To_benign-Discovery           224/300 ( 75%)
-  From_malicious-To_benign-Human_attacks        64/79  ( 81%)
-  From_malicious-To_malicious-Malware_C2-Trickbot 103/221 ( 47%)
+  From_malicious-To_benign-Discovery           223/300 ( 74%)
+  From_malicious-To_benign-Human_attacks        61/79  ( 77%)
+  From_malicious-To_malicious-Malware_C2-Trickbot 106/221 ( 48%)
   Kelihos                                      250/300 ( 83%)
 
 --- Host Pass-2 ---
   Hosts           : 231
   Format failures : 0 (0.0%)
-  Accuracy        : 71.4%
-  Atk Recall      : 71.6%
+  Accuracy        : 71.9%
+  Atk Recall      : 72.0%
   FP Recall       : 66.7%
-  MCC             : +0.1334
+  MCC             : +0.1355
 
 ==========================================================================
-  REAL-WORLD ZEEK COMPARISON — v9.1 Fine-tuned vs v11 ckpt-11313 (ep1) vs v11 ckpt-22626 (ep2)
+  REAL-WORLD ZEEK COMPARISON — v11 ckpt-11313 (ep1) vs v11 ckpt-22626 (ep2)
 ==========================================================================
   Model                 Accuracy  Atk Recall  FP Recall     MCC  Fmt Fail
   -------------------- --------- ----------- ---------- ------- ---------
-  v9.1 Fine-tuned          80.3%       77.1%      85.0%  +0.609      0.0%
-  v11 ckpt-11313 (ep1)     83.5%       75.9%      94.8%  +0.694      0.0%
-  v11 ckpt-22626 (ep2)     78.7%       71.2%      90.0%  +0.601      0.0%
+  v11 ckpt-11313 (ep1)     83.8%       76.4%      94.8%  +0.699      0.0%
+  v11 ckpt-22626 (ep2)     78.7%       71.1%      90.0%  +0.600      0.0%
   -------------------- --------- ----------- ---------- ------- ---------
-  delta (v11 - v9.1)       +3.2%       -1.2%      +9.8%  +0.085     +0.0%
-  delta (v11 - v11)        -4.7%       -4.7%      -4.8%  -0.093     +0.0%
+  delta (v11 - v11)        -5.1%       -5.3%      -4.8%  -0.099     +0.0%
 ==========================================================================
 
   Atk Recall = % of actual attacks caught (sensitivity / TPR)
@@ -147,9 +104,9 @@ Confusion Matrix  (rows = actual, cols = predicted)
   OOD    : Win7AD-1 (hard) + Echo (easy) + Kelihos (floor) — never in training
   (native Zeek conn.log — NO synthetic field mapping)
 
---- Per-source delta (v11 - v9.1) ---
+--- Per-source delta (v11 - v11) ---
   Source                              Δ Accuracy  Δ Atk Recall  Δ FP Recall
   ---------------------------------- ----------- ------------- ------------
-  CTU-SME-11 [OOD-Hard] (Win7AD-1)        -13.0%        -28.0%        +2.0%
-  CTU-SME-11 [OOD-Easy] (Echo)             +8.2%         +8.3%        +8.0%
-  CTU-Malware3   [OOD-Floor] (Kelihos)       +2.0%         +2.0%        +0.0%
+  CTU-SME-11 [OOD-Hard] (Win7AD-1)         -9.0%        -17.3%        -0.7%
+  CTU-SME-11 [OOD-Easy] (Echo)             -5.2%         -1.3%        -9.0%
+  CTU-Malware3   [OOD-Floor] (Kelihos)       +2.7%         +2.7%        +0.0%

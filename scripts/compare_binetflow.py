@@ -41,7 +41,7 @@ from classify_conn_log import (
     parse_conn_log, build_prompts, load_hf_model, classify_hf,
     ADAPTER_DIR,
 )
-from zeek_log_utils import norm_key
+from ids.zeek_log_utils import norm_key
 
 # ── Binetflow helpers ──────────────────────────────────────────────────────────
 

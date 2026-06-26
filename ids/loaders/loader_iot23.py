@@ -12,10 +12,10 @@ ctu13_single).  This avoids re-decompressing the 8.7 GB tar.gz on every run.
 
 import os
 
-from behavior_features import build_behavior_contexts
-from preprocess_config import IOT23_FILE_ATTACK_CAP, IOT23_FILE_BENIGN_CAP
-from preprocess_sample import make_sample
-from zeek_log_utils import conn_row_from_parts
+from ids.behavior_features import build_behavior_contexts
+from ids.preprocess_config import IOT23_FILE_ATTACK_CAP, IOT23_FILE_BENIGN_CAP
+from ids.preprocess_sample import make_sample
+from ids.zeek_log_utils import conn_row_from_parts
 
 
 def load_iot23_file(filepath):

@@ -1,7 +1,7 @@
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from behavior_features import _periodic_label, build_behavior_contexts
+from ids.behavior_features import _periodic_label, build_behavior_contexts
 
 
 def _row(ts, orig_h="10.0.0.1", resp_h="1.1.1.1", resp_p="443", proto="tcp",

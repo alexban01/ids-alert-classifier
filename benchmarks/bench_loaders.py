@@ -31,8 +31,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pandas as pd
 
-from prompt_utils import build_prompt
-from zeek_log_utils import conn_row_from_parts
+from ids.prompt_utils import build_prompt
+from ids.zeek_log_utils import conn_row_from_parts
 
 # ── Constants ───────────────────────────────────────────────────────────────────
 CAP = 300 # max samples per (source, class)

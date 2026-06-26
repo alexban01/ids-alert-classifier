@@ -12,8 +12,8 @@ Label mapping: Botnet → ATTACK, Normal → FALSE POSITIVE, Background → skip
 
 import os
 
-from preprocess_config import CTU13_FILE_CAP
-from preprocess_sample import make_sample
+from ids.preprocess_config import CTU13_FILE_CAP
+from ids.preprocess_sample import make_sample
 
 # Argus binetflow state → Zeek conn_state
 _CTU_STATE_MAP = {

@@ -10,10 +10,10 @@ Standard 21-field TSV format identical to IoT-23.  Uses "-" for unset fields.
 import glob
 import os
 
-from behavior_features import build_behavior_contexts
-from preprocess_config import CTU_NORMAL_CAP
-from preprocess_sample import make_sample
-from zeek_log_utils import conn_row_from_parts
+from ids.behavior_features import build_behavior_contexts
+from ids.preprocess_config import CTU_NORMAL_CAP
+from ids.preprocess_sample import make_sample
+from ids.zeek_log_utils import conn_row_from_parts
 
 
 def load_ctu_normal(dataset_dir):

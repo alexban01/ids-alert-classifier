@@ -12,8 +12,8 @@ import os
 
 import pandas as pd
 
-from preprocess_config import MAX_PER_SOURCE_CLASS
-from preprocess_sample import make_sample
+from ids.preprocess_config import MAX_PER_SOURCE_CLASS
+from ids.preprocess_sample import make_sample
 
 # CICFlowMeter → Zeek column mapping
 _COLMAP = {

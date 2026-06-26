@@ -18,8 +18,8 @@ import pandas as pd
 from torch.utils.data import DataLoader, Dataset
 from sklearn.metrics import classification_report, confusion_matrix, matthews_corrcoef
 
-from infer_utils import BASE_MODEL, chat_text, load_lora_model, load_tokenizer
-from prompt_utils import build_prompt, extract_verdict
+from ids.infer_utils import BASE_MODEL, chat_text, load_lora_model, load_tokenizer
+from ids.prompt_utils import build_prompt, extract_verdict
 
 # ── Config ────────────────────────────────────────────────────────────────────
 BENCHMARK_CACHE = "results/benchmark_samples_v4.json"
@@ -31,9 +31,9 @@ SAMPLES_PER_CLASS_PER_FILE = 50
 RANDOM_SEED     = 42
 
 MODELS = [
-    ("v4 Fine-tuned",   "./v4-ids-lora-adapter"),
-    ("v6 Fine-tuned",   "./v6-ids-lora-adapter"),
-    ("v7.1 Fine-tuned", "./v7.1-ids-lora-adapter"),
+    ("v4 Fine-tuned",   "./models/v4-ids-lora-adapter"),
+    ("v6 Fine-tuned",   "./models/v6-ids-lora-adapter"),
+    ("v7.1 Fine-tuned", "./models/v7.1-ids-lora-adapter"),
 ]
 
 CSV_FILES = [

@@ -7,12 +7,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
 
-from infer_utils import chat_text, load_lora_model, load_tokenizer
-from prompt_utils import build_prompt, extract_verdict
-from zeek_log_utils import conn_row_from_parts
+from ids.infer_utils import chat_text, load_lora_model, load_tokenizer
+from ids.prompt_utils import build_prompt, extract_verdict
+from ids.zeek_log_utils import conn_row_from_parts
 
 # ── Config ────────────────────────────────────────────────────────────────────
-ADAPTER_DIR = "./v9.1-ids-lora-adapter"
+ADAPTER_DIR = "./models/v9.1-ids-lora-adapter"
 WEIRD_LOG   = "weird.log"
 CONN_LOG    = "conn.log"
 MAX_NEW_TOKENS = 80

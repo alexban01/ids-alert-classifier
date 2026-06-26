@@ -10,7 +10,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import PeftModel
 
-from prompt_utils import SYSTEM_PROMPT
+from ids.prompt_utils import SYSTEM_PROMPT
 
 BASE_MODEL = "Qwen/Qwen2.5-1.5B-Instruct"
 
