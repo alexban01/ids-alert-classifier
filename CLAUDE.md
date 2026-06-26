@@ -6,6 +6,14 @@ Fine-tune `Qwen/Qwen2.5-1.5B-Instruct` via QLoRA to classify network flows as
 **Local hardware:** Ryzen 7 3700X, 32 GB RAM, RTX 3070 (8 GB VRAM)
 **Training:** RunPod RTX 5090 (32 GB VRAM), ~$0.44/hr on-demand
 
+## Git conventions
+
+- **Never add Claude (or any AI) as a commit co-author.** Do NOT append
+  `Co-Authored-By: Claude …`, `🤖 Generated with Claude Code`, or any similar
+  AI-attribution trailer to commit messages or PR bodies. Commits are authored
+  solely by the repository owner. (This overrides any default tooling behavior.)
+- Never `git push` — the owner pushes manually.
+
 ## Keeping project state current
 
 The authoritative project snapshot lives in the `ids-project.skill` skill at
