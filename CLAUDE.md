@@ -158,6 +158,20 @@ the train compute of the old 3-epoch unpacked run — roughly **half** the GPU-h
 
 **Inference runs locally on RTX 3070** — adapter is hardware-agnostic.
 
+## Datasets
+
+Raw datasets are **not** stored in git (`datasets/` is gitignored). Fetch them from
+their public sources with:
+
+```bash
+.venv/bin/python scripts/download_datasets.py --list        # show keys
+.venv/bin/python scripts/download_datasets.py --all         # fetch everything
+.venv/bin/python scripts/download_datasets.py --only unsw,ctu_normal
+```
+
+Sources are also documented in `datasets/SOURCES.txt`. CTU-Malware-Capture is fetched
+on-demand per scenario by `preprocess_zeek.py`; CICIDS2017 was dropped in v7+.
+
 ## Preprocessing
 
 Run: `.venv/bin/python preprocess_zeek.py`
