@@ -7,6 +7,7 @@ Provides:
   make_sample(...)            — build a training JSONL record from raw flow fields
 """
 
+import os
 import random
 
 from ids.preprocess_config import (
@@ -16,7 +17,17 @@ from ids.preprocess_config import (
     ATTACK_REASONS,
     BENIGN_REASONS,
 )
-from ids.prompt_utils import SYSTEM_PROMPT, build_prompt
+from ids.prompt_utils import SYSTEM_PROMPT, SYSTEM_PROMPT_VERDICT_ONLY, build_prompt
+
+
+def include_reason():
+    """Whether training targets include the REASON line.
+
+    Off when preprocess_zeek.py is run with --no-reason (sets IDS_NO_REASON=1).
+    Read from the environment so it propagates to ProcessPoolExecutor workers,
+    which run loaders (and make_sample) in separate processes.
+    """
+    return os.environ.get("IDS_NO_REASON") != "1"
 
 
 def pick_reason(verdict):
@@ -180,12 +191,17 @@ def make_sample(proto, duration, orig_pkts, resp_pkts,
         http_ctx=http_ctx, dns_ctx=dns_ctx, ssl_ctx=ssl_ctx,
         behavior_ctx=prompt_behavior_ctx,
     )
-    reason = pick_reason(verdict)
+    if include_reason():
+        system_prompt = SYSTEM_PROMPT
+        answer = f"VERDICT: {verdict}\nREASON: {pick_reason(verdict)}"
+    else:
+        system_prompt = SYSTEM_PROMPT_VERDICT_ONLY
+        answer = f"VERDICT: {verdict}"
     return {
         "messages": [
-            {"role": "system",    "content": SYSTEM_PROMPT},
+            {"role": "system",    "content": system_prompt},
             {"role": "user",      "content": prompt},
-            {"role": "assistant", "content": f"VERDICT: {verdict}\nREASON: {reason}"},
+            {"role": "assistant", "content": answer},
         ],
         "source":            source,
         "verdict":           verdict,

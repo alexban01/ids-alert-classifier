@@ -98,7 +98,19 @@ if __name__ == "__main__":
         "--no-uwf", action="store_true",
         help="Also skip UWF-ZeekData24 (combine with --ctu-only for CTU-only benign sources).",
     )
+    parser.add_argument(
+        "--no-reason", action="store_true",
+        help="Drop the REASON line from training targets (verdict-only ablation). "
+             "Samples become 'VERDICT: <X>' with a verdict-only system prompt. "
+             "Benchmark/deploy the resulting model with SYSTEM_PROMPT_VERDICT_ONLY.",
+    )
     args = parser.parse_args()
+
+    # Set before the ProcessPoolExecutor is created so loader workers (separate
+    # processes) inherit it — make_sample reads IDS_NO_REASON from the env.
+    if args.no_reason:
+        os.environ["IDS_NO_REASON"] = "1"
+        print("[INFO] --no-reason: training targets are verdict-only (REASON line dropped)")
 
     random.seed(RANDOM_SEED)
 
@@ -273,6 +285,37 @@ if __name__ == "__main__":
     # ── Write outputs ─────────────────────────────────────────────────────────
     _write_jsonl(TRAIN_FILE, final_train)
     _write_jsonl(EVAL_FILE,  eval_pool)
+
+    # ── Dataset provenance sidecar (zeek_dataset.meta.json) ────────────────────
+    # Records git SHA, CLI args, the resolved preprocess knobs, counts, and a
+    # content hash — so an adapter trained on this file can prove what produced it.
+    try:
+        from ids import preprocess_config as pc
+        from ids.run_manifest import write_dataset_meta
+        write_dataset_meta(
+            TRAIN_FILE, EVAL_FILE,
+            args={"ctu_only": args.ctu_only, "no_uwf": args.no_uwf,
+                  "no_reason": args.no_reason},
+            config={
+                "reason":                    os.environ.get("IDS_NO_REASON") != "1",
+                "TRAINING_FACTOR":           pc.TRAINING_FACTOR,
+                "FINAL_ATTACK":              pc.FINAL_ATTACK,
+                "FINAL_BENIGN":              pc.FINAL_BENIGN,
+                "EVAL_FRAC":                 pc.EVAL_FRAC,
+                "RANDOM_SEED":               pc.RANDOM_SEED,
+                "CONN_STATE_MASK_PROB":      pc.CONN_STATE_MASK_PROB,
+                "CONTEXT_MASK_PROB":         pc.CONTEXT_MASK_PROB,
+                "HARD_BENIGN_MIN_SCORE":     pc.HARD_BENIGN_MIN_SCORE,
+                "HARD_BENIGN_TARGET_FRAC":   pc.HARD_BENIGN_TARGET_FRAC,
+                "CTU_MALWARE_ATTACK_BUDGET": pc.CTU_MALWARE_ATTACK_BUDGET,
+            },
+            counts={"train": len(final_train), "eval": len(eval_pool),
+                    "attacks": len(attacks), "benign": len(benign)},
+            sources=Counter(s["source"] for s in final_train),
+        )
+        print(f"   📋 Dataset meta → {os.path.splitext(TRAIN_FILE)[0]}.meta.json")
+    except Exception as e:
+        print(f"[WARN] could not write dataset meta: {e}")
 
     # ── Context coverage diagnostics ──────────────────────────────────────────
     atk_pool = [s for s in final_train if s["verdict"] == "ATTACK"]

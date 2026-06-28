@@ -6,6 +6,16 @@ SYSTEM_PROMPT = (
     "followed by REASON: <brief explanation>."
 )
 
+# Verdict-only variant: used by the --no-reason preprocessing ablation, which
+# drops the (randomly-picked, non-grounded) REASON line from training targets.
+# A model trained on verdict-only data must be benchmarked/deployed with THIS
+# system prompt, not SYSTEM_PROMPT — otherwise the system instruction would ask
+# for a REASON the model was never trained to emit.
+SYSTEM_PROMPT_VERDICT_ONLY = (
+    "You are a network security analyst. "
+    "Respond with exactly one line: VERDICT: <ATTACK or FALSE POSITIVE>."
+)
+
 _NA_VALUES = (None, "", "-", "?", "None", "nan", "NaN")
 
 
