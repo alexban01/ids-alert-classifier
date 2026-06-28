@@ -143,12 +143,42 @@ trainer = SFTTrainer(
     ),
 )
 
-trainer.train()
+train_result = trainer.train()
 
 # ── Save ─────────────────────────────────────────────────────────────────────
 trainer.model.save_pretrained(ADAPTER_DIR)
 tokenizer.save_pretrained(ADAPTER_DIR)
 print(f"\n✅ Training complete. Best adapter saved to {ADAPTER_DIR}")
 print("   Download this directory to your local machine for inference/GGUF conversion.")
+
+# ── Run manifest (run.json + EXPERIMENTS.md) ──────────────────────────────────
+# Self-describing provenance: hyperparams + dataset content hash + best eval_loss.
+# Wrapped so bookkeeping can never fail a completed training run.
+try:
+    from ids.run_manifest import write_run_manifest
+    write_run_manifest(
+        ADAPTER_DIR,
+        base_model=MODEL,
+        target=("RunPod RTX 5090" if RUNPOD else "Local RTX 3070"),
+        hyperparams={
+            "epochs":          trainer.args.num_train_epochs,
+            "packing":         getattr(trainer.args, "packing", PACKING),
+            "batch":           trainer.args.per_device_train_batch_size,
+            "grad_accum":      trainer.args.gradient_accumulation_steps,
+            "effective_batch": BATCH * GRAD_ACCUM,
+            "max_length":      MAX_LENGTH,
+            "learning_rate":   trainer.args.learning_rate,
+            "lora_r":          lora_config.r,
+            "lora_alpha":      lora_config.lora_alpha,
+            "lora_dropout":    lora_config.lora_dropout,
+            "eval_subset":     args.eval_subset,
+        },
+        train_file=DATASET,
+        eval_loss=trainer.state.best_metric,
+        train_runtime_s=train_result.metrics.get("train_runtime"),
+    )
+    print(f"   📋 run.json + EXPERIMENTS.md updated")
+except Exception as e:
+    print(f"[WARN] could not write run manifest: {e}")
 print(f"\n   Next: .venv/bin/python benchmark_realworld.py --regen")
 print(f"   OOD check: .venv/bin/python benchmark_realworld.py --ood-only  (Botnet-3 Kelihos)")
