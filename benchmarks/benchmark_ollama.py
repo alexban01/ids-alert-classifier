@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sklearn.metrics import classification_report, confusion_matrix, matthews_corrcoef
 
-from ids.prompt_utils import SYSTEM_PROMPT, extract_verdict
+from ids.prompt_utils import SYSTEM_PROMPT, SYSTEM_PROMPT_VERDICT_ONLY, extract_verdict
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 OLLAMA_GENERATE_URL = "http://localhost:11434/api/generate"
@@ -58,11 +58,11 @@ def build_qwen_prompt(system, user):
     )
 
 
-def ollama_classify(model, prompt, timeout=30):
+def ollama_classify(model, prompt, system_prompt=SYSTEM_PROMPT, timeout=30):
     """POST to Ollama /api/generate with raw Qwen2.5 prompt. Returns response text."""
     payload = json.dumps({
         "model":  model,
-        "prompt": build_qwen_prompt(SYSTEM_PROMPT, prompt),
+        "prompt": build_qwen_prompt(system_prompt, prompt),
         "stream": False,
         "raw":    True,   # skip Ollama's template — we already applied it
     }).encode()
@@ -177,9 +177,13 @@ def print_report(preds, samples, model_label, unknowns, elapsed, out_lines):
 # ── Main ────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     # Parse args
-    args       = sys.argv[1:]
-    model_name = DEFAULT_MODEL
-    cache_file = DEFAULT_CACHE
+    args         = sys.argv[1:]
+    model_name   = DEFAULT_MODEL
+    cache_file   = DEFAULT_CACHE
+    # Ollama models carry no run.json, so a --no-reason (verdict-only) model needs
+    # this flag to be served the matching system prompt.
+    verdict_only = "--verdict-only" in args
+    args         = [a for a in args if a != "--verdict-only"]
     i = 0
     while i < len(args):
         if args[i] == "--cache" and i + 1 < len(args):
@@ -189,6 +193,7 @@ if __name__ == "__main__":
         else:
             i += 1
 
+    system_prompt = SYSTEM_PROMPT_VERDICT_ONLY if verdict_only else SYSTEM_PROMPT
     check_ollama(model_name)
 
     print(f"[CACHE] Loading {cache_file}")
@@ -204,6 +209,7 @@ if __name__ == "__main__":
         f"OLLAMA BENCHMARK — {ts}",
         f"Model  : {model_name}",
         f"Cache  : {cache_file}",
+        f"Prompt : {'verdict-only (--verdict-only)' if verdict_only else 'VERDICT+REASON (default)'}",
         f"Samples: {len(samples)} ({atk_n} attacks / {ben_n} benign)",
     ]
 
@@ -214,7 +220,7 @@ if __name__ == "__main__":
     print(f"\nRunning inference: {model_name}")
     for i, s in enumerate(samples):
         try:
-            text    = ollama_classify(model_name, s["prompt"])
+            text    = ollama_classify(model_name, s["prompt"], system_prompt)
             verdict = extract_verdict(text)
         except RuntimeError as e:
             print(f"\n[ERROR] {e}")

@@ -36,8 +36,10 @@ from bench_loaders import (
     load_ctu_sme11, load_ctu_win7ad, load_ctu_botnet3,
 )
 from ids.behavior_features import build_behavior_contexts, build_host_summaries
-from ids.infer_utils import BASE_MODEL, chat_text, load_lora_model, load_tokenizer
-from ids.prompt_utils import build_prompt, build_host_prompt, extract_verdict, extract_reason
+from ids.infer_utils import (BASE_MODEL, chat_text, load_lora_model, load_tokenizer,
+                             resolve_system_prompt)
+from ids.prompt_utils import (build_prompt, build_host_prompt, extract_verdict, extract_reason,
+                              SYSTEM_PROMPT)
 
 # ── Config ──────────────────────────────────────────────────────────────────────
 CACHE_FILE     = "results/benchmark_realworld_cache.json"
@@ -251,8 +253,8 @@ _tokenizer = None
 
 
 class PromptDataset(Dataset):
-    def __init__(self, samples):
-        self.texts = [chat_text(_tokenizer, s["prompt"]) for s in samples]
+    def __init__(self, samples, system_prompt=SYSTEM_PROMPT):
+        self.texts = [chat_text(_tokenizer, s["prompt"], system_prompt) for s in samples]
 
     def __len__(self):        return len(self.texts)
     def __getitem__(self, i): return self.texts[i]
@@ -263,8 +265,8 @@ def collate_fn(batch):
                       truncation=True, max_length=512)
 
 
-def run_inference(model, samples, label):
-    loader   = DataLoader(PromptDataset(samples), batch_size=BATCH_SIZE,
+def run_inference(model, samples, label, system_prompt=SYSTEM_PROMPT):
+    loader   = DataLoader(PromptDataset(samples, system_prompt), batch_size=BATCH_SIZE,
                           shuffle=False, num_workers=0, pin_memory=True,
                           collate_fn=collate_fn)
     preds    = []
@@ -294,6 +296,38 @@ def run_inference(model, samples, label):
 def load_model(adapter_path):
     print(f"\nLoading {adapter_path} ...")
     return load_lora_model(adapter_path)
+
+
+def provenance_lines(label, adapter_path, run_info, system_prompt):
+    """Banner: what the model was trained on (from run.json) + which prompt we serve it.
+
+    The REASON line is the crux — a --no-reason model (dataset.reason == False) is
+    auto-served the verdict-only prompt so train/inference formats match.
+    """
+    prompt_kind = "VERDICT+REASON" if "REASON" in system_prompt else "verdict-only"
+    lines = [f"\n── Training provenance: {label} ──"]
+    if run_info is None:
+        lines += [
+            f"  run.json    : none found in {adapter_path}",
+            f"  REASON      : unknown → serving default ({prompt_kind}) system prompt",
+            f"  (Adapter predates run manifests; retrain via train.py to record provenance.)",
+        ]
+        return lines
+    hp     = run_info.get("hyperparams") or {}
+    ds     = run_info.get("dataset")     or {}
+    reason = {True: "ON", False: "OFF", None: "unknown"}[ds.get("reason")]
+    match  = ds.get("matches_meta")
+    lines += [
+        f"  Trained     : {(run_info.get('created') or '?')[:10]}  git {run_info.get('git_sha') or '?'}"
+        f"  on {run_info.get('target') or '?'}",
+        f"  REASON      : {reason}  → serving {prompt_kind} system prompt",
+        f"  Settings    : epochs={hp.get('epochs')}  packing={hp.get('packing')}  "
+        f"TF={ds.get('training_factor')}  lora_r={hp.get('lora_r')}  eff_batch={hp.get('effective_batch')}",
+        f"  Eval loss   : {run_info.get('eval_loss')}",
+        f"  Dataset hash: {(ds.get('train_sha256') or '?')[:12]}"
+        + ("" if match is None else f"  (matches local dataset meta: {match})"),
+    ]
+    return lines
 
 
 # ── Reporting ─────────────────────────────────────────────────────────────────────
@@ -515,7 +549,14 @@ if __name__ == "__main__":
             continue
 
         model                    = load_model(adapter_path)
-        preds, unknowns, reasons = run_inference(model, samples, label)
+        # Auto-detect how this model was trained and serve the matching system
+        # prompt (verdict-only for --no-reason adapters), then announce it.
+        system_prompt, run_info  = resolve_system_prompt(adapter_path)
+        prov                     = provenance_lines(label, adapter_path, run_info, system_prompt)
+        for line in prov:
+            print(line)
+        out_lines.extend(prov)
+        preds, unknowns, reasons = run_inference(model, samples, label, system_prompt)
         print_report(preds, samples, label, unknowns, out_lines)
         m                        = compute_metrics(preds, samples, unknowns)
         results.append((label, m))
@@ -529,7 +570,8 @@ if __name__ == "__main__":
         if host_pass2:
             host_samples = build_host_benchmark_samples(samples, preds)
             if host_samples:
-                host_preds, host_unknowns, _ = run_inference(model, host_samples, f"{label} [host pass-2]")
+                host_preds, host_unknowns, _ = run_inference(
+                    model, host_samples, f"{label} [host pass-2]", system_prompt)
                 host_m = compute_metrics(host_preds, host_samples, host_unknowns)
             else:
                 host_unknowns = 0
@@ -600,6 +642,26 @@ if __name__ == "__main__":
             },
             "per_source": src_metrics,
         })
+
+        # ── Link result back into the adapter's run.json (canonical run only) ──
+        # Skip OOD-only / no-behavior passes so they can't overwrite the headline
+        # MCC; base-model rows (no run.json) are skipped silently inside.
+        if mode == "FULL" and not no_behavior:
+            try:
+                from ids.run_manifest import attach_benchmark_result
+                attach_benchmark_result(adapter_path, {
+                    "timestamp":  json_output["timestamp"],
+                    "mode":       mode,
+                    "samples":    len(samples),
+                    "mcc":        round(m["mcc"],        4),
+                    "accuracy":   round(m["accuracy"],   4),
+                    "atk_recall": round(m["atk_recall"], 4),
+                    "ben_recall": round(m["ben_recall"], 4),
+                    "fmt_fail":   round(m["fmt_fail"],   4),
+                    "per_source": src_metrics,
+                })
+            except Exception as e:
+                print(f"[WARN] could not attach benchmark to run.json: {e}")
 
         del model
         torch.cuda.empty_cache()

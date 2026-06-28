@@ -44,6 +44,7 @@ Arch Linux managed environment — system `python3`/`pip3` refuse to install pac
 │   ├── infer_utils.py        #   Shared 4-bit+LoRA model load, tokenizer, chat templating
 │   ├── behavior_features.py  #   Behavioral context features for enriched prompts
 │   ├── zeek_log_utils.py     #   Zeek TSV parser + conn.log row helper + CTU-Malware helpers
+│   ├── run_manifest.py       #   Run provenance: dataset meta + run.json sidecars + EXPERIMENTS.md
 │   └── loaders/              #   Dataset loaders (imported by preprocess_zeek.py)
 │       ├── loader_iot23.py       #   IoT-23 conn.log.labeled (tar.gz)
 │       ├── loader_ctu13.py       #   CTU-13 binetflow (tar.bz2)
@@ -66,6 +67,7 @@ Arch Linux managed environment — system `python3`/`pip3` refuse to install pac
 │   ├── merge_adapter.py      #   Merge LoRA adapter into base model for GGUF
 │   ├── analyze_gap.py        #   Distribution gap analysis
 │   ├── baseline_ml.py        #   Random Forest / Logistic Regression baseline
+│   ├── experiments.py        #   Rebuild EXPERIMENTS.md ledger from models/*/run.json
 │   ├── setup_runpod.py       #   RunPod pod setup (5090) — parallel deps+model, single-file
 │   ├── setup_runpod.sh       #   RunPod pod setup (5090) — legacy bash, superseded by .py
 │   └── setup_runpod_4090.sh  #   RunPod pod setup (4090)
@@ -160,11 +162,39 @@ dataloader_pin_memory = True
 not a lever). To train cheaper: `packing=True` (default) cuts opt-steps to 0.69×
 and ~20% of tokens/epoch, `--epochs 2` saves ~33% vs 3, `--eval-subset 6000` trims
 eval forward work to ~0.19×, and `TRAINING_FACTOR` in `preprocess_config.py` scales
-the dataset (and cost) linearly at the expense of coverage. Measured (real tokenizer
-+ bin-packing, no training): combined default run (2 epochs + packing) ≈ **0.53×**
-the train compute of the old 3-epoch unpacked run — roughly **half** the GPU-hours.
+the dataset (and cost) linearly at the expense of coverage. `preprocess_zeek.py
+--no-reason` drops the REASON line from targets (~14% fewer tokens → ~14% cheaper;
+see below). Measured (real tokenizer + bin-packing, no training): combined default
+run (2 epochs + packing) ≈ **0.53×** the train compute of the old 3-epoch unpacked
+run — roughly **half** the GPU-hours.
 
 **Inference runs locally on RTX 3070** — adapter is hardware-agnostic.
+
+## Experiment tracking & provenance
+
+Every run self-describes via stdlib sidecars (`ids/run_manifest.py`):
+- `preprocess_zeek.py` → `zeek_dataset.meta.json` (git SHA, CLI args, resolved knobs,
+  counts, content hash).
+- `train.py` → `models/<adapter>/run.json` (hyperparams + dataset link by content hash
+  + best `eval_loss`). Travels with the adapter; download it back with the adapter.
+- `benchmark_realworld.py` writes MCC/recalls back into `run.json` (FULL mode only).
+- **`EXPERIMENTS.md`** (repo root, committed) — generated leaderboard. Rebuild manually:
+  `.venv/bin/python scripts/experiments.py`.
+
+**`--no-reason` ablation:** drops the (randomly-picked, non-grounded) REASON line so
+targets become bare `VERDICT: <X>` under `SYSTEM_PROMPT_VERDICT_ONLY`. ~11–14% fewer
+training tokens (mean seq 303→260) ⇒ proportional savings with packing. Comparable
+cross-run only via **MCC**, not eval_loss (different target token counts).
+
+**Prompt matching is automatic on every HF inference path** via `resolve_system_prompt()`
+(`ids/infer_utils.py`), which reads the adapter's `run.json` and serves the verdict-only
+prompt when `dataset.reason == False` (else default; no `run.json` ⇒ default). Wired into
+`benchmark_realworld.py` (prints a provenance banner), `benchmark_v6.py`,
+`scripts/classify_conn_log.py`, and `scripts/classify_weird_log.py`. `train.py` records
+`dataset.reason` by **sniffing the dataset itself** (`detect_reason_from_dataset`), so it's
+correct on RunPod where `zeek_dataset.meta.json` isn't uploaded. **Ollama/GGUF can't
+auto-detect** (no `run.json`): pass `--verdict-only` to `benchmark_ollama.py` /
+`classify_conn_log.py --ollama`, and use the verdict-only `SYSTEM` line documented in `Modelfile`.
 
 ## Datasets
 

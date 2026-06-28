@@ -7,8 +7,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
 
-from ids.infer_utils import chat_text, load_lora_model, load_tokenizer
-from ids.prompt_utils import build_prompt, extract_verdict
+from ids.infer_utils import (chat_text, load_lora_model, load_tokenizer,
+                             resolve_system_prompt)
+from ids.prompt_utils import SYSTEM_PROMPT, build_prompt, extract_verdict
 from ids.zeek_log_utils import conn_row_from_parts
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -58,8 +59,8 @@ def parse_weird_log(path):
     return entries
 
 # ── Inference ─────────────────────────────────────────────────────────────────
-def classify_batch(model, tokenizer, prompts):
-    texts = [chat_text(tokenizer, p) for p in prompts]
+def classify_batch(model, tokenizer, prompts, system_prompt=SYSTEM_PROMPT):
+    texts = [chat_text(tokenizer, p, system_prompt) for p in prompts]
     inputs = tokenizer(
         texts,
         return_tensors="pt",
@@ -134,8 +135,12 @@ if __name__ == "__main__":
             resp_port=flow["resp_p"], orig_port=flow["orig_p"],
         ))
 
-    # Load model
+    # Load model + auto-detect the matching system prompt from its run.json
+    # (verdict-only for a --no-reason adapter; default otherwise).
     print(f"Loading base model + LoRA adapter from {adapter_dir} ...")
+    system_prompt, run_info = resolve_system_prompt(adapter_dir)
+    kind = "verdict-only" if "REASON" not in system_prompt else "VERDICT+REASON"
+    print(f"  system prompt: {kind} [{'run.json' if run_info else 'default (no run.json)'}]")
     model     = load_lora_model(adapter_dir)
     tokenizer = load_tokenizer()
 
@@ -145,7 +150,7 @@ if __name__ == "__main__":
 
     for i in range(0, total, BATCH_SIZE):
         batch_prompts = prompts[i:i + BATCH_SIZE]
-        results = classify_batch(model, tokenizer, batch_prompts)
+        results = classify_batch(model, tokenizer, batch_prompts, system_prompt)
         verdicts.extend(results)
         done = min(i + BATCH_SIZE, total)
         print(f"  {done}/{total} classified ...", end="\r")

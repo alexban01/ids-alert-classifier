@@ -29,8 +29,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import torch
 
 from ids.behavior_features import build_behavior_contexts, build_host_summaries
-from ids.infer_utils import BASE_MODEL, chat_text, load_lora_model, load_tokenizer
-from ids.prompt_utils import SYSTEM_PROMPT, build_prompt, build_host_prompt, extract_verdict
+from ids.infer_utils import (BASE_MODEL, chat_text, load_lora_model, load_tokenizer,
+                             resolve_system_prompt)
+from ids.prompt_utils import (SYSTEM_PROMPT, SYSTEM_PROMPT_VERDICT_ONLY,
+                              build_prompt, build_host_prompt, extract_verdict)
 from ids.zeek_log_utils import (
     build_dns_lookup,
     build_http_lookup,
@@ -103,18 +105,18 @@ def build_prompts(rows, uid_http=None, uid_dns=None, uid_ssl=None, behavior_ctxs
 
 
 # ── Ollama inference ───────────────────────────────────────────────────────────
-def _qwen_prompt(user_text):
+def _qwen_prompt(user_text, system_prompt=SYSTEM_PROMPT):
     return (
-        f"<|im_start|>system\n{SYSTEM_PROMPT}<|im_end|>\n"
+        f"<|im_start|>system\n{system_prompt}<|im_end|>\n"
         f"<|im_start|>user\n{user_text}<|im_end|>\n"
         f"<|im_start|>assistant\n"
     )
 
 
-def ollama_classify_one(prompt_text):
+def ollama_classify_one(prompt_text, system_prompt=SYSTEM_PROMPT):
     payload = json.dumps({
         "model":  OLLAMA_MODEL,
-        "prompt": _qwen_prompt(prompt_text),
+        "prompt": _qwen_prompt(prompt_text, system_prompt),
         "stream": False,
         "raw":    True,
     }).encode()
@@ -126,10 +128,10 @@ def ollama_classify_one(prompt_text):
         return json.loads(r.read())["response"]
 
 
-def classify_ollama(prompts):
+def classify_ollama(prompts, system_prompt=SYSTEM_PROMPT):
     results = []
     for i, p in enumerate(prompts):
-        raw = ollama_classify_one(p)
+        raw = ollama_classify_one(p, system_prompt)
         results.append((extract_verdict(raw), raw))
         done = i + 1
         if done % 50 == 0 or done == len(prompts):
@@ -145,8 +147,8 @@ def load_hf_model():
     return model, tokenizer
 
 
-def classify_hf_batch(model, tokenizer, prompts):
-    texts = [chat_text(tokenizer, p) for p in prompts]
+def classify_hf_batch(model, tokenizer, prompts, system_prompt=SYSTEM_PROMPT):
+    texts = [chat_text(tokenizer, p, system_prompt) for p in prompts]
     inputs    = tokenizer(texts, return_tensors="pt", padding=True,
                           truncation=True, max_length=1024)
     inputs    = {k: v.to("cuda") for k, v in inputs.items()}
@@ -163,12 +165,12 @@ def classify_hf_batch(model, tokenizer, prompts):
     ]
 
 
-def classify_hf(model, tokenizer, prompts):
+def classify_hf(model, tokenizer, prompts, system_prompt=SYSTEM_PROMPT):
     results = []
     total   = len(prompts)
     for i in range(0, total, BATCH_SIZE):
         batch   = prompts[i:i + BATCH_SIZE]
-        results += classify_hf_batch(model, tokenizer, batch)
+        results += classify_hf_batch(model, tokenizer, batch, system_prompt)
         done     = min(i + BATCH_SIZE, total)
         print(f"  {done}/{total} classified ...", end="\r")
     return results
@@ -253,11 +255,15 @@ if __name__ == "__main__":
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.benchmark        = True
 
-    args       = sys.argv[1:]
-    use_ollama = "--ollama" in args
-    args       = [a for a in args if a != "--ollama"]
-    host_pass2 = "--host-pass2" in args
-    args       = [a for a in args if a != "--host-pass2"]
+    args         = sys.argv[1:]
+    use_ollama   = "--ollama" in args
+    args         = [a for a in args if a != "--ollama"]
+    host_pass2   = "--host-pass2" in args
+    args         = [a for a in args if a != "--host-pass2"]
+    # Ollama models have no run.json to auto-detect from, so the verdict-only
+    # prompt is opt-in there; the HF path auto-detects from the adapter's run.json.
+    verdict_only = "--verdict-only" in args
+    args         = [a for a in args if a != "--verdict-only"]
 
     limit = None
     if "--limit" in args:
@@ -306,12 +312,20 @@ if __name__ == "__main__":
     )
 
     if use_ollama:
-        print(f"Mode: Ollama ({OLLAMA_MODEL})")
-        results = classify_ollama(prompts)
+        system_prompt = SYSTEM_PROMPT_VERDICT_ONLY if verdict_only else SYSTEM_PROMPT
+        kind = "verdict-only" if verdict_only else "VERDICT+REASON"
+        print(f"Mode: Ollama ({OLLAMA_MODEL}) — {kind} system prompt"
+              + ("" if verdict_only else "  (pass --verdict-only for a --no-reason model)"))
+        results = classify_ollama(prompts, system_prompt)
     else:
-        print(f"Mode: HuggingFace ({ADAPTER_DIR})")
+        # Auto-detect the matching prompt from the adapter's run.json (verdict-only
+        # for a --no-reason model); falls back to default if there's no manifest.
+        system_prompt, run_info = resolve_system_prompt(ADAPTER_DIR)
+        kind = "verdict-only" if "REASON" not in system_prompt else "VERDICT+REASON"
+        src  = "run.json" if run_info else "default (no run.json)"
+        print(f"Mode: HuggingFace ({ADAPTER_DIR}) — {kind} system prompt [{src}]")
         model, tokenizer = load_hf_model()
-        results = classify_hf(model, tokenizer, prompts)
+        results = classify_hf(model, tokenizer, prompts, system_prompt)
 
     print_results(rows, results)
 
@@ -328,8 +342,8 @@ if __name__ == "__main__":
 
         print(f"Running host pass-2 on {len(host_prompts)} source hosts ...")
         if use_ollama:
-            host_results = classify_ollama(host_prompts)
+            host_results = classify_ollama(host_prompts, system_prompt)
         else:
-            host_results = classify_hf(model, tokenizer, host_prompts)
+            host_results = classify_hf(model, tokenizer, host_prompts, system_prompt)
 
         print_host_results(host_summaries, host_results)

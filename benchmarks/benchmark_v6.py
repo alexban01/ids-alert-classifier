@@ -18,8 +18,9 @@ import pandas as pd
 from torch.utils.data import DataLoader, Dataset
 from sklearn.metrics import classification_report, confusion_matrix, matthews_corrcoef
 
-from ids.infer_utils import BASE_MODEL, chat_text, load_lora_model, load_tokenizer
-from ids.prompt_utils import build_prompt, extract_verdict
+from ids.infer_utils import (BASE_MODEL, chat_text, load_lora_model, load_tokenizer,
+                             resolve_system_prompt)
+from ids.prompt_utils import SYSTEM_PROMPT, build_prompt, extract_verdict
 
 # ── Config ────────────────────────────────────────────────────────────────────
 BENCHMARK_CACHE = "results/benchmark_samples_v4.json"
@@ -128,8 +129,8 @@ def generate_benchmark_samples():
 _tokenizer = None
 
 class PromptDataset(Dataset):
-    def __init__(self, samples):
-        self.texts = [chat_text(_tokenizer, s["prompt"]) for s in samples]
+    def __init__(self, samples, system_prompt=SYSTEM_PROMPT):
+        self.texts = [chat_text(_tokenizer, s["prompt"], system_prompt) for s in samples]
     def __len__(self):         return len(self.texts)
     def __getitem__(self, idx): return self.texts[idx]
 
@@ -137,8 +138,8 @@ def collate_fn(batch):
     return _tokenizer(batch, return_tensors="pt", padding=True,
                       truncation=True, max_length=512)
 
-def run_inference(model, samples, label):
-    loader   = DataLoader(PromptDataset(samples), batch_size=BATCH_SIZE,
+def run_inference(model, samples, label, system_prompt=SYSTEM_PROMPT):
+    loader   = DataLoader(PromptDataset(samples, system_prompt), batch_size=BATCH_SIZE,
                           shuffle=False, num_workers=0, pin_memory=True,
                           collate_fn=collate_fn)
     preds    = []
@@ -252,7 +253,12 @@ if __name__ == "__main__":
             continue
 
         model           = load_model(adapter_path)
-        preds, unknowns = run_inference(model, samples, label)
+        # Serve the system prompt the adapter was trained with (verdict-only for
+        # a --no-reason model), auto-detected from its run.json.
+        system_prompt, run_info = resolve_system_prompt(adapter_path)
+        kind = "verdict-only" if "REASON" not in system_prompt else "VERDICT+REASON"
+        print(f"  system prompt: {kind} [{'run.json' if run_info else 'default (no run.json)'}]")
+        preds, unknowns = run_inference(model, samples, label, system_prompt)
         print_report(preds, samples, label, unknowns, out_lines)
         m               = compute_metrics(preds, samples, unknowns)
         results.append((label, m))

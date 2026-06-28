@@ -7,6 +7,11 @@ TEMPLATE """{{ if .System }}<|im_start|>system
 <|im_start|>assistant
 """
 
+# Default (reason-on) model. For a model trained with `preprocess_zeek.py --no-reason`
+# (verdict-only targets), REPLACE the SYSTEM line below with the verdict-only prompt —
+# it must match SYSTEM_PROMPT_VERDICT_ONLY in ids/prompt_utils.py, otherwise the model
+# is asked for a REASON it was never trained to emit:
+#   SYSTEM "You are a network security analyst. Respond with exactly one line: VERDICT: <ATTACK or FALSE POSITIVE>."
 SYSTEM "You are a network security analyst. Always respond with VERDICT: <ATTACK or FALSE POSITIVE> on the first line, followed by REASON: <brief explanation>."
 
 PARAMETER temperature 0
