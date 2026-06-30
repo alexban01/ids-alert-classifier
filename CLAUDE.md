@@ -149,8 +149,8 @@ gradient_checkpointing = True        # RunPod path sets this False (32 GB headro
 eval_strategy = "epoch"
 load_best_model_at_end = True
 metric_for_best_model = "eval_loss"
-save_strategy = "epoch"
-save_total_limit = 2
+save_strategy = "epoch"              # --save-steps N switches save+eval to every N steps
+save_total_limit = 2                 # keep best + last (step-based saving still keeps just 2)
 max_length = 512
 logging_steps = 100
 dataloader_num_workers = 0
@@ -167,6 +167,27 @@ the dataset (and cost) linearly at the expense of coverage. `preprocess_zeek.py
 see below). Measured (real tokenizer + bin-packing, no training): combined default
 run (2 epochs + packing) ≈ **0.53×** the train compute of the old 3-epoch unpacked
 run — roughly **half** the GPU-hours.
+
+**Stop & resume** (local RTX 3070 path — RunPod runs are short enough to not need it):
+- `--save-steps N` switches save+eval from per-epoch to every `N` optimizer steps, so a
+  run can be interrupted mid-epoch and resumed. `eval_steps` is pinned equal to
+  `save_steps` (load_best requires matching strategies), so a too-small `N` adds eval
+  overhead — at effective batch 24 a packed epoch is ~7k steps, so `--save-steps 500`
+  ≈ 14 checkpoints+evals/epoch; bump to 1000 if eval cost bites. `0` (default) keeps
+  per-epoch behaviour. Don't pass it on RunPod.
+- `--resume` continues from the latest checkpoint in `OUTPUT_DIR`; `--resume <path>`
+  uses a specific checkpoint dir. Restores model + optimizer + LR scheduler + step
+  counter (true continuation, not restart). Warns and starts fresh if no checkpoint
+  exists. The dataset/batch/packing/epochs must be unchanged from the interrupted run,
+  since HF fast-forwards the dataloader assuming the same sample ordering.
+- Checkpoints (incl. optimizer state) live in `OUTPUT_DIR`. `save_total_limit=2` keeps
+  best + latest, so the most recent is always resumable. On RunPod they'd need to be on
+  a persistent volume to survive a pod stop; locally this is a non-issue.
+
+```bash
+.venv/bin/python train.py --save-steps 500            # interruptible local run
+.venv/bin/python train.py --save-steps 500 --resume   # pick up where it stopped
+```
 
 **Inference runs locally on RTX 3070** — adapter is hardware-agnostic.
 

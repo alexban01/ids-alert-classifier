@@ -23,10 +23,31 @@ parser.add_argument("--eval-subset", type=int, default=6000,
                     help="Cap eval set to this many samples (0 = use all). Eval runs every epoch "
                          "purely to pick the best checkpoint by eval_loss; 6k is plenty and saves "
                          "most of the eval-pass cost vs the full 31k held-out set.")
+parser.add_argument("--save-steps", type=int, default=0,
+                    help="Save (and eval) every N optimizer steps instead of every epoch. "
+                         "0 (default) = epoch-based, unchanged. >0 = step-based, so a run can be "
+                         "interrupted mid-epoch and resumed. Intended for local RTX 3070 runs; "
+                         "load_best_model_at_end forces eval at each save point, so a too-small N "
+                         "adds eval overhead. eval_steps is pinned equal to save_steps.")
+parser.add_argument("--resume", nargs="?", const=True, default=False,
+                    help="Resume training. Bare --resume continues from the latest checkpoint in "
+                         "OUTPUT_DIR; --resume <path> continues from a specific checkpoint dir. "
+                         "Restores model + optimizer + LR scheduler + step counter. Requires the "
+                         "dataset/batch/packing/epochs to be unchanged from the interrupted run.")
 args = parser.parse_args()
 RUNPOD  = args.runpod
 EPOCHS  = args.epochs
 PACKING = not args.no_pack
+
+# Step-based saving lets a run be interrupted mid-epoch and resumed (see --resume).
+# load_best_model_at_end requires eval_strategy to match save_strategy, so eval is
+# pinned to the same cadence. 0 keeps the original epoch-based behaviour (RunPod default).
+if args.save_steps and args.save_steps > 0:
+    SAVE_STRATEGY, EVAL_STRATEGY = "steps", "steps"
+    SAVE_STEPS = EVAL_STEPS = args.save_steps
+else:
+    SAVE_STRATEGY, EVAL_STRATEGY = "epoch", "epoch"
+    SAVE_STEPS = EVAL_STEPS = None
 
 if RUNPOD:
     BATCH                = 24
@@ -134,8 +155,10 @@ trainer = SFTTrainer(
         dataloader_num_workers=NUM_WORKERS,
         # ── Eval & saving ────────────────────────────────────────────────
         logging_steps=100,
-        eval_strategy="epoch",
-        save_strategy="epoch",
+        eval_strategy=EVAL_STRATEGY,
+        save_strategy=SAVE_STRATEGY,
+        eval_steps=EVAL_STEPS,         # None when epoch-based; ignored by HF in that case
+        save_steps=SAVE_STEPS,
         save_total_limit=2,            # keep best + last; avoid disk churn from every epoch
         load_best_model_at_end=True,
         metric_for_best_model="eval_loss",
@@ -143,7 +166,24 @@ trainer = SFTTrainer(
     ),
 )
 
-train_result = trainer.train()
+# ── Resume ───────────────────────────────────────────────────────────────────
+# --resume <path> uses that checkpoint; bare --resume picks the latest in OUTPUT_DIR.
+# Falls back to a fresh run (with a notice) if asked to resume but nothing is there.
+resume_from = None
+if args.resume:
+    if isinstance(args.resume, str):
+        resume_from = args.resume
+    else:
+        from transformers.trainer_utils import get_last_checkpoint
+        last = get_last_checkpoint(OUTPUT_DIR) if os.path.isdir(OUTPUT_DIR) else None
+        if last:
+            resume_from = last
+        else:
+            print(f"[WARN] --resume given but no checkpoint found in {OUTPUT_DIR}; starting fresh.")
+    if resume_from:
+        print(f"Resuming from checkpoint: {resume_from}")
+
+train_result = trainer.train(resume_from_checkpoint=resume_from)
 
 # ── Save ─────────────────────────────────────────────────────────────────────
 trainer.model.save_pretrained(ADAPTER_DIR)
