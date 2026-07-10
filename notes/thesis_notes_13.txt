@@ -1,0 +1,288 @@
+================================================================================
+IDS ALERT CLASSIFIER — THESIS DEVELOPMENT NOTES (continued from thesis_notes_12.txt)
+Fine-tuning Qwen2.5-1.5B-Instruct for network intrusion detection
+================================================================================
+
+This file covers a benchmark methodology review triggered by a disappointing V12
+result: two real bugs in benchmark_realworld.py / bench_loaders.py were found and
+fixed, the benchmark was re-baselined, and the V12/v12.1 training runs themselves
+were found to be too confounded (interrupted, provenance-incomplete, and not the
+planned reason-mode A/B) to draw a composition conclusion from. A major secondary
+finding — the Kelihos "hard floor" OOD probe's ~80% recall reported in
+thesis_notes_12.txt was itself a sampling artifact — is also documented here.
+
+See thesis_notes_11.txt for the V11->V12 composition design; thesis_notes_12.txt
+for the V11 OOD-only benchmark this file's Section 3 revises.
+
+================================================================================
+1. TRIGGER — A 4-WAY BENCHMARK THAT "DIDN'T LOOK GOOD"
+================================================================================
+
+V12 was trained locally (verdict-only / no-reason dataset) and interrupted by the
+user partway through, at step 10000 of a planned max_steps=19976 (2 epochs) — just
+past the epoch-1 boundary. A second attempt, v12.1, was trained the same way and
+also stopped at step 10000 (max_steps=19990 for that run). A benchmark comparing
+both against the established V11 checkpoints looked like a regression across the
+board, worst on CTU-13 and Win7AD-1:
+
+    Model                 Accuracy  Atk Recall  FP Recall     MCC
+    --------------------  --------  ----------  ---------  -------
+    v11 ckpt-11313 (ep1)     93.2%       88.3%      98.2%   +0.869
+    v11 ckpt-22626 (ep2)     90.8%       85.4%      96.1%   +0.820
+    v12 ckpt-10000 (ep1)     89.1%       80.7%      97.4%   +0.793
+    v12.1 ckpt-10000 (ep1)   88.2%       78.3%      98.0%   +0.779
+
+    Per-source delta (v12.1 - v11), old benchmark:
+        Win7AD-1  Delta Atk Recall -36.7pp
+        Echo      Delta Atk Recall -13.3pp
+        CTU-13    Delta Atk Recall  -2.3pp
+
+Before treating this as evidence the V11->V12 composition fix (TRAINING_FACTOR
+0.5->1.0, UWF_ATTACK_CAP, CTU-Malware budget — thesis_notes_11.txt) had backfired,
+both the model side and the measurement side were audited.
+
+================================================================================
+2. TWO BENCHMARK METHODOLOGY BUGS, FOUND AND FIXED
+================================================================================
+
+--- 2.1  CTU-13 conn_state fed to the model unmapped ---
+
+benchmarks/bench_loaders.py:load_ctu13() passed the raw Argus binetflow `State`
+field straight into the prompt (`row.get("State", "-").strip()`), while the
+training loader (ids/loaders/loader_ctu13.py) has always mapped Argus states to
+their Zeek equivalents (`_CTU_STATE_MAP`) so the model only ever learns Zeek
+conn_state values. The benchmark was therefore scoring the model on inputs like
+"FSPA_FSPA" that it never saw in training and that no real Zeek deployment would
+ever produce — conn_state is one of the model's strongest signals, so this
+depressed CTU-13 numbers specifically.
+
+Fix: the state map was extracted out of loader_ctu13.py into a shared helper,
+`map_ctu_state()` in ids/zeek_log_utils.py (lookup convention: strip+upper,
+unmapped -> "-"), and both the training loader and the benchmark loader now call
+it. Training loader output is unchanged (verified by direct dict-equivalence test
+against the old inline map for the full input space) — this is purely a benchmark
+side-fix that makes CTU-13 evaluation representative of the training distribution.
+
+Validation after the fix: a live CTU-13 benchmark sample has conn_state in only
+{S1, SF, RSTO, "-", S0, OTH} — the Zeek vocabulary — with zero raw Argus tokens.
+
+--- 2.2  All 7 loaders sampled the head of the source, not a representative slice ---
+
+Every loader in bench_loaders.py filled its 300-per-class buckets by reading
+file(s) in order and stopping the instant both buckets were full. Zeek/binetflow
+logs are time-ordered, so this always tested the same early time-window of the
+same first file(s) of each source — not a representative draw.
+
+Concrete, measured distortion on the primary OOD probe (Win7AD-1): the capture
+has 2,038 malicious flows, documented (and later confirmed, see 2.3) as ~89%
+Human_attacks (lateral movement) / ~11% Trickbot C2. The old benchmark's 300
+"attacks" sample was 79 Human_attacks / 221 Trickbot — nearly inverted, because
+Trickbot flows happen to cluster early in the capture. The headline Win7AD-1
+number was therefore a ~74%-Trickbot-weighted number dressed up as a
+representative 300-flow sample.
+
+Fix: replaced first-N bucket filling with seeded reservoir sampling (Algorithm R)
+across all 7 loaders (load_iot23, load_ctu13, load_uwf, load_ctu_normal,
+load_ctu_sme11, load_ctu_win7ad, load_ctu_botnet3) — a single pass over every
+row/file of the source, one random.Random(RANDOM_SEED=42) instance per loader
+call (loaders run in separate ProcessPoolExecutor workers, so a global
+random.seed() in the parent process would not have reached them). CAP stays 300.
+Early-stop breaks were removed so the full source is always scanned; the cost is
+absorbed once by the sample cache.
+
+Validation:
+    - Win7AD-1 attack sample composition after the fix: 266 Human_attacks / 34
+      other (88.7% / 11.3%) — matches the capture's true ~89%/11% split almost
+      exactly, versus the old inverted 79/221.
+    - Two consecutive --regen runs on the local sources (iot23, ctu13, uwf,
+      ctu_normal, ctu_botnet3) produced a byte-identical cache (SHA-256 match) —
+      determinism confirmed.
+    - CTU-13 samples now span 12 of 13 scenario files (checked via distinct
+      group_id), not just the first one.
+
+--- 2.3  Both bugs landed directly on master, 2026-07-02 ---
+
+REVIEW_TASKS.md TASK-011 and TASK-012 (logged during an earlier review session)
+covered exactly these two bugs but had not been implemented. Normally this
+project routes implementation to a separate Codex pass on a `development` branch
+(Claude reviews and writes tasks; Codex implements); this was a one-off exception,
+made at the user's explicit request, to get a trustworthy V12 number the same day
+rather than wait for a separate implementation pass. Both tasks were removed from
+REVIEW_TASKS.md once implemented and validated.
+
+================================================================================
+3. MAJOR FINDING — THE "KELIHOS ~80% (NOT A FLOOR)" RESULT WAS ITSELF A
+   SAMPLING ARTIFACT
+================================================================================
+
+thesis_notes_12.txt Section 3 revised the original "Kelihos = structural
+near-0% floor" framing (from the v9.1 era) to "not a floor — ep1 80.7% / ep2
+83.3% recall", based on the old (buggy) benchmark. Under the reservoir-sampling
+fix, the SAME checkpoints score dramatically lower on the SAME source:
+
+    Model                    Old (first-300)   New (reservoir, full 371,852-flow capture)
+    -----------------------  ----------------   -------------------------------------------
+    v11 ckpt-11313 (ep1)          80.7%                          44.0%
+    v11 ckpt-22626 (ep2)          83.3%                          39.0%
+    v12 ckpt-10000                  -- (n/a)                     39.3%
+    v12.1 ckpt-10000                 -- (n/a)                     43.0%
+
+Root cause, verified directly against the capture file
+(test_captures/CTU-Malware-Capture-Botnet-3_conn.log, 371,852 flows total):
+
+    conn_state          first 300 lines (old sample)   full file
+    -----------------   -----------------------------   ----------
+    S0                   151  (50.3%)                    134,428  (36.2%)
+    SF                   129  (43.0%)                     222,013 (59.7%)
+    OTH                    16  ( 5.3%)                        335  (0.09%)
+    RSTO                    4  ( 1.3%)                     14,191  (3.8%)
+    RSTR                    0                                 425
+    RSTRH                   0                                 254
+    SHR                     0                                 135
+    S1                      0                                  23
+    RSTOS0                  0                                  16
+    S2                      0                                  13
+    REJ                     0                                  10
+    SH                      0                                   6
+    S3                      0                                   3
+
+The first 300 lines of the capture are homogeneous (2 states cover 93.3% of the
+sample, 9 of 13 real conn_states never appear at all). A fair, whole-file sample
+surfaces the minority states the old benchmark never tested against — and those
+appear to be exactly where the model struggles on this fully-OOD P2P-spam family.
+
+CONCLUSION: neither "structurally ~0%" (v9.1-era framing) nor "~80%, not a floor"
+(thesis_notes_12.txt framing) is correct. ~40-44% recall on Kelihos, under fair
+sampling, across four different checkpoints, is the honest number. This is
+still a positive generalization result for a fully out-of-distribution malware
+family with no synthetic or family-specific training data, and is closer to
+"hard, not solved" than either prior framing. STATE.md and the OOD probe table
+have been updated; the thesis writeup should cite this file, not thesis_notes_12
+Section 3, for the Kelihos number.
+
+Open question for later: was V10's originally-reported 87.1% Win7AD-1 number
+(thesis_notes_8/9/10, driving the "V12 should recover to ~84-87%" target) itself
+measured under the old buggy sampling? V10's checkpoint was not re-benchmarked in
+this session. If a V10 checkpoint is still available, re-running it under the
+fixed benchmark would clarify whether the "V11 regressed -29.3pp vs V10" framing
+(thesis_notes_10 Section 4) needs the same reassessment as Kelihos. Not resolved
+here — flagged for the next benchmarking pass.
+
+================================================================================
+4. RE-BASELINED V11 vs V12 vs v12.1 (FIXED BENCHMARK, 2026-07-02)
+================================================================================
+
+Full run: 3600 samples (1800 attack / 1800 benign), --regen, all 4 checkpoints.
+Report: results/benchmark_realworld_report.txt. Cache: results/benchmark_realworld_cache.json.
+
+    Model                    Accuracy  Atk Recall  FP Recall     MCC   Win7AD-1 Atk
+    -----------------------  --------  ----------  ---------  -------  ------------
+    v11 ckpt-11313 (ep1)        88.4%       81.1%      95.8%  +0.777         83.0%
+    v11 ckpt-22626 (ep2)        88.0%       80.1%      96.0%  +0.770         74.3%
+    v12 ckpt-10000 (ep1)        86.1%       77.9%      94.3%  +0.732         73.0%
+    v12.1 ckpt-10000 (ep1)      82.9%       74.1%      91.8%  +0.669         52.7%
+
+Notable: v11 ep1's Win7AD-1 attack recall moved from 73.0% (old buggy sample,
+thesis_notes_12) to 83.0% (fixed sample) on the SAME checkpoint — much closer to
+V10's reported 87.1%. Per-family breakdown (fixed benchmark, new 266/34
+Human/Trickbot composition):
+
+    Attack type              v11 ep1   v11 ep2   v12     v12.1
+    -----------------------  -------   -------   -----   -----
+    Human_attacks (n=266)      89%       83%       79%     59%
+    Trickbot C2 (n=34)         32%        6%       24%      0%
+
+V12 and v12.1 both still underperform V11 ep1, even under the corrected
+benchmark — so, unlike Kelihos, this is not purely a measurement artifact. But it
+is still not a clean verdict on the V11->V12 composition fix, for reasons in
+Section 5.
+
+================================================================================
+5. WHY V12/v12.1 STILL CAN'T ANSWER THE COMPOSITION QUESTION
+================================================================================
+
+Even with the benchmark fixed, three confounds remain on the model/training side:
+
+  1. Neither run completed. Both were stopped (deliberately, by the user) at step
+     10000 of ~19980 total steps — just past the epoch-1 boundary of a planned
+     2-epoch schedule. (This alone is not disqualifying: a checkpoint's weights
+     do not depend on whether training continued past that point, so ckpt-10000
+     is methodologically a legitimate epoch-1-equivalent checkpoint, comparable
+     in kind to V11's ep1.)
+
+  2. The planned reason-mode A/B never happened. The 2026-06-30 plan was V12 =
+     no-reason (verdict-only), v12.1 = with-reason, to compare on MCC. Both
+     runs' run.json confirm reason=false — v12.1 is a second no-reason attempt,
+     not the with-reason arm. That ablation is still outstanding.
+
+  3. v12's training data is unrecoverable. zeek_dataset.jsonl was regenerated
+     (2026-06-30T21:13:40) after v12's checkpoint-10000 was saved (20:32:34),
+     overwriting whatever v12 actually trained on — its run.json has
+     matches_meta: false, train_sha256: null. v12.1 trained on the current
+     on-disk dataset (hash confirmed match). v12's exact composition can no
+     longer be audited; its "reason: false" label is inferred, not measured.
+
+  4. v12 and v12.1 diverge more than "the same config" should. Both are
+     nominally reason-off / TRAINING_FACTOR=1.0 / interrupted at ~1 epoch, yet
+     v12.1 is substantially worse on nearly every source (Win7AD-1 atk
+     73.0%->52.7%, IoT-23 FP recall 82.7%->68.3%, Echo atk 70.0%->58.3%). Their
+     max_steps also differ (19976 vs 19990) despite an identical fixed
+     RANDOM_SEED=42 in preprocess_config.py, confirming they are two distinct
+     dataset regenerations, not the same data twice. Whether this gap reflects
+     genuine single-epoch training variance or a real difference in the (lost)
+     v12 dataset build cannot be determined post hoc.
+
+CONCLUSION: whether the V11->V12 composition fix (TRAINING_FACTOR 1.0, UWF cap,
+CTU-Malware budget — thesis_notes_11.txt) helps, hurts, or is neutral for
+generalization is still an open question. The two interrupted attempts lean
+negative on a now-trustworthy benchmark, which is enough to withhold the
+"V12 = final thesis model" designation until a clean run exists, but not enough
+to conclude the composition changes themselves are the cause — training
+incompleteness and lost provenance are equally live explanations.
+
+================================================================================
+6. SECONDARY GAP FOUND — EXPERIMENTS.md SILENTLY MISSES CHECKPOINT-ONLY RUNS
+================================================================================
+
+While rebuilding EXPERIMENTS.md to record the re-baselined numbers, it printed
+"(no runs yet)" despite v12 and v12.1's run.json both containing a real
+benchmark.mcc. Cause: ids/run_manifest.py:regenerate_experiments_md() scans
+models/<name>/run.json — one level below models/ — but v12/v12.1's run.json
+live one level deeper, at models/<name>/checkpoint-N/run.json, because neither
+run finished into a top-level <name>-ids-lora-adapter/ directory.
+attach_benchmark_result() writes to the correct nested path and even calls
+regenerate_experiments_md() right after — which finds 0 rows and silently
+overwrites the ledger with an empty table. No error surfaces.
+
+Not fixed in this session (out of the TASK-011/012 scope authorized) — logged as
+REVIEW_TASKS.md TASK-017. Until fixed, read MCC directly from
+models/<name>/checkpoint-N/run.json or the benchmark report for any
+interrupted/checkpoint-only run; do not trust EXPERIMENTS.md for those rows.
+
+================================================================================
+7. ACTIONS TAKEN / OPEN
+================================================================================
+
+Taken:
+  - TASK-011 fixed: CTU_STATE_MAP moved to ids/zeek_log_utils.py, shared by
+    training and benchmark loaders.
+  - TASK-012 fixed: all 7 bench_loaders.py loaders switched to seeded reservoir
+    sampling; determinism and Win7AD-1 composition verified.
+  - Full --regen + 4-model benchmark re-run; results above; run.json and
+    results/benchmark_realworld_results.json updated.
+  - REVIEW_TASKS.md: TASK-011/012 removed (done), TASK-017 added (EXPERIMENTS.md
+    gap).
+  - STATE.md updated throughout to the corrected picture (see its Section
+    "STATUS (2026-07-02)").
+
+Open:
+  - Retrain V12 cleanly: one uninterrupted 2-epoch run, dataset not regenerated
+    mid-flight, provenance (hash) preserved.
+  - Run the actual reason-mode A/B (with-reason counterpart) that never happened.
+  - Consider re-benchmarking a V10 checkpoint (if available) under the fixed
+    methodology, to check whether the "V11 regressed -29.3pp vs V10" framing
+    needs the same reassessment as the Kelihos number did (Section 3).
+  - TASK-017: fix EXPERIMENTS.md's checkpoint-nested run.json blind spot.
+  - TASK-013/014/015/016 (confidence intervals, prevalence-adjusted precision,
+    ID-vs-OOD labeling, stale comments) remain open in REVIEW_TASKS.md,
+    unrelated to this session's fixes.
