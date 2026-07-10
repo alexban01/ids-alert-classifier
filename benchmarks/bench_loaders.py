@@ -22,6 +22,7 @@ Loaders:
 import os
 import sys
 import re
+import random
 import tarfile
 import glob
 import urllib.request
@@ -32,10 +33,43 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pandas as pd
 
 from ids.prompt_utils import build_prompt
-from ids.zeek_log_utils import conn_row_from_parts
+from ids.zeek_log_utils import conn_row_from_parts, map_ctu_state
 
 # ── Constants ───────────────────────────────────────────────────────────────────
-CAP = 300 # max samples per (source, class)
+CAP         = 300  # max samples per (source, class)
+RANDOM_SEED = 42    # loaders run in separate ProcessPoolExecutor workers, so each
+                     # reservoir seeds its own random.Random — global random.seed()
+                     # in the parent process does not propagate to them.
+
+
+class _Reservoir:
+    """Seeded reservoir sampler (Algorithm R) — up to `cap` items per key, drawn
+    uniformly from an arbitrarily long single pass over the source, independent
+    of file/row order. One instance per loader call, one bucket per class, so
+    cache regeneration is deterministic (same seed → same sample every time).
+    """
+
+    def __init__(self, cap=CAP, seed=RANDOM_SEED):
+        self.cap  = cap
+        self.rng  = random.Random(seed)
+        self.buckets = defaultdict(list)
+        self._seen   = defaultdict(int)
+
+    def offer(self, key, item):
+        self._seen[key] += 1
+        bucket = self.buckets[key]
+        if len(bucket) < self.cap:
+            bucket.append(item)
+        else:
+            j = self.rng.randint(0, self._seen[key] - 1)
+            if j < self.cap:
+                bucket[j] = item
+
+    def all_items(self):
+        out = []
+        for bucket in self.buckets.values():
+            out.extend(bucket)
+        return out
 
 # CTU-SME-11 archives — Zenodo record 7958259
 # Echo (RETIRED): inbound internet background scanning, invalid OOD ground truth
@@ -113,7 +147,7 @@ def load_iot23(archive_path):
         print(f"[SKIP] IoT-23 not found: {archive_path}")
         return []
 
-    buckets = defaultdict(list)
+    reservoir = _Reservoir()
 
     def _process_lines(lines, file_label):
         for raw in lines:
@@ -135,15 +169,12 @@ def load_iot23(archive_path):
             else:
                 continue
 
-            if len(buckets[verdict]) >= CAP:
-                continue
-
             sub = last.split()
             detailed = sub[2] if len(sub) >= 3 else sub[-1] if sub else "-"
             raw_label = detailed if verdict == "ATTACK" else "Benign"
 
             try:
-                buckets[verdict].append(make_sample(
+                reservoir.offer(verdict, make_sample(
                     proto      = parts[6],
                     duration   = parts[8],
                     orig_pkts  = parts[16],
@@ -166,18 +197,12 @@ def load_iot23(archive_path):
             except IndexError:
                 continue
 
-            if all(len(v) >= CAP for v in buckets.values()):
-                return True  # signal early stop
-        return False
-
     if extracted_dir is not None:
         log_files = glob.glob(os.path.join(extracted_dir, "**", "conn.log.labeled"), recursive=True)
         print(f"[IoT-23] Found {len(log_files)} conn.log.labeled file(s) in {extracted_dir}")
         for path in log_files:
             with open(path, "r", errors="replace") as f:
-                done = _process_lines(f, path)
-            if done:
-                break
+                _process_lines(f, path)
     else:
         print(f"[IoT-23] Opening archive {archive_path} ...")
         with tarfile.open(archive_path, "r:gz") as tf:
@@ -188,14 +213,12 @@ def load_iot23(archive_path):
                 f = tf.extractfile(member)
                 if f is None:
                     continue
-                done = _process_lines(f, member.name)
-                if done:
-                    break
+                _process_lines(f, member.name)
 
-    atk = len(buckets["ATTACK"])
-    ben = len(buckets["FALSE POSITIVE"])
+    atk = len(reservoir.buckets["ATTACK"])
+    ben = len(reservoir.buckets["FALSE POSITIVE"])
     print(f"  IoT-23: {atk} attacks, {ben} benign")
-    return buckets["ATTACK"] + buckets["FALSE POSITIVE"]
+    return reservoir.all_items()
 
 
 def load_ctu13(dataset_dir):
@@ -219,11 +242,9 @@ def load_ctu13(dataset_dir):
         return []
 
     print(f"[CTU-13] Found {len(binetflow_files)} binetflow file(s) in {dataset_dir}")
-    buckets = defaultdict(list)
+    reservoir = _Reservoir()
 
     for filepath in binetflow_files:
-        if all(len(v) >= CAP for v in [buckets["ATTACK"], buckets["FALSE POSITIVE"]]):
-            break
         with open(filepath, errors="replace") as f:
             header = None
             for line in f:
@@ -246,9 +267,6 @@ def load_ctu13(dataset_dir):
                 else:
                     continue
 
-                if len(buckets[verdict]) >= CAP:
-                    continue
-
                 tot_pkts  = row.get("TotPkts",  "0").strip()
                 src_bytes = row.get("SrcBytes",  "0").strip()
                 tot_bytes = row.get("TotBytes",  "0").strip()
@@ -258,14 +276,14 @@ def load_ctu13(dataset_dir):
                 except ValueError:
                     half = "0"; dst_bytes = "0"
 
-                buckets[verdict].append(make_sample(
+                reservoir.offer(verdict, make_sample(
                     proto      = row.get("Proto", "unknown").strip().lower(),
                     duration   = row.get("Dur", "0").strip(),
                     orig_pkts  = half,
                     resp_pkts  = half,
                     orig_bytes = src_bytes,
                     resp_bytes = dst_bytes,
-                    conn_state = row.get("State", "-").strip(),
+                    conn_state = map_ctu_state(row.get("State", "-")),
                     ground_truth = verdict,
                     source     = "ctu13",
                     raw_label  = label.strip(),
@@ -277,10 +295,10 @@ def load_ctu13(dataset_dir):
                     group_id   = filepath,
                 ))
 
-    atk = len(buckets["ATTACK"])
-    ben = len(buckets["FALSE POSITIVE"])
+    atk = len(reservoir.buckets["ATTACK"])
+    ben = len(reservoir.buckets["FALSE POSITIVE"])
     print(f"  CTU-13: {atk} attacks, {ben} benign")
-    return buckets["ATTACK"] + buckets["FALSE POSITIVE"]
+    return reservoir.all_items()
 
 
 def load_uwf(dataset_dir):
@@ -300,11 +318,9 @@ def load_uwf(dataset_dir):
         return []
 
     print(f"[UWF-ZeekData24] {len(csv_files)} CSV(s) from {dataset_dir}")
-    buckets = defaultdict(list)
+    reservoir = _Reservoir()
 
     for fpath in csv_files:
-        if all(len(buckets[v]) >= CAP for v in ["ATTACK", "FALSE POSITIVE"]):
-            break
         try:
             df = pd.read_csv(fpath, low_memory=False)
         except Exception as e:
@@ -320,8 +336,6 @@ def load_uwf(dataset_dir):
         for _, row in df.iterrows():
             verdict = ("ATTACK" if str(row[label_bin]).strip() == "True"
                        else "FALSE POSITIVE")
-            if len(buckets[verdict]) >= CAP:
-                continue
 
             if label_tactic:
                 raw = str(row[label_tactic]).strip()
@@ -336,7 +350,7 @@ def load_uwf(dataset_dir):
                 return "" if s in ("nan", "None", "NaN") else s
 
             svc = _clean(row.get("service", "-")) or "-"
-            buckets[verdict].append(make_sample(
+            reservoir.offer(verdict, make_sample(
                 proto      = _clean(row.get("proto", "unknown")),
                 duration   = _clean(row.get("duration", "")),
                 orig_pkts  = _clean(row.get("orig_pkts", "")),
@@ -357,10 +371,10 @@ def load_uwf(dataset_dir):
                 group_id   = os.path.basename(fpath),
             ))
 
-    atk = len(buckets["ATTACK"])
-    ben = len(buckets["FALSE POSITIVE"])
+    atk = len(reservoir.buckets["ATTACK"])
+    ben = len(reservoir.buckets["FALSE POSITIVE"])
     print(f"  UWF: {atk} attacks, {ben} benign")
-    return buckets["ATTACK"] + buckets["FALSE POSITIVE"]
+    return reservoir.all_items()
 
 
 def load_ctu_normal(dataset_dir):
@@ -375,22 +389,18 @@ def load_ctu_normal(dataset_dir):
         return []
 
     print(f"[CTU-Normal] {len(log_files)} conn.log file(s) from {dataset_dir}")
-    samples = []
+    reservoir = _Reservoir()
 
     for fpath in log_files:
-        if len(samples) >= CAP:
-            break
         with open(fpath) as f:
             for line in f:
-                if len(samples) >= CAP:
-                    break
                 if line.startswith("#"):
                     continue
                 parts = line.strip().split("\t")
                 if len(parts) < 21:
                     continue
                 row = conn_row_from_parts(parts, with_uid=True)
-                samples.append(make_sample(
+                reservoir.offer("FALSE POSITIVE", make_sample(
                     proto      = row["proto"],
                     duration   = row["duration"],
                     orig_pkts  = row["orig_pkts"],
@@ -411,6 +421,7 @@ def load_ctu_normal(dataset_dir):
                     group_id   = os.path.basename(fpath),
                 ))
 
+    samples = reservoir.all_items()
     print(f"  CTU-Normal: 0 attacks, {len(samples)} benign")
     return samples
 
@@ -459,7 +470,7 @@ def load_ctu_sme11():
         return []
 
     print(f"  Opening {os.path.basename(archive_path)} ...")
-    buckets = defaultdict(list)
+    reservoir = _Reservoir()
 
     try:
         with tarfile.open(archive_path, "r:bz2") as tf:
@@ -468,8 +479,6 @@ def load_ctu_sme11():
             print(f"  {len(members)} conn.log.labeled file(s)")
 
             for member in members:
-                if all(len(buckets[v]) >= CAP for v in ["ATTACK", "FALSE POSITIVE"]):
-                    break
                 f = tf.extractfile(member)
                 if f is None:
                     continue
@@ -493,13 +502,10 @@ def load_ctu_sme11():
                     else:
                         continue  # Background → skip
 
-                    if len(buckets[verdict]) >= CAP:
-                        continue
-
                     raw_label = detailed_col if verdict == "ATTACK" else "Benign"
 
                     try:
-                        buckets[verdict].append(make_sample(
+                        reservoir.offer(verdict, make_sample(
                             proto        = parts[6],
                             duration     = parts[8],
                             orig_pkts    = parts[16],
@@ -521,17 +527,14 @@ def load_ctu_sme11():
                         ))
                     except IndexError:
                         continue
-
-                    if all(len(v) >= CAP for v in buckets.values()):
-                        break
     except Exception as e:
         print(f"  [SKIP] Archive parse error: {e}")
         return []
 
-    atk = len(buckets["ATTACK"])
-    ben = len(buckets["FALSE POSITIVE"])
+    atk = len(reservoir.buckets["ATTACK"])
+    ben = len(reservoir.buckets["FALSE POSITIVE"])
     print(f"  CTU-SME-11 (OOD): {atk} attacks, {ben} benign sampled")
-    return buckets["ATTACK"] + buckets["FALSE POSITIVE"]
+    return reservoir.all_items()
 
 
 def load_ctu_win7ad():
@@ -560,7 +563,7 @@ def load_ctu_win7ad():
         return []
 
     print(f"  Opening {os.path.basename(archive_path)} ...")
-    buckets = defaultdict(list)
+    reservoir = _Reservoir()
 
     try:
         with tarfile.open(archive_path, "r:bz2") as tf:
@@ -569,8 +572,6 @@ def load_ctu_win7ad():
             print(f"  {len(members)} conn.log.labeled file(s)")
 
             for member in members:
-                if all(len(buckets[v]) >= CAP for v in ["ATTACK", "FALSE POSITIVE"]):
-                    break
                 f = tf.extractfile(member)
                 if f is None:
                     continue
@@ -592,13 +593,10 @@ def load_ctu_win7ad():
                     else:
                         continue  # Background → skip
 
-                    if len(buckets[verdict]) >= CAP:
-                        continue
-
                     raw_label = detailed_col if verdict == "ATTACK" else "Benign"
 
                     try:
-                        buckets[verdict].append(make_sample(
+                        reservoir.offer(verdict, make_sample(
                             proto        = parts[6],
                             duration     = parts[8],
                             orig_pkts    = parts[16],
@@ -620,17 +618,14 @@ def load_ctu_win7ad():
                         ))
                     except IndexError:
                         continue
-
-                    if all(len(v) >= CAP for v in buckets.values()):
-                        break
     except Exception as e:
         print(f"  [SKIP] Archive parse error: {e}")
         return []
 
-    atk = len(buckets["ATTACK"])
-    ben = len(buckets["FALSE POSITIVE"])
+    atk = len(reservoir.buckets["ATTACK"])
+    ben = len(reservoir.buckets["FALSE POSITIVE"])
     print(f"  CTU-SME-11 Win7AD (OOD): {atk} attacks, {ben} benign sampled")
-    return buckets["ATTACK"] + buckets["FALSE POSITIVE"]
+    return reservoir.all_items()
 
 
 def load_ctu_botnet3():
@@ -651,18 +646,16 @@ def load_ctu_botnet3():
         print(f"  [SKIP] {CTU_BOTNET3_LOG} not found")
         return []
 
-    samples = []
+    reservoir = _Reservoir()
     with open(CTU_BOTNET3_LOG) as f:
         for line in f:
-            if len(samples) >= CAP:
-                break
             if line.startswith("#"):
                 continue
             parts = line.strip().split("\t")
             if len(parts) < 21:
                 continue
             row = conn_row_from_parts(parts, with_uid=True)
-            samples.append(make_sample(
+            reservoir.offer("ATTACK", make_sample(
                 proto        = row["proto"],
                 duration     = row["duration"],
                 orig_pkts    = row["orig_pkts"],
@@ -682,5 +675,6 @@ def load_ctu_botnet3():
                 resp_h       = row["resp_h"],
             ))
 
+    samples = reservoir.all_items()
     print(f"  CTU-Malware Botnet-3 (OOD): {len(samples)} attacks, 0 benign")
     return samples
