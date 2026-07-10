@@ -17,8 +17,14 @@ parser.add_argument("--no-pack", action="store_true",
                     help="Disable sequence packing. Packing (default ON) concatenates the "
                          "variable-length samples (mean 296 tok) into full max_length sequences. "
                          "Measured on the real set: 241k seqs -> 165k packed (0.69x steps), ~20%% "
-                         "fewer tokens/epoch. The run trains on the full sequence either way "
-                         "(no completion-only masking), so packing does not change the loss objective.")
+                         "fewer tokens/epoch. Loss MASKING is unaffected (full-sequence loss either "
+                         "way, no completion-only masking) -- but packing is NOT loss-neutral: TRL's "
+                         "default 'bfd' packing strategy requires a flash-attention variant to keep "
+                         "packed samples from attending to each other; this project has no flash-attn "
+                         "installed and no attn_implementation set (SDPA/eager default), so packed "
+                         "sequences DO let self-attention leak across unrelated samples sharing a "
+                         "512-token slot (~1.46 samples/seq on average). --no-pack removes that "
+                         "confound at the ~20%% throughput cost.")
 parser.add_argument("--eval-subset", type=int, default=6000,
                     help="Cap eval set to this many samples (0 = use all). Eval runs every epoch "
                          "purely to pick the best checkpoint by eval_loss; 6k is plenty and saves "
@@ -34,6 +40,14 @@ parser.add_argument("--resume", nargs="?", const=True, default=False,
                          "OUTPUT_DIR; --resume <path> continues from a specific checkpoint dir. "
                          "Restores model + optimizer + LR scheduler + step counter. Requires the "
                          "dataset/batch/packing/epochs to be unchanged from the interrupted run.")
+parser.add_argument("--tag", type=str, default="v13",
+                    help="Run name -> output dirs models/<tag>-ids-model (checkpoints) and "
+                         "models/<tag>-ids-lora-adapter (final adapter). Bump per variant, e.g. "
+                         "v13 / v13.1 / v13.2, so parallel experiments don't clobber each other.")
+parser.add_argument("--dataset", type=str, default="zeek_dataset.jsonl",
+                    help="Train file (e.g. a preprocess_downsample.py output for a data-volume "
+                         "ablation). Eval file is unaffected by this flag -- always "
+                         "zeek_dataset_eval.jsonl, so eval_loss stays comparable across runs.")
 args = parser.parse_args()
 RUNPOD  = args.runpod
 EPOCHS  = args.epochs
@@ -73,10 +87,11 @@ torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.benchmark        = True
 
 MODEL        = "Qwen/Qwen2.5-1.5B-Instruct"
-DATASET      = "zeek_dataset.jsonl"       # train split from preprocess_zeek.py
-EVAL_DATASET = "zeek_dataset_eval.jsonl"  # held-out eval split (source-stratified)
-OUTPUT_DIR   = "./models/v12-ids-model"           # training checkpoints
-ADAPTER_DIR  = "./models/v12-ids-lora-adapter"    # final adapter
+DATASET      = args.dataset               # train split from preprocess_zeek.py (or a downsample)
+EVAL_DATASET = "zeek_dataset_eval.jsonl"  # held-out eval split (source-stratified) -- fixed,
+                                           # so eval_loss stays comparable across data-volume runs
+OUTPUT_DIR   = f"./models/{args.tag}-ids-model"           # training checkpoints
+ADAPTER_DIR  = f"./models/{args.tag}-ids-lora-adapter"    # final adapter
 
 # ── 4-bit quantization ──────────────────────────────────────────────────────
 # QLoRA: 4-bit base model stays the same — adapter output is hardware-agnostic.
@@ -94,12 +109,13 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL)
 tokenizer.pad_token = tokenizer.eos_token
 
 # ── LoRA ─────────────────────────────────────────────────────────────────────
-# r=32 (up from v8's r=16) — more capacity for port-aware patterns (Credential Access,
-# Defense Evasion). Training VRAM delta: ~72 MB (weights + gradients); optimizer states
-# are paged to CPU so those don't count. Inference delta: ~40 MB.
+# r=16/alpha=32 (V10's setting, reverted from V11/V12's r=32/alpha=64). V10 is still
+# the best-ever Win7AD-1 OOD result (87.1%) and was never matched at r=32 — the extra
+# capacity may just memorize ID patterns harder without helping (or hurting) OOD
+# transfer, same overfitting shape as the epoch-2-hurts-OOD finding. v13 tests this.
 lora_config = LoraConfig(
-    r=32,
-    lora_alpha=64,
+    r=16,
+    lora_alpha=32,
     target_modules=[
         "q_proj", "k_proj", "v_proj", "o_proj",    # all attention
         "gate_proj", "up_proj", "down_proj",        # MLP
