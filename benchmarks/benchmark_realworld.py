@@ -58,8 +58,16 @@ MODELS = [
     # ("v9.0 ckpt-1420 (ep1)",   "./models/v9.0-ids-model/checkpoint-1420"),
     # ("v9.1 ckpt-1186 (ep1)",   "./models/v9.1-ids-model/checkpoint-1186"),
     # ("v9.1 Fine-tuned",        "./models/v9.1-ids-lora-adapter"),   # superseded by v11
-    ("v11 ckpt-11313 (ep1)",   "./models/v11-ids-model/checkpoint-11313"),
-    ("v11 ckpt-22626 (ep2)",   "./models/v11-ids-model/checkpoint-22626"),   # best (eval_loss 0.1570)
+    # ("v11 ckpt-11313 (ep1)",   "./models/v11-ids-model/checkpoint-11313"),
+    # ("v11 ckpt-22626 (ep2)",   "./models/v11-ids-model/checkpoint-22626"),   # best (eval_loss 0.1570)
+    # v12 / v12.1: no-reason (verdict-only) runs, both interrupted just past
+    # epoch 1 — ckpt-10000 ≈ epoch-1 boundary. run.json reconstructed post-hoc.
+    # ("v12 ckpt-10000 (ep1)",      "./models/v12-ids-model/checkpoint-10000"),
+    # ("v12.1 ckpt-10000 (ep1)",    "./models/v12.1-ids-model/checkpoint-10000"),
+    # v12.2: 50% downsampled data, 1 epoch, complete run. CAVEAT: trained at
+    # r=16/alpha=32 (train.py had already flipped to the v13 setting), NOT
+    # v12.1's r=32/64 — so it's "v13 on half data", not a pure volume ablation.
+    ("v12.2 adapter (ep1)",       "./models/v12.2-ids-lora-adapter"),
 ]
 
 DATASETS = {
