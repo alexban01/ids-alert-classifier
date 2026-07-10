@@ -14,22 +14,7 @@ import os
 
 from ids.preprocess_config import CTU13_FILE_CAP
 from ids.preprocess_sample import make_sample
-
-# Argus binetflow state → Zeek conn_state
-_CTU_STATE_MAP = {
-    "INT":       "S1",    # mid-flow established, no FIN seen
-    "CON":       "SF",    # completed connection
-    "FIN":       "SF",    # completed with FIN
-    "FSPA_FSPA": "SF",    # FIN bidirectional = completed
-    "FSA_FSA":   "SF",
-    "SPA_FSPA":  "SF",
-    "PA_PA":     "OTH",   # PSH-ACK only, no SYN seen
-    "EST":       "S1",    # established
-    "S_":        "S0",    # SYN only, no response
-    "REQ":       "S0",
-    "SRPA_SPA":  "RSTO",  # RST from originator
-    "SRST":      "RSTO",
-}
+from ids.zeek_log_utils import map_ctu_state
 
 
 def load_ctu13_file(filepath):
@@ -65,8 +50,7 @@ def load_ctu13_file(filepath):
 
             proto      = row.get("Proto", "unknown").strip().lower()
             duration   = row.get("Dur",   "0").strip()
-            raw_state  = row.get("State", "-").strip().upper()
-            conn_state = _CTU_STATE_MAP.get(raw_state, "-")
+            conn_state = map_ctu_state(row.get("State", "-"))
             tot_pkts   = row.get("TotPkts",  "0").strip()
             src_bytes  = row.get("SrcBytes", "0").strip()
             tot_bytes  = row.get("TotBytes", "0").strip()

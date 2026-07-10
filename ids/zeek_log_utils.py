@@ -50,6 +50,35 @@ def conn_row_from_parts(parts, with_uid=False):
     return row
 
 
+# ── CTU-13 (Argus binetflow) state mapping ─────────────────────────────────────
+# Argus binetflow state → Zeek conn_state. Shared by the training loader
+# (ids/loaders/loader_ctu13.py) and the benchmark loader (benchmarks/bench_loaders.py)
+# so the model only ever sees Zeek states, in training and at eval alike.
+CTU_STATE_MAP = {
+    "INT":       "S1",    # mid-flow established, no FIN seen
+    "CON":       "SF",    # completed connection
+    "FIN":       "SF",    # completed with FIN
+    "FSPA_FSPA": "SF",    # FIN bidirectional = completed
+    "FSA_FSA":   "SF",
+    "SPA_FSPA":  "SF",
+    "PA_PA":     "OTH",   # PSH-ACK only, no SYN seen
+    "EST":       "S1",    # established
+    "S_":        "S0",    # SYN only, no response
+    "REQ":       "S0",
+    "SRPA_SPA":  "RSTO",  # RST from originator
+    "SRST":      "RSTO",
+}
+
+
+def map_ctu_state(raw_state):
+    """Map a raw Argus binetflow State value to its Zeek conn_state equivalent.
+
+    Lookup convention: strip + uppercase before matching; unmapped states fall
+    back to "-" (never pass a raw Argus token through to the model).
+    """
+    return CTU_STATE_MAP.get((raw_state or "").strip().upper(), "-")
+
+
 # ── Generic Zeek log parser ────────────────────────────────────────────────────
 
 def parse_zeek_log(path):
