@@ -16,11 +16,13 @@ Fine-tune `Qwen/Qwen2.5-1.5B-Instruct` via QLoRA to classify network flows as
 
 ## Keeping project state current
 
-The authoritative project snapshot lives in the `ids-project.skill` skill at
-`references/current-state.md`. **Whenever a big change happens — a training run
-started/finished, a new benchmark result, a dataset added/removed/restored, an
-architecture or objective decision — update that file in the same session.** Keep it
-concise (update in place, no changelog; git history is the changelog).
+The authoritative project snapshot is **`STATE.md`** at the repo root — the single source
+of truth. (The `ids-project.skill` skill's `references/current-state.md` is a symlink to it,
+and the auto-memory `project_ids_classifier.md` only points here, so there is exactly one
+file to maintain.) **Whenever a big change happens — a training run started/finished, a new
+benchmark result, a dataset added/removed/restored, an architecture or objective decision —
+update `STATE.md` in the same session.** Keep it concise (update in place, no changelog; git
+history is the changelog).
 
 ## Python Environment
 
