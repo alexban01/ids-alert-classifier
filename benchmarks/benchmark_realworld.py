@@ -67,7 +67,8 @@ MODELS = [
     # v12.2: 50% downsampled data, 1 epoch, complete run. CAVEAT: trained at
     # r=16/alpha=32 (train.py had already flipped to the v13 setting), NOT
     # v12.1's r=32/64 — so it's "v13 on half data", not a pure volume ablation.
-    ("v12.2 adapter (ep1)",       "./models/v12.2-ids-lora-adapter"),
+    # ("v12.2 adapter (ep1)",       "./models/v12.2-ids-lora-adapter"),
+    ("v13.1 adapter (ep1)",       "./models/v13.1-ids-lora-adapter"),
 ]
 
 DATASETS = {
