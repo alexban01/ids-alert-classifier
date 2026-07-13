@@ -4,11 +4,11 @@
 > The `ids-project` skill's `references/current-state.md` is a **symlink** to this file, and the
 > auto-memory `project_ids_classifier.md` is just a pointer here. Do not maintain a second copy.
 
-_Last updated: 2026-07-05 (v12.2 data-volume check trained + benchmarked: MCC +0.731,
-clearly beats v12.1's +0.669 on half the data → **downsampled-data gate PASSED**, use
-`zeek_dataset_50pct.jsonl` for v13.x. ⚠️ Confound: v12.2 accidentally trained at
-r=16/α=32 — train.py had already been flipped to the v13 setting — so it's really
-"v13 on 50% data", not a pure volume ablation vs v12.1's r=32/α=64. See Next steps)_
+_Last updated: 2026-07-14 (v13.1 result: **MCC +0.7465**, no-pack beats packed v12.2's
++0.7308 → consistent with the cross-sample attention-leak hypothesis. **v13.3 added:
+retry packing with FlashAttention-2** to isolate the leak and, if confirmed, recover the
+~3.4× packed throughput — run before v13.2, whose pack arm depends on it. Blocked on
+TASK-018 (`--flash-attn` in train.py) + flash-attn install. See Next steps #4)_
 
 ---
 
@@ -32,11 +32,18 @@ is now 266/34 Human/Trickbot (≈89%/11%, matching the capture) vs the old 79/22
 | v12 ckpt-10000 (ep1) | +0.732 | 77.9% | 94.3% | 73.0% |
 | v12.1 ckpt-10000 (ep1) | +0.669 | 74.1% | 91.8% | 52.7% |
 | v12.2 adapter (ep1, 50% data, **r=16**) | +0.731 | 84.2% | 88.8% | 79.7% |
+| v13.1 adapter (ep1, 50% data, r=16, **no-pack**) | +0.7465 | 82.2% | 92.1% | 65.3% |
 
 (v12.2 row added 2026-07-05 — complete 1-epoch run on `zeek_dataset_50pct.jsonl`,
 same cache/samples as the 2026-07-02 rows. Highest attack recall of the four, but
 lowest benign recall — IoT-23 FP recall 58.7% is the drag. Kelihos 49.3% (best),
 Echo atk 89.0%, Trickbot 15% (5/34). eval_loss 0.194, 2.1 h on the 3070.)
+
+(v13.1 row added 2026-07-13 — same as v12.2 but `--no-pack`, trained 2026-07-11.
+Best MCC of the v12.x/v13.x family: benign recall recovered (IoT-23 FP 71.0% vs
+v12.2's 58.7%, Win7AD-1 ben 97.0%) at some attack-recall cost — Win7AD-1 atk 65.3%
+(Human_attacks 73%, Trickbot 9%), Kelihos 50.0%, Echo 88.0%, IoT-23 atk 99.7%.
+eval_loss 0.1878. Still 3.1 pp MCC below V11 ep1's +0.777.)
 
 Full report: `results/benchmark_realworld_report.txt`. Note the sampling fix alone
 moved V11 ep1's Win7AD-1 attack recall from 73.0% (old buggy benchmark) to **83.0%**
@@ -383,19 +390,50 @@ Botnet-42 (Ramnit), 43 (Neris), 44 (Ngrbot), 45 (Rbot), 46 (Virut), 48 (Sogou), 
      on (`run.json` confirms the same hash). Reusing it holds composition constant so
      v13 isolates the rank/packing variables cleanly. Only rerun preprocessing if you
      want to change composition, not for these runs.
-   - **Commands (local RTX 3070) — updated 2026-07-05: gate passed, use 50% data;
-     the packed 1-epoch baseline arm is already covered by v12.2 (MCC +0.731):**
+   - **v13.1 done 2026-07-11, benchmarked 2026-07-12: MCC +0.7465 — no-pack WINS**
+     the pack A/B vs v12.2's +0.7308 (identical settings otherwise). Consistent with
+     the attention-leak hypothesis above. Benign recall recovered (IoT-23 FP 71.0%),
+     attack recall dipped (Win7AD-1 65.3%). Best v12.x/v13.x model so far.
+   - **v13.3 added 2026-07-14 (run BEFORE v13.2 — v13.2's pack/no-pack arm depends
+     on it): retry packing correctly with FlashAttention-2.** Same config as v12.2
+     (r=16, packed, 1 ep, 50% data) + `attn_implementation="flash_attention_2"`, so
+     TRL's bfd packing actually isolates packed samples. Two clean comparisons:
+     v13.3 vs v12.2 (does fixing the leak recover packed quality?) and v13.3 vs
+     v13.1 (correct packing vs no packing). If v13.3 ≥ v13.1 → leak confirmed as
+     packing's problem AND we get the ~3.4× throughput back (7,664 s vs 26,183 s
+     measured) for all future runs; if v13.3 ≈ v12.2 → leak wasn't the cause, stay
+     no-pack. **Blocked on TASK-018** (train.py `--flash-attn` flag) + a one-time
+     `.venv/bin/pip install flash-attn --no-build-isolation` (3070 = Ampere SM 8.6,
+     supported; needs nvcc, long compile).
+   - **Commands (local RTX 3070) — updated 2026-07-14: v13.3 first, then v13.2
+     with whichever attention/packing arm wins:**
      ```bash
-     # v13 baseline (r=16, packed, 1 ep, 50% data) == v12.2 — already done, +0.731
-     .venv/bin/python train.py --tag v13.1 --epochs 1 --no-pack --dataset zeek_dataset_50pct.jsonl
-     # then whichever of v12.2/v13.1 wins on MCC:
-     .venv/bin/python train.py --tag v13.2 --epochs 2 --dataset zeek_dataset_50pct.jsonl
+     # v13 baseline (r=16, packed, 1 ep, 50% data) == v12.2 — done, +0.731
+     # v13.1 (r=16, no-pack, 1 ep, 50% data) — done, +0.7465 ← current winner
+     .venv/bin/python train.py --tag v13.3 --epochs 1 --flash-attn --dataset zeek_dataset_50pct.jsonl
+     # then v13.2 = 2 epochs of the best arm (v13.1's --no-pack, or v13.3's --flash-attn+packing):
+     .venv/bin/python train.py --tag v13.2 --epochs 2 <winning-arm-flags> --dataset zeek_dataset_50pct.jsonl
      ```
-     Benchmark each with `.venv/bin/python benchmarks/benchmark_realworld.py --regen`
-     (update `MODELS` in that script to point at the new checkpoint dirs first).
-5. **Reason A/B still outstanding** (unrelated to v13, lower priority): the with-reason
-   arm never happened (v12.1 turned out reason-off, same as v12). Revisit after v13.
-6. Then research recall-coverage additions for any attack types still missed (see the
+     Benchmark **both epoch checkpoints** of v13.2 with
+     `.venv/bin/python benchmarks/benchmark_realworld.py --regen` (update `MODELS`
+     in that script first) — eval_loss has historically mis-selected epoch 2.
+5. **v14 planned (2026-07-13) — see `notes/v14_plan.md` for the full plan.** Two cheap
+   levers after v13.2: **v14a** completion-only loss (mask loss to assistant turn —
+   currently full-sequence CE spends most gradient on the ~300-token prompt; map
+   messages→prompt/completion at load time in train.py + `completion_only_loss=True`,
+   dataset file unchanged so provenance hash stays valid; eval_loss NOT comparable to
+   prior runs, MCC only) and **v14b** logit-threshold calibration (inference-only:
+   `logp(ATTACK)−logp(FALSE)` at first verdict token, tune τ on the EVAL split — never
+   the benchmark; retroactive to all checkpoints, do it first while v14a trains).
+6. **v14.1 planned — grounded reasons + GRPO reason-first pilot** (also in
+   `notes/v14_plan.md`): (a) replace random `pick_reason()` with feature-derived
+   template reasons — attack-type labels exist in raw sources but training loaders
+   discard them (IoT-23 detailed-label, UWF tactic, CTU flow labels, UNSW attack_cat;
+   bench_loaders already keeps them) — this supersedes the old "Reason A/B" item;
+   (b) GRPO pilot (TRL GRPOTrainer, reward = verdict correctness only, no reason labels
+   needed, RunPod, reason-first format) with a mandatory perturbation faithfulness check.
+   Straight RL on verdict-first was researched and rejected (noisier CE at k× cost).
+7. Then research recall-coverage additions for any attack types still missed (see the
    corrected Human_attacks vs Trickbot framing above — target lateral-movement/REJ-RSTR
    coverage over Trickbot specifically, now that the true composition is known).
 
@@ -414,7 +452,9 @@ Botnet-42 (Ramnit), 43 (Neris), 44 (Ngrbot), 45 (Rbot), 46 (Virut), 48 (Sogou), 
   the worst of both (pays tokens, dilutes loss, ships hallucinated rationales).
   - **Not actually started:** the "in progress" v12/v12.1 pair turned out to be two
     no-reason attempts (both interrupted), not a no-reason/with-reason A/B — see ⚠️
-    STATUS block, top of file. Still queued; see Next steps #3.
+    STATUS block, top of file.
+  - **Now planned as v14.1a (2026-07-13)** — option 2 (feature-derived template reasons),
+    see Next steps #6 and `notes/v14_plan.md`.
 - **Qwen2.5-3B capacity ablation** — queued control (see Deferred below).
 
 **Deferred (decided 2026-06-26):** base-model swap is NOT the recall lever — V10 already hit

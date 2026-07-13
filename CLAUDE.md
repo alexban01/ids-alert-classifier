@@ -4,7 +4,7 @@ Fine-tune `Qwen/Qwen2.5-1.5B-Instruct` via QLoRA to classify network flows as
 **ATTACK** or **FALSE POSITIVE**, targeting deployment against Zeek conn.log / PCAP captures.
 
 **Local hardware:** Ryzen 7 3700X, 32 GB RAM, RTX 3070 (8 GB VRAM)
-**Training:** RunPod RTX 5090 (32 GB VRAM), ~$0.44/hr on-demand
+**Training:** RunPod RTX 5090 (32 GB VRAM), ~$1/hr on-demand
 
 ## Git conventions
 
@@ -159,7 +159,7 @@ dataloader_num_workers = 0
 dataloader_pin_memory = True
 ```
 
-**Cost knobs** (RunPod RTX 5090, ~$0.44/hr — cost = GPU-hours): training set is
+**Cost knobs** (RunPod RTX 5090, ~$1/hr — cost = GPU-hours): training set is
 ~241k samples, token lengths mean 296 / p99 500 (so `max_length=512` is right and
 not a lever). To train cheaper: `packing=True` (default) cuts opt-steps to 0.69×
 and ~20% of tokens/epoch, `--epochs 2` saves ~33% vs 3, `--eval-subset 6000` trims

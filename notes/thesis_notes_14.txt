@@ -1,0 +1,244 @@
+================================================================================
+IDS ALERT CLASSIFIER — THESIS DEVELOPMENT NOTES (continued from thesis_notes_13.txt)
+Fine-tuning Qwen2.5-1.5B-Instruct for network intrusion detection
+================================================================================
+
+This file covers two completed, provenance-clean experiments run after the
+benchmark methodology fix of thesis_notes_13.txt: v12.2 (data-volume ablation —
+can we train on half the data?) and v13.1 (packing ablation — does TRL's default
+sequence packing hurt this model?). Both produced positive, citable findings.
+A third section records pipeline properties verified by direct code inspection
+on 2026-07-13, relevant to the honest framing of the REASON field in the thesis.
+
+All benchmark numbers in this file are from the FIXED benchmark (seeded
+reservoir sampling + CTU-13 state mapping, thesis_notes_13.txt Section 2);
+determinism of the sample set across --regen runs was previously verified, so
+every row here is measured on the same 3600 samples (1800 attack / 1800 benign).
+
+================================================================================
+1. v12.2 — DATA-VOLUME ABLATION: HALF THE DATA LOSES NOTHING
+================================================================================
+
+--- 1.1  Motivation: evidence the full run is not data-starved ---
+
+Two direct measurements motivated testing a smaller training set:
+
+  - Token volume: the full dataset (zeek_dataset.jsonl, 360k samples:
+    120k attack / 240k benign) measures 92.9M training tokens / 11.9M eval
+    tokens (real tokenizer count, 46.2k eval samples).
+  - Saturation: v12.1's own loss curve flattens well inside epoch 1 — train
+    loss flat at ~0.185 from step ~5000 onward; eval-loss improvement
+    decelerates from −0.022/500 steps early in the run to −0.001/500 steps by
+    step 10000.
+
+--- 1.2  Method: why TRAINING_FACTOR is the wrong downsampling knob ---
+
+TRAINING_FACTOR does NOT scale the final dataset size — FINAL_ATTACK /
+FINAL_BENIGN are fixed (120k/240k); the factor only scales per-source pool
+caps upstream of the weighted draw. Lowering it therefore re-skews source
+composition without shrinking the output — this is exactly the mechanism that
+caused V11's Win7AD-1 regression (factor=0.5 shrank IoT-23/CTU-13 pools while
+UWF's large pool + 2x SF draw-weight let it balloon to 44.7% of attacks;
+thesis_notes_10). To change volume without touching composition, the
+already-composed final file was downsampled instead: preprocess_downsample.py
+takes a class-stratified random subsample at a fixed seed (class-stratified,
+not source-stratified — source labels are not retained in the final
+messages-only JSONL). Output: zeek_dataset_50pct.jsonl, 180k samples, sha256
+18c75dd005579c67a341c594b2b9f2e642514b52187a03768f1db6c6a8e79aba.
+
+--- 1.3  Result (trained 2026-07-05, complete 1-epoch run, local RTX 3070) ---
+
+    Model                      Data    MCC      Atk Recall  FP Recall
+    -------------------------  ------  -------  ----------  ---------
+    v12.1 ckpt-10000 (ep1)     100%    +0.669   74.1%       91.8%
+    v12.2 adapter (ep1)         50%    +0.7308  84.2%       88.8%
+
+Half the data did not just match the full-data run — it clearly beat it
+(+6.2pp MCC). Training cost: 7,664 s (2.13 h) on the RTX 3070, eval_loss
+0.194, provenance clean (run.json dataset hash matches the on-disk file).
+
+Per-source profile (v12.2): CTU-13 95.3% atk / 99.7% ben; Win7AD-1 79.7% atk
+(Human_attacks 234/266 = 88%, Trickbot 5/34 = 15%) / 94.3% ben; Echo 89.0% /
+83.3%; Kelihos 49.3% (best of any checkpoint to date on the fair sample);
+UWF 95.0% / 100%; IoT-23 97.0% atk but only 58.7% ben — IoT-23 benign recall
+is the single largest drag on its MCC. Format failures 8/3600 (0.2%).
+
+--- 1.4  Confound, and how it resolves ---
+
+v12.2 was intended as a pure volume ablation vs v12.1 (same r=32/alpha=64).
+It accidentally trained at r=16/alpha=32 — train.py had already been flipped
+to the planned v13 setting when the run launched. So v12.2 vs v12.1 changes
+TWO variables: rank (32→16) AND volume (100%→50%).
+
+This weakens the claim "50% data alone loses nothing" but does not invalidate
+the decision the experiment gated: the joint change (r=16 + 50% data) beats
+the r=32 + full-data run, so both changes together are validated as
+at-least-not-worse, and all subsequent runs use the 50% file. Reframed:
+v12.2 simply IS the v13 baseline arm (r=16, packed, 1 epoch, 50% data) —
+the pure-volume question was retired rather than answered, since no planned
+run returns to r=32.
+
+--- 1.5  Thesis-relevant conclusion ---
+
+For this task/model/data regime, training volume beyond ~180k samples adds
+nothing measurable in a single epoch — consistent with the saturation
+evidence in 1.1. Dataset size was not the binding constraint; composition and
+training configuration were. This halves the cost of every subsequent
+experiment (2.1 h/epoch packed on a consumer RTX 3070).
+
+================================================================================
+2. v13.1 — PACKING ABLATION: TURNING PACKING OFF IMPROVES MCC
+================================================================================
+
+--- 2.1  The hypothesis: cross-sample attention leak ---
+
+TRL 0.29.1's SFTTrainer packs multiple training samples into each 512-token
+sequence by default (packing_strategy="bfd", ~1.46 samples per slot measured
+on this data). Proper sample isolation under packing requires a
+flash-attention variant that respects sequence boundaries; this repo has no
+flash-attn installed and never sets attn_implementation (so the model runs
+SDPA/eager). Consequence: packed samples very likely attend to each other
+during training. Loss MASKING is unaffected (full-sequence loss either way),
+but the attention contamination claim is specific: tokens of sample B can see
+sample A's flow features and verdict in the same slot.
+
+--- 2.2  The A/B ---
+
+v13.1 = v12.2 with exactly one change: --no-pack. Same r=16/alpha=32, same
+zeek_dataset_50pct.jsonl (run.json hash verified identical), 1 epoch, local
+RTX 3070. Trained 2026-07-11, benchmarked 2026-07-12.
+
+    Model    Packing  MCC      Atk Recall  FP Recall  Train time
+    -------  -------  -------  ----------  ---------  -----------------
+    v12.2    ON       +0.7308  84.2%       88.8%      7,664 s  (2.13 h)
+    v13.1    OFF      +0.7465  82.2%       92.1%      26,183 s (7.27 h)
+
+no-pack wins on MCC (+1.6pp), eval_loss 0.1878, format failures 2/3600.
+The result is consistent with the attention-leak hypothesis, with the honest
+caveat that this is a single A/B (n=1 run per arm) on a family of runs that
+has previously shown non-trivial run-to-run variance (v12 vs v12.1,
+thesis_notes_13 Section 5.4) — "consistent with", not "proves".
+
+Cost note: without packing the same epoch takes ~3.4x the wall time (more
+optimizer steps — 180k/24 = 7.5k vs ~3.8k packed — plus padding waste), so
+packing's ~20%-cheaper-per-epoch claim from the training-cost analysis
+understates its true throughput advantage here; the correct framing is that
+packing trades ~1.6pp MCC for ~3.4x faster epochs under this attention setup.
+
+--- 2.3  The trade-off inside the MCC gain ---
+
+v13.1 is not strictly better than v12.2 — the improvement is a shift toward
+benign precision, not a uniform lift:
+
+    Slice                     v12.2      v13.1     delta
+    ------------------------  ---------  --------  --------
+    IoT-23 benign recall      58.7%      71.0%     +12.3pp
+    Echo benign recall        83.3%      89.7%     +6.4pp
+    Win7AD-1 benign recall    94.3%      97.0%     +2.7pp
+    Win7AD-1 attack recall    79.7%      65.3%     -14.4pp
+      Human_attacks           88% (234)  73% (193) -15pp
+      Trickbot C2             15% (5)     9% (3)   -6pp
+    Kelihos                   49.3%      50.0%     +0.7pp
+    Overall attack recall     84.2%      82.2%     -2.0pp
+
+The headline MCC winner is materially WORSE on the primary OOD probe's attack
+side (Win7AD-1 −14.4pp). Since benign flows outnumber and the benign-recall
+gains are broad, MCC still improves. For the thesis: "best MCC" and "best OOD
+attack coverage" have now demonstrably diverged between two checkpoints of
+the same family — single-number model selection hides this, and any deployed
+choice should state which side of the trade it takes. (This echoes the
+epoch-1 vs epoch-2 finding of thesis_notes_12: aggregate metrics can
+mis-select on the slice that matters.)
+
+--- 2.4  Standing of the model family (fixed benchmark, all comparable) ---
+
+    Model                     MCC      Atk    FP     Win7AD-1 Atk
+    ------------------------  -------  -----  -----  ------------
+    v11 ckpt-11313 (ep1)      +0.777   81.1%  95.8%  83.0%
+    v11 ckpt-22626 (ep2)      +0.770   80.1%  96.0%  74.3%
+    v13.1 (ep1, 50%, no-pack) +0.7465  82.2%  92.1%  65.3%
+    v12 ckpt-10000 (ep1)      +0.732   77.9%  94.3%  73.0%
+    v12.2 (ep1, 50%, packed)  +0.7308  84.2%  88.8%  79.7%
+    v12.1 ckpt-10000 (ep1)    +0.669   74.1%  91.8%  52.7%
+
+V11 ep1 remains the best overall model. v13.1 is the best of the
+r=16/50%-data family but still 3.1pp MCC behind, with the gap concentrated
+in benign recall (95.8% vs 92.1%) and Win7AD-1. Note V11 differs in MANY
+variables at once (r=32, full data at factor=0.5 composition, 2-epoch
+schedule with ep1 checkpoint, packed) — the families are not a controlled
+comparison.
+
+================================================================================
+3. VERIFIED PIPELINE PROPERTIES (CODE INSPECTION, 2026-07-13)
+================================================================================
+
+Three facts about the current training pipeline were verified by direct code
+reading, each relevant to how the thesis must frame its claims:
+
+--- 3.1  The REASON field carries no flow-specific information ---
+
+ids/preprocess_sample.py:33-35 — pick_reason(verdict) is
+random.choice(ATTACK_REASONS if verdict=="ATTACK" else BENIGN_REASONS).
+The reason attached to each training sample is conditioned ONLY on the binary
+verdict, never on the sample's features. Additionally the output format emits
+VERDICT: before REASON:, so at generation time the verdict is already fixed
+before any reason token is produced (no chain-of-thought effect is possible).
+Implication for the thesis: reasons produced by the reason-trained models are
+class-typical boilerplate learned from a random pool — they must not be
+presented as model explanations. Any interpretability claim requires reasons
+derived from input features, which the current data cannot teach.
+
+--- 3.2  Attack-type labels exist in the raw sources but are discarded ---
+
+Every attack source carries a per-flow attack-type label that the TRAINING
+loaders throw away during binarization:
+  - IoT-23: detailed-label sub-token (Okiru, PartOfAHorizontalPortScan,
+    C&C, ...) — loader_iot23.py keeps only Malicious/Benign.
+  - UWF-ZeekData24: MITRE label_tactic (Credential Access, Reconnaissance,
+    Lateral Movement, ...) — loader_uwf.py uses it as an allowed-tactic
+    filter, then binarizes.
+  - CTU-13 / CTU-Malware: binetflow flow= labels (From-Botnet-V43-TCP-...).
+  - UNSW-NB15: attack_cat column.
+The BENCHMARK loaders (benchmarks/bench_loaders.py) retain these labels —
+the per-attack-type recall tables in every benchmark report are built from
+them. So per-type supervision is recoverable with a loader change; it is not
+missing data. (Recorded here as a verified fact; what to do with it is a
+design decision outside this file's scope.)
+
+--- 3.3  Training loss is full-sequence cross-entropy ---
+
+train.py applies no completion-only masking: the loss covers every token,
+including the ~300-token prompt (mean 296, p99 500), while the supervised
+target is essentially one line. The large majority of each training step's
+gradient signal is spent modeling the prompt text rather than the
+classification decision. Also verified: this is why eval_loss is only
+comparable within a run configuration — reason-on/off (and any future change
+to target length) changes the token mix under the same loss.
+
+================================================================================
+4. ACTIONS TAKEN / OPEN
+================================================================================
+
+Taken:
+  - v12.2 trained + benchmarked (2026-07-05); 50%-data gate PASSED —
+    zeek_dataset_50pct.jsonl adopted for subsequent runs.
+  - v13.1 trained (2026-07-11) + benchmarked (2026-07-12); no-pack adopted as
+    the winning arm of the packing A/B.
+  - EXPERIMENTS.md rows added for both; run.json provenance clean on both
+    (dataset hash matches for each).
+  - STATE.md updated throughout (2026-07-13).
+
+Open:
+  - v13.2 (queued): 2-epoch run of the winning no-pack arm — tests whether
+    the "epoch 2 overfits and hurts OOD" finding (established at r=32 on V11,
+    thesis_notes_12) still holds at r=16.
+  - The v13.1 Win7AD-1 attack-recall drop (Section 2.3) needs an explanation
+    or at least replication before the thesis fixes a number; currently
+    unexplained.
+  - V10 re-benchmark under the fixed methodology (open since
+    thesis_notes_13 Section 3): the 87.1% Win7AD-1 target may itself be a
+    pre-fix sampling artifact. Still not done; still the biggest open
+    question over the version narrative.
+  - Reason-mode A/B (with-reason arm) still never run.
+  - TASK-017 (EXPERIMENTS.md misses checkpoint-nested run.json) and
+    TASK-013/014/015/016 remain open in REVIEW_TASKS.md.
