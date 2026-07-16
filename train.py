@@ -270,6 +270,11 @@ try:
         train_runtime_s=train_result.metrics.get("train_runtime"),
     )
     print(f"   📋 run.json + EXPERIMENTS.md updated")
+    # Copy run.json into each epoch-N/ snapshot so resolve_system_prompt() serves
+    # the right prompt (verdict-only for --no-reason runs) when benchmarking them.
+    import glob, shutil
+    for snap in glob.glob(os.path.join(OUTPUT_DIR, "epoch-*")):
+        shutil.copy(os.path.join(ADAPTER_DIR, "run.json"), snap)
 except Exception as e:
     print(f"[WARN] could not write run manifest: {e}")
 print(f"\n   Next: .venv/bin/python benchmark_realworld.py --regen")
