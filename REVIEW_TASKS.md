@@ -137,39 +137,3 @@ Notes: Low urgency — MCC is still readable directly from the checkpoint's
 `run.json` or the benchmark report in the meantime. See STATE.md "Known gap" note
 under Experiment tracking & provenance.
 
----
-
-### TASK-018
-Status: open
-Priority: high (blocks v13.3 training run)
-Area: train.py — model load in the training path; requirements/setup notes
-Problem: TRL 0.29.1's default packing (`packing_strategy="bfd"`) only isolates
-packed samples from each other when the model runs a flash-attention variant
-that respects sequence boundaries. This repo never sets `attn_implementation`
-(model runs SDPA/eager) and has no flash-attn installed, so packed samples
-(~1.46 per 512-token slot) attend across sample boundaries during training.
-The v12.2 (packed, MCC +0.7308) vs v13.1 (no-pack, +0.7465) A/B is consistent
-with this leak hurting quality (thesis_notes_14.txt §2), but packing is ~3.4×
-faster per epoch — worth recovering if it can be made correct.
-Required fix: Add a `--flash-attn` flag to train.py that (1) passes
-`attn_implementation="flash_attention_2"` to the base-model `from_pretrained`
-call, and (2) records `"attn_implementation"` in the run.json hyperparams dict
-(record the resolved value on every run, including the SDPA default, so runs
-are distinguishable in the ledger). Error out early with a clear message if
-`--flash-attn` is passed but `flash_attn` is not importable. Do not change the
-default (SDPA) behaviour when the flag is absent.
-Environment prerequisite (owner runs this, not part of the code change):
-`.venv/bin/pip install flash-attn --no-build-isolation` — needs nvcc matching
-the venv's torch CUDA version; source build can take 30+ min, set MAX_JOBS to
-bound RAM. RTX 3070 is Ampere (SM 8.6), supported by FlashAttention-2; compute
-dtype is already bf16, which FA2 requires.
-Validation: `train.py --flash-attn --dataset zeek_dataset_50pct.jsonl
---save-steps 50` starts and completes ≥50 steps with packing on, no attention-
-mask warnings from transformers, and the saved checkpoint's run.json contains
-`"attn_implementation": "flash_attention_2"`. A default run (no flag) is
-byte-identical in behaviour to today and records `"attn_implementation": "sdpa"`.
-Notes: Inference/benchmark paths need no change — the adapter is just weights;
-`ids/infer_utils.py` can keep loading with default attention. Purpose is the
-v13.3 experiment (STATE.md Next steps): rerun the v12.2 config (r=16, packed,
-1 epoch, 50% data) with correct packing to isolate whether the attention leak
-caused packing's quality loss.

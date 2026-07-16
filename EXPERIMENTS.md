@@ -4,6 +4,8 @@ _Generated from `models/*/run.json` — do not edit by hand; rebuild with `pytho
 
 | Run | Date | Git | Reason | Epochs | Pack | TF | LoRA r | Eff.batch | Eval loss¹ | MCC | Atk R | FP R |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
+| v13.2-soup-adapter | 2026-07-16 | cc6cbd4 | no | 2 | no | – | 16 | 24 | 0.1822 | +0.7343 | 85.0% | 88.4% |
+| v13.2-ids-lora-adapter | 2026-07-16 | cc6cbd4 | no | 2 | no | – | 16 | 24 | 0.1822 | +0.7180 | 82.8% | 88.8% |
 | v13.1-ids-lora-adapter | 2026-07-11 | 9aaf78e | no | 1 | no | – | 16 | 24 | 0.1878 | +0.7465 | 82.2% | 92.1% |
 | v12.2-ids-lora-adapter | 2026-07-05 | 9f55b5c | no | 1 | yes | – | 16 | 24 | 0.1942 | +0.7308 | 84.2% | 88.8% |
 

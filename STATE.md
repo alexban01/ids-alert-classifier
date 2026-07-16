@@ -4,11 +4,14 @@
 > The `ids-project` skill's `references/current-state.md` is a **symlink** to this file, and the
 > auto-memory `project_ids_classifier.md` is just a pointer here. Do not maintain a second copy.
 
-_Last updated: 2026-07-14 (v13.1 result: **MCC +0.7465**, no-pack beats packed v12.2's
-+0.7308 → consistent with the cross-sample attention-leak hypothesis. **v13.3 added:
-retry packing with FlashAttention-2** to isolate the leak and, if confirmed, recover the
-~3.4× packed throughput — run before v13.2, whose pack arm depends on it. Blocked on
-TASK-018 (`--flash-attn` in train.py) + flash-attn install. See Next steps #4)_
+_Last updated: 2026-07-16 (**v13.2 done + benchmarked: 2 epochs no-pack, 50% data,
+no-reason. ep1.47 (ckpt-11000) MCC +0.733, ep2/final +0.718, 50/50 soup +0.734 —
+ALL below v13.1's 1-epoch +0.7465. Epoch-2-hurts-OOD CONFIRMED at r=16**; souping
+two already-past-epoch-1 checkpoints doesn't recover it. v11 soup w=0.40 (+0.8008)
+remains best overall. New tooling: `scripts/soup_adapters.py` (weighted LoRA average),
+train.py now snapshots the adapter at every epoch end into `epoch-N/` (immune to
+save_total_limit rotation). Next: re-apply TASK-018 (`--flash-attn`), venv rebuild
+py3.12 + flash-attn wheel, smoke test, then v13.3. See Next steps #4)_
 
 ---
 
@@ -33,6 +36,37 @@ is now 266/34 Human/Trickbot (≈89%/11%, matching the capture) vs the old 79/22
 | v12.1 ckpt-10000 (ep1) | +0.669 | 74.1% | 91.8% | 52.7% |
 | v12.2 adapter (ep1, 50% data, **r=16**) | +0.731 | 84.2% | 88.8% | 79.7% |
 | v13.1 adapter (ep1, 50% data, r=16, **no-pack**) | +0.7465 | 82.2% | 92.1% | 65.3% |
+| v11 soup (ep1+ep2 avg, w=0.5) | +0.7954 | 82.8% | 96.1% | 83.7% |
+| **v11 soup w=0.40** | **+0.8008** | 83.4% | 96.0% | 83.7% |
+| v13.2 ep1.47 (ckpt-11000, 2-ep no-pack run) | +0.733 | 86.5% | 86.8% | — |
+| v13.2 ep2 (final) | +0.718 | 82.8% | 88.8% | — |
+| v13.2 soup (ep1.47+ep2, w=0.5) | +0.734 | 85.0% | 88.4% | — |
+
+(v13.2 rows added 2026-07-16 — 2 epochs, no-pack, r=16, 50% data, no-reason.
+**Every v13.2 checkpoint is below v13.1's 1-epoch +0.7465** → epoch-2-hurts-OOD
+holds at r=16 (ep2 −1.5pp vs the mid-run ckpt; Win7AD-1 atk −4.7pp ep1.47→ep2).
+Soup barely helps (+0.001 over ep1.47): both ingredients are already past the
+epoch-1 boundary (1.47 and 2.0) — unlike v11's soup, there's no clean epoch-1
+checkpoint to average against (per-epoch snapshots landed in train.py after this
+run started; `models/v13.2-ids-model/epoch-1_46` was a manual mid-run save).
+Verdict: at r=16/50%-data, 1 epoch is the right budget; v13.1 stays the v13.x
+winner. Soup tooling: `scripts/soup_adapters.py a b -o out [-w]`.)
+
+(v11 soup rows added 2026-07-15 — element-wise (weighted) mean of the two V11
+checkpoints' LoRA tensors, `soup = w·ep1 + (1−w)·ep2`; no training. Dirs:
+`models/v11-soup-adapter` (w=0.5) and `models/v11-soup-w{40,60,75}-adapter`,
+each with a `soup.json` provenance file. Motivated by model-souping literature
+(`notes/research_quality_speed_2026-07.md` §A2) — confirmed: every soup beats
+both parents. Full interpolation curve (MCC): ep2/w=0 +0.770 → **w=0.40
++0.8008** → w=0.5 +0.7954 → w=0.60 +0.7849 → w=0.75 +0.7835 → ep1/w=1 +0.777.
+Peak is on the ep2 side of the midpoint. w=0.40 detail: Atk 83.4%, FP 96.0%,
+Win7AD-1 83.7%, Echo 81.0% (best of any V11 variant), Kelihos 44.3%, 0 format
+failures. **New best model = w=0.40 soup.** ⚠️ Methodology caveat for the
+thesis: picking w by benchmark MCC is mild test-set tuning — the honest
+untuned number is w=0.5 (+0.7954); either validate w on the eval split or
+report w=0.5 as primary and the w-sweep as analysis. Implication: soup the two
+epoch checkpoints of every future 2-epoch run before picking a winner. Full
+write-up: `notes/thesis_notes_15.txt`.)
 
 (v12.2 row added 2026-07-05 — complete 1-epoch run on `zeek_dataset_50pct.jsonl`,
 same cache/samples as the 2026-07-02 rows. Highest attack recall of the four, but
@@ -80,10 +114,12 @@ is still an open question — answer it with one clean retrain, not these two.
 
 ---
 
-## Active version: **V11 ckpt-11313 (ep1)** — shipped/best model; V13 (r=16) in prep
+## Active version: **v11 soup** — best model (w=0.40: MCC +0.8008; untuned w=0.5: +0.7954, 2026-07-15); V13 (r=16) in prep
 
-V11 ckpt-11313 (ep1) is the latest fully-trained, benchmark-validated, best-on-every-metric
-model — treat as current until V13 says otherwise. V12/v12.1's `factor=1.0` composition
+The v11 soup (`models/v11-soup-w40-adapter/`; untuned-w primary:
+`models/v11-soup-adapter/`) is the benchmark-validated best model — it
+supersedes V11 ckpt-11313 (ep1), which remains the best *single-checkpoint*
+model. See the w-tuning caveat in the ⚠️ STATUS table note. V12/v12.1's `factor=1.0` composition
 retrain is **not** planned (see Next steps #2); instead the active experiment is **V13**
 (LoRA r=16, see Next steps #3), targeting the same Win7AD-1/OOD gap via a different,
 better-evidenced lever (V10 already hit 87.1% at r=16; V11/V12's r=32 never matched it).
@@ -402,9 +438,26 @@ Botnet-42 (Ramnit), 43 (Neris), 44 (Ngrbot), 45 (Rbot), 46 (Virut), 48 (Sogou), 
      v13.1 (correct packing vs no packing). If v13.3 ≥ v13.1 → leak confirmed as
      packing's problem AND we get the ~3.4× throughput back (7,664 s vs 26,183 s
      measured) for all future runs; if v13.3 ≈ v12.2 → leak wasn't the cause, stay
-     no-pack. **Blocked on TASK-018** (train.py `--flash-attn` flag) + a one-time
-     `.venv/bin/pip install flash-attn --no-build-isolation` (3070 = Ampere SM 8.6,
-     supported; needs nvcc, long compile).
+     no-pack.
+   - **TASK-018 drafted + validated 2026-07-14, then reverted at user request**
+     (train.py restored to committed state while v13.2 trains). The finished diff
+     is saved and re-appliable; default path was verified byte-identical
+     (resolves attn=sdpa) before reverting. Re-apply as step 0 of the plan below.
+     **⏳ NEXT AFTER v13.2 FINISHES — flash-attn install, local path (user's choice
+     2026-07-14). Do NOT touch .venv or the GPU while v13.2 trains** (run started
+     2026-07-13, ~15k steps, 2 ep no-pack). Source build is impossible as-is (nvcc
+     is CUDA 13.3 vs torch cu12.8 — major mismatch) and no wheel fits the current
+     venv (py3.14; flash-attn ships no cp314 wheels). Plan:
+     1. Rebuild `.venv` on **Python 3.12** with **torch 2.9 + cu130** (matches the
+        CUDA 13.3 toolkit), reinstall requirements.txt.
+     2. Install the prebuilt wheel from the flash-attention GitHub release
+        (v2.8.3): `flash_attn-2.8.3+cu13torch2.9cxx11abiTRUE-cp312-cp312-
+        linux_x86_64.whl` — seconds, no compile.
+     3. Smoke test: `train.py --flash-attn --save-steps 50 --dataset
+        zeek_dataset_50pct.jsonl --tag smoke` for ~50 steps; verify run has no
+        attention-mask warnings and checkpoint run.json shows
+        `attn_implementation: flash_attention_2`. Then delete TASK-018 + commit.
+     4. Run v13.3 (command below).
    - **Commands (local RTX 3070) — updated 2026-07-14: v13.3 first, then v13.2
      with whichever attention/packing arm wins:**
      ```bash
@@ -417,6 +470,21 @@ Botnet-42 (Ramnit), 43 (Neris), 44 (Ngrbot), 45 (Rbot), 46 (Virut), 48 (Sogou), 
      Benchmark **both epoch checkpoints** of v13.2 with
      `.venv/bin/python benchmarks/benchmark_realworld.py --regen` (update `MODELS`
      in that script first) — eval_loss has historically mis-selected epoch 2.
+   - **v13.2 done + benchmarked 2026-07-16: 1 epoch confirmed as the right budget
+     at r=16** — ep1.47 +0.733 / ep2 +0.718 / soup +0.734, all under v13.1's
+     +0.7465 (see ⚠️ STATUS table note). eval_loss again mis-selected ep2.
+   - **TASK-018 + flash-attn DONE 2026-07-16, v13.3 LAUNCHED.** train.py has
+     `--flash-attn` (fails fast if pkg missing; run.json records the resolved
+     `attn_implementation` on every run, sdpa default unchanged). `.venv` rebuilt:
+     **py3.12 + torch 2.9.0+cu130 + flash-attn 2.8.3** (prebuilt cu13torch2.9
+     cp312 wheel — no compile), all libs pinned to the old venv's versions (trl
+     0.29.1, transformers 5.3.0, peft 0.18.1, …) because unpinned requirements.txt
+     pulled trl 1.8/transformers 5.14 (ABI+API mismatch). ⚠️ requirements.txt is
+     still unpinned by choice (RunPod path). FA2 smoke test passed (50 steps +
+     eval, `attn_implementation: flash_attention_2`, no attention-mask warnings);
+     TASK-018 deleted from REVIEW_TASKS.md. v13.3 (r=16, packed+FA2, 1 ep, 50%
+     data) training locally — log: `models/v13.3-train.log`; compare vs v12.2
+     (packed leak) and v13.1 (no-pack) per plan above.
 5. **v14 planned (2026-07-13) — see `notes/v14_plan.md` for the full plan.** Two cheap
    levers after v13.2: **v14a** completion-only loss (mask loss to assistant turn —
    currently full-sequence CE spends most gradient on the ~300-token prompt; map

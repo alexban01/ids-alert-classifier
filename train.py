@@ -44,6 +44,12 @@ parser.add_argument("--tag", type=str, default="v13",
                     help="Run name -> output dirs models/<tag>-ids-model (checkpoints) and "
                          "models/<tag>-ids-lora-adapter (final adapter). Bump per variant, e.g. "
                          "v13 / v13.1 / v13.2, so parallel experiments don't clobber each other.")
+parser.add_argument("--flash-attn", action="store_true",
+                    help="Load the base model with attn_implementation='flash_attention_2'. "
+                         "Required for TRL's bfd packing to actually isolate packed samples "
+                         "from each other (SDPA/eager let them cross-attend — the v12.2 vs "
+                         "v13.1 leak finding). Needs the flash-attn package installed; "
+                         "errors out early if missing. Default (no flag) is unchanged (SDPA).")
 parser.add_argument("--dataset", type=str, default="zeek_dataset.jsonl",
                     help="Train file (e.g. a preprocess_downsample.py output for a data-volume "
                          "ablation). Eval file is unaffected by this flag -- always "
@@ -102,9 +108,23 @@ bnb_config = BitsAndBytesConfig(
     bnb_4bit_compute_dtype=torch.bfloat16,
 )
 
+# --flash-attn: fail fast if the package is missing (a mid-run crash after model
+# download is the expensive way to find out). Default path passes no
+# attn_implementation — byte-identical to historic behaviour (resolves to sdpa).
+model_kwargs = {}
+if args.flash_attn:
+    try:
+        import flash_attn  # noqa: F401
+    except ImportError:
+        raise SystemExit("--flash-attn requires the flash-attn package: "
+                         ".venv/bin/pip install flash-attn (see STATE.md Next steps #4)")
+    model_kwargs["attn_implementation"] = "flash_attention_2"
+
 model = AutoModelForCausalLM.from_pretrained(
-    MODEL, quantization_config=bnb_config, device_map="cuda"
+    MODEL, quantization_config=bnb_config, device_map="cuda", **model_kwargs
 )
+ATTN_IMPLEMENTATION = model.config._attn_implementation  # resolved value, recorded in run.json
+print(f"attn_implementation: {ATTN_IMPLEMENTATION}")
 tokenizer = AutoTokenizer.from_pretrained(MODEL)
 tokenizer.pad_token = tokenizer.eos_token
 
@@ -182,6 +202,21 @@ trainer = SFTTrainer(
     ),
 )
 
+# ── Per-epoch adapter snapshots (for model soup) ─────────────────────────────
+# save_total_limit=2 rotates full checkpoints away, so epoch-boundary weights are
+# lost — which blocks souping epochs together. This dumps just the LoRA adapter
+# (a few MB, no optimizer state) at every epoch end into epoch-N/, outside the
+# rotation, regardless of --save-steps.
+from transformers import TrainerCallback
+
+class SaveEpochAdapter(TrainerCallback):
+    def on_epoch_end(self, targs, state, control, model=None, **kwargs):
+        out = os.path.join(targs.output_dir, f"epoch-{round(state.epoch)}")
+        model.save_pretrained(out)
+        print(f"[soup] adapter snapshot saved to {out}")
+
+trainer.add_callback(SaveEpochAdapter())
+
 # ── Resume ───────────────────────────────────────────────────────────────────
 # --resume <path> uses that checkpoint; bare --resume picks the latest in OUTPUT_DIR.
 # Falls back to a fresh run (with a notice) if asked to resume but nothing is there.
@@ -219,6 +254,7 @@ try:
         hyperparams={
             "epochs":          trainer.args.num_train_epochs,
             "packing":         getattr(trainer.args, "packing", PACKING),
+            "attn_implementation": ATTN_IMPLEMENTATION,
             "batch":           trainer.args.per_device_train_batch_size,
             "grad_accum":      trainer.args.gradient_accumulation_steps,
             "effective_batch": BATCH * GRAD_ACCUM,

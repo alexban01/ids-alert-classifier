@@ -68,7 +68,16 @@ MODELS = [
     # r=16/alpha=32 (train.py had already flipped to the v13 setting), NOT
     # v12.1's r=32/64 — so it's "v13 on half data", not a pure volume ablation.
     # ("v12.2 adapter (ep1)",       "./models/v12.2-ids-lora-adapter"),
-    ("v13.1 adapter (ep1)",       "./models/v13.1-ids-lora-adapter"),
+    # ("v13.1 adapter (ep1)",       "./models/v13.1-ids-lora-adapter"),
+    # ("v11 soup (ep1+ep2 avg)",    "./models/v11-soup-adapter"),   # w=0.5: MCC +0.7954 (2026-07-15)
+    # ("v11 soup w=0.40",           "./models/v11-soup-w40-adapter"),
+    # ("v11 soup w=0.60",           "./models/v11-soup-w60-adapter"),
+    # ("v11 soup w=0.75",           "./models/v11-soup-w75-adapter"),
+    # v13.2: no-reason run on 50% data, 2 epochs. epoch-1_46 = ckpt-11000 saved
+    # mid-epoch-2 (per-epoch snapshots didn't exist yet); final = ckpt-15000 (ep2).
+    ("v13.2 ep1.47 (ckpt-11000)", "./models/v13.2-ids-model/epoch-1_46"),
+    ("v13.2 ep2 (final)",         "./models/v13.2-ids-lora-adapter"),
+    ("v13.2 soup (ep1.47+ep2)",   "./models/v13.2-soup-adapter"),
 ]
 
 DATASETS = {
