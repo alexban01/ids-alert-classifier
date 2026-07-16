@@ -75,8 +75,11 @@ else:
     SAVE_STEPS = EVAL_STEPS = None
 
 if RUNPOD:
-    BATCH                = 24
-    GRAD_ACCUM           = 1      # effective batch = 24
+    # L40S 48GB OOMs at batch=24 with packing (every seq a full 512 tokens, no grad
+    # checkpointing, fp32 CE upcast over the 152k vocab ~7.5GB) — 12x2 keeps the
+    # effective batch at 24 (cross-run comparability) and halves peak memory.
+    BATCH                = 12 if args.ibm else 24
+    GRAD_ACCUM           = 2 if args.ibm else 1   # effective batch = 24
     GRAD_CHECKPOINTING   = False  # 32 GB has headroom even at max_length=512
     PIN_MEMORY           = True
     NUM_WORKERS          = 0      # CUDA+fork unstable on Linux regardless of hardware; bottleneck is GPU not JSONL loading
