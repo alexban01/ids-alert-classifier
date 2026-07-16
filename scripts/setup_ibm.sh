@@ -6,9 +6,13 @@
 #   ./scripts/setup_ibm.sh                # full: driver + env + pre-flight + LAUNCH v13.3
 #   ./scripts/setup_ibm.sh --setup-only   # stop after pre-flight, launch manually
 #
-# Upload from the local machine (excludes the big regenerable dirs):
-#   rsync -av --exclude .venv --exclude models --exclude datasets --exclude llama.cpp \
-#       ~/fine_tunning/ ubuntu@<VM_IP>:~/fine_tunning/
+# Upload from the local machine — ONLY what training needs (~100 MB), not the repo:
+#   cd ~/fine_tunning && rsync -avR -e "ssh -i ~/.ssh/ibm_cloud" \
+#       train.py ids scripts/setup_ibm.sh \
+#       zeek_dataset_50pct.jsonl zeek_dataset_eval.jsonl \
+#       ubuntu@<FLOATING_IP>:~/fine_tunning/
+# (-R keeps relative paths so this script lands in scripts/. Login user is
+#  "ubuntu" on IBM's stock Ubuntu images, and the VM needs a floating IP.)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
