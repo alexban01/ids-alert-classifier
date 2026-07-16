@@ -10,6 +10,9 @@ import os
 parser = argparse.ArgumentParser()
 parser.add_argument("--runpod", action="store_true",
                     help="Use RunPod RTX 5090 settings (batch=24, no grad checkpointing)")
+parser.add_argument("--ibm", action="store_true",
+                    help="Use IBM Cloud L40S 48GB settings — same config as --runpod "
+                         "(batch=24, no grad checkpointing); only the run.json target differs.")
 parser.add_argument("--epochs", type=int, default=2,
                     help="Training epochs (default 2). load_best_model_at_end keeps the "
                          "best-eval_loss checkpoint, so 2 epochs ≈ 3 in quality but ~33%% cheaper.")
@@ -55,7 +58,9 @@ parser.add_argument("--dataset", type=str, default="zeek_dataset.jsonl",
                          "ablation). Eval file is unaffected by this flag -- always "
                          "zeek_dataset_eval.jsonl, so eval_loss stays comparable across runs.")
 args = parser.parse_args()
-RUNPOD  = args.runpod
+RUNPOD  = args.runpod or args.ibm   # --ibm: identical config, different run.json target
+TARGET  = ("IBM Cloud L40S" if args.ibm else
+           "RunPod RTX 5090" if args.runpod else "Local RTX 3070")
 EPOCHS  = args.epochs
 PACKING = not args.no_pack
 
@@ -84,7 +89,7 @@ else:
     NUM_WORKERS          = 0      # CUDA+fork unstable on local Linux. fork() copies the parent's CUDA context into worker processes — those handles are invalid in the child, causing deadlocks or corruption. spawn would fix it but adds complexity; workers=0 is simpler since the bottleneck is the GPU, not JSONL loading.
     MAX_LENGTH           = 512
 
-print(f"Target: {'RunPod RTX 5090' if RUNPOD else 'Local RTX 3070'}  "
+print(f"Target: {TARGET}  "
       f"| batch={BATCH}  accum={GRAD_ACCUM}  effective={BATCH*GRAD_ACCUM}  "
       f"max_length={MAX_LENGTH}  epochs={EPOCHS}  packing={PACKING}")
 
@@ -250,7 +255,7 @@ try:
     write_run_manifest(
         ADAPTER_DIR,
         base_model=MODEL,
-        target=("RunPod RTX 5090" if RUNPOD else "Local RTX 3070"),
+        target=TARGET,
         hyperparams={
             "epochs":          trainer.args.num_train_epochs,
             "packing":         getattr(trainer.args, "packing", PACKING),
