@@ -4,14 +4,17 @@
 > The `ids-project` skill's `references/current-state.md` is a **symlink** to this file, and the
 > auto-memory `project_ids_classifier.md` is just a pointer here. Do not maintain a second copy.
 
-_Last updated: 2026-07-16 (**v13.2 done + benchmarked: 2 epochs no-pack, 50% data,
-no-reason. ep1.47 (ckpt-11000) MCC +0.733, ep2/final +0.718, 50/50 soup +0.734 —
-ALL below v13.1's 1-epoch +0.7465. Epoch-2-hurts-OOD CONFIRMED at r=16**; souping
-two already-past-epoch-1 checkpoints doesn't recover it. v11 soup w=0.40 (+0.8008)
-remains best overall. New tooling: `scripts/soup_adapters.py` (weighted LoRA average),
-train.py now snapshots the adapter at every epoch end into `epoch-N/` (immune to
-save_total_limit rotation). Next: re-apply TASK-018 (`--flash-attn`), venv rebuild
-py3.12 + flash-attn wheel, smoke test, then v13.3. See Next steps #4)_
+_Last updated: 2026-07-17 (**overnight IBM Cloud L40S campaign — see `IBM_TRAINING.md`
+for the full log.** v13.3 (packed+FA2): soup +0.722/Win7AD 80.0% — OOD-beats v13.1,
+epoch-2 HELPED for the first time (leak-free packing). **v14a (completion-only,
+packed+FA2): soup +0.722 / Win7AD-1 86.0%; w=0.60 soup 87.0% — ties V10's all-time
+record** (w-tuned caveat; w=0.5 is the honest number). v14-nopack: best overall MCC
+of the night (+0.734) but weak OOD (55.3%). Souping is now load-bearing: v14a's soup
+parents score 47.7%/25.7% on Win7AD individually. v11 soup w=0.40 (+0.8008 MCC)
+still best overall-MCC model; **v14a soup is the best OOD model since V10.** All
+adapters/soups/results pulled local + sha256-verified; VM powered off. Next: v14b
+logit-threshold calibration (retroactive, free), then v14.1 grounded reasons —
+`notes/v14_plan.md`.)_
 
 ---
 

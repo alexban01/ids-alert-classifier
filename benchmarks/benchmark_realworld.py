@@ -75,9 +75,27 @@ MODELS = [
     # ("v11 soup w=0.75",           "./models/v11-soup-w75-adapter"),
     # v13.2: no-reason run on 50% data, 2 epochs. epoch-1_46 = ckpt-11000 saved
     # mid-epoch-2 (per-epoch snapshots didn't exist yet); final = ckpt-15000 (ep2).
-    ("v13.2 ep1.47 (ckpt-11000)", "./models/v13.2-ids-model/epoch-1_46"),
-    ("v13.2 ep2 (final)",         "./models/v13.2-ids-lora-adapter"),
-    ("v13.2 soup (ep1.47+ep2)",   "./models/v13.2-soup-adapter"),
+    # ("v13.2 ep1.47 (ckpt-11000)", "./models/v13.2-ids-model/epoch-1_46"),
+    # ("v13.2 ep2 (final)",         "./models/v13.2-ids-lora-adapter"),
+    # ("v13.2 soup (ep1.47+ep2)",   "./models/v13.2-soup-adapter"),
+    # v13.3: packed + FlashAttention-2 (leak-free packing), 2 ep, 50% data, no-reason.
+    # ("v13.3 ep1",                 "./models/v13.3-ids-model/epoch-1"),
+    # ("v13.3 ep2 (final)",         "./models/v13.3-ids-lora-adapter"),
+    # ("v13.3 soup (ep1+ep2)",      "./models/v13.3-soup-adapter"),
+    # v14a: completion-only loss (loss masked to VERDICT tokens), packed+FA2, 2 ep.
+    # ("v14a ep1",                  "./models/v14-ids-model/epoch-1"),
+    # ("v14a ep2 (final)",          "./models/v14-ids-lora-adapter"),
+    # ("v14a soup (ep1+ep2)",       "./models/v14-soup-adapter"),
+    # Final overnight round: v14-nopack (completion-only, no-pack) + w-sweeps.
+    ("v14-nopack ep1",            "./models/v14-nopack-ids-model/epoch-1"),
+    ("v14-nopack ep2 (final)",    "./models/v14-nopack-ids-lora-adapter"),
+    ("v14-nopack soup w=0.5",     "./models/v14-nopack-soup-adapter"),
+    ("v14-nopack soup w=0.40",    "./models/v14-nopack-soup-w40-adapter"),
+    ("v14-nopack soup w=0.60",    "./models/v14-nopack-soup-w60-adapter"),
+    ("v13.3 soup w=0.40",         "./models/v13.3-soup-w40-adapter"),
+    ("v13.3 soup w=0.60",         "./models/v13.3-soup-w60-adapter"),
+    ("v14a soup w=0.40",          "./models/v14-soup-w40-adapter"),
+    ("v14a soup w=0.60",          "./models/v14-soup-w60-adapter"),
 ]
 
 DATASETS = {
