@@ -1,0 +1,132 @@
+================================================================================
+IDS ALERT CLASSIFIER — THESIS DEVELOPMENT NOTES (continued from thesis_notes_14.txt)
+Fine-tuning Qwen2.5-1.5B-Instruct for network intrusion detection
+================================================================================
+
+This file covers the LoRA checkpoint-averaging ("model soup") experiment of
+2026-07-15 — a zero-training-cost method that produced a new best model — and
+the literature review that motivated it (notes/research_quality_speed_2026-07.md).
+
+All benchmark numbers are from the FIXED benchmark (thesis_notes_13.txt
+Section 2), same cached 3600 samples (1800 attack / 1800 benign) as the
+2026-07-02 re-baseline — every row below is directly comparable to the V11/v12.x/
+v13.x rows in STATE.md and thesis_notes_13/14.
+
+================================================================================
+1. LoRA SOUP — AVERAGING THE TWO EPOCH CHECKPOINTS BEATS BOTH
+================================================================================
+
+--- 1.1  Motivation ---
+
+A recurring V11 finding (thesis_notes_12): epoch-1 beats epoch-2 on the
+benchmark while epoch-2 wins on eval_loss — i.e. best-checkpoint selection by
+eval_loss mis-selects, and epoch 2 "overfits" in the OOD sense. The
+model-souping literature (Wortsman et al.'s model soups; subsequent LoRA-soup
+work) predicts that *averaging* checkpoint weights generalizes better OOD than
+either endpoint, turning the ep1-vs-ep2 dilemma into a free improvement instead
+of a choice. LoRA adapters from the same run share initialization and
+architecture, so element-wise averaging of the adapter tensors is well-defined
+(392 tensors, all shapes identical).
+
+--- 1.2  Method ---
+
+soup = w · ep1 + (1 − w) · ep2, element-wise over adapter_model.safetensors
+(checkpoint-11313 = ep1, checkpoint-22626 = ep2). No training, no GPU needed
+for construction; ~seconds of CPU. Each soup saved as a normal PEFT adapter
+dir with a soup.json provenance file ({soup_of, weights, method, date}):
+models/v11-soup-adapter (w=0.5), models/v11-soup-w{40,60,75}-adapter.
+Benchmarked with benchmark_realworld.py on the cached sample set (no --regen).
+
+--- 1.3  Results: full interpolation curve ---
+
+  w (ep1 weight)   MCC        Atk R    FP R     Win7AD-1 atk   Echo atk
+  ------------------------------------------------------------------
+  1.00 (= ep1)     +0.777     81.1%    95.8%    83.0%          77.7%*
+  0.75             +0.7835      —        —        —              —
+  0.60             +0.7849      —        —        —              —
+  0.50             +0.7954    82.8%    96.1%    83.7%          77.7%
+  0.40             +0.8008    83.4%    96.0%    83.7%          81.0%
+  0.00 (= ep2)     +0.770     80.1%    96.0%    74.3%           —
+
+  (* ep1's per-source numbers from the 2026-07-02 re-baseline. Dashes = not
+  re-extracted from the report for this note; see
+  results/benchmark_realworld_report.txt.)
+
+Findings:
+  1. EVERY soup beats BOTH parents on MCC — the interpolation curve is a
+     clean single bump, exactly the shape the souping literature predicts.
+  2. The peak (~w=0.40, MCC +0.8008) is on the EP2 side of the midpoint: the
+     checkpoint that looks "overfit" on the benchmark contributes MORE than
+     half the optimal mix. ep2 evidently learned real signal that benchmark
+     selection alone would have discarded.
+  3. The w=0.40 soup inherits the better parent per probe rather than
+     splitting differences: Win7AD-1 83.7% (≥ ep1's 83.0%, vs ep2's 74.3%),
+     Echo 81.0% (best of any V11 variant), benign recall 96.0% (ep2 level),
+     Kelihos 44.3% (unchanged structural floor). 0 format failures.
+  4. Cost: zero training. This is the cheapest MCC improvement in the whole
+     project history (+2.3 pp over the previous best at w=0.40; +1.8 pp
+     untuned at w=0.5).
+
+--- 1.4  Methodology caveat (IMPORTANT for the thesis writeup) ---
+
+Selecting w by benchmark MCC is mild test-set tuning: the benchmark stops
+being a held-out measurement for the w that was chosen with it. Honest
+reporting options (pick one):
+  a. Report the UNTUNED w=0.5 soup (+0.7954) as the primary result and
+     present the w-sweep as an analysis/ablation figure (recommended); or
+  b. Select w on the eval split (never the benchmark) and then report the
+     benchmark number of that single pre-registered w.
+The parents (w=0 / w=1) were not selected on the benchmark, so "soup beats
+both parents at w=0.5" is a clean, defensible headline claim either way.
+For the same reason the left side of the curve (w<0.4) was deliberately NOT
+probed further.
+
+--- 1.5  Practical implication for all future runs ---
+
+Soup the two epoch checkpoints of every 2-epoch run (w=0.5) before declaring
+a winner — it is free and, on this evidence, dominates picking either
+checkpoint. Applies immediately to v13.2 (2-epoch, just finished/finishing)
+and every run after it. Also composes with everything else: souping is
+post-hoc and orthogonal to data, loss, and architecture changes.
+
+================================================================================
+2. CONTEXT: LITERATURE REVIEW THAT MOTIVATED THIS (2026-07-15)
+================================================================================
+
+Full review in notes/research_quality_speed_2026-07.md (with sources). Items
+most relevant to the thesis narrative:
+
+  - Current LoRA config is independently validated by "LoRA Without Regret"
+    (Thinking Machines, 2025; now an official TRL guide): all-linear target
+    modules incl. MLP, LR ≈ 10× full-FT (2e-4), moderate batch, r=16
+    capacity comfortably above this task's information content. Citable as
+    external justification of the hyperparameter choices.
+  - Prompt-loss-weight literature (arXiv:2401.13586; NeurIPS 2024
+    arXiv:2405.14394) says for long-prompt/short-completion data (exactly
+    this task) BOTH full-sequence loss (current) and pure completion-only
+    loss (v14a plan) are suboptimal; optimum ≈ PLW 0.1 → v14a upgraded to a
+    3-arm ablation.
+  - Packing A/B confound worth one thesis sentence: packing changes
+    effective samples/step (~1.46×), so v13.1-no-pack's win over v12.2 could
+    be partly batch dynamics, not only cross-sample attention leak
+    (arXiv:2602.09492 documents this class of confound); v13.3 (FA2+packing)
+    disambiguates.
+
+================================================================================
+3. ACTIONS TAKEN / OPEN
+================================================================================
+
+Taken:
+  - Literature review written up: notes/research_quality_speed_2026-07.md.
+  - v11 soups built (w = 0.4/0.5/0.6/0.75) + benchmarked on cached samples
+    (2026-07-15). New best model: w=0.40 soup, MCC +0.8008 (untuned w=0.5:
+    +0.7954). STATE.md updated; soup adapters live in models/v11-soup-*.
+
+Open:
+  - Soup v13.2's two epoch checkpoints when benchmarking it (Section 1.5).
+  - Decide thesis reporting protocol for w (Section 1.4, option a vs b).
+  - Optional: validate w on the eval split; optional w<0.4 probe only under
+    protocol (b).
+  - Note: EXPERIMENTS.md will NOT show the soup rows (no training run.json;
+    ledger is generated from models/*/run.json) — the record lives in
+    STATE.md, this note, and results/benchmark_realworld_report.txt.

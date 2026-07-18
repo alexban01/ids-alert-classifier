@@ -4,16 +4,21 @@
 > The `ids-project` skill's `references/current-state.md` is a **symlink** to this file, and the
 > auto-memory `project_ids_classifier.md` is just a pointer here. Do not maintain a second copy.
 
-_Last updated: 2026-07-17 (**overnight IBM Cloud L40S campaign — see `IBM_TRAINING.md`
-for the full log.** v13.3 (packed+FA2): soup +0.722/Win7AD 80.0% — OOD-beats v13.1,
-epoch-2 HELPED for the first time (leak-free packing). **v14a (completion-only,
-packed+FA2): soup +0.722 / Win7AD-1 86.0%; w=0.60 soup 87.0% — ties V10's all-time
-record** (w-tuned caveat; w=0.5 is the honest number). v14-nopack: best overall MCC
-of the night (+0.734) but weak OOD (55.3%). Souping is now load-bearing: v14a's soup
-parents score 47.7%/25.7% on Win7AD individually. v11 soup w=0.40 (+0.8008 MCC)
-still best overall-MCC model; **v14a soup is the best OOD model since V10.** All
-adapters/soups/results pulled local + sha256-verified; VM powered off. Next: v14b
-logit-threshold calibration (retroactive, free), then v14.1 grounded reasons —
+_Last updated: 2026-07-18 (**v14b logit-threshold calibration DONE — inference-only,
+local 3070.** New pieces: `scripts/calibrate_threshold.py` (tunes τ on the EVAL split,
+writes `run.json["calibration"]`), `benchmark_realworld.py --logits` (score =
+logit(' ATTACK')−logit(' FALSE') > τ, per-sample scores saved to
+`results/*_logits.json` for ROC/PR; never overwrites the canonical greedy numbers).
+Results (greedy → calibrated): **v11 soup w=0.40 τ=−0.5: MCC +0.8008 → +0.8171,
+Win7AD-1 83.7% → 89.3% — new all-time record on BOTH metrics, beats V10's 87% OOD.**
+v14-nopack soup τ=−0.5: +0.734 → +0.780, Win7AD 55.3% → 82.7% — its OOD weakness was
+exactly a miscalibrated cutpoint. Negative result: v14a soup's eval-tuned τ=+1.125
+HURT the benchmark (+0.722 → +0.678, Win7AD 86% → 70%) — eval-tuned τ doesn't always
+transfer OOD. v13.3 soup / v14a-w60 ≈ flat (τ ≈ 0). τ is tuned on the eval split only
+(no benchmark leakage); greedy decode stays the deploy default (Ollama has no logits
+path). Next: **v15 — v11 recipe + v14.x fixes** (full 360k reason-on dataset rebuilt
+2026-07-18, r=32, completion-only, no-pack, IBM L40S; prepared but NOT yet launched —
+checklist: `notes/v15_launch.md`). v16 grounded reasons moves after v15 —
 `notes/v14_plan.md`.)_
 
 ---
@@ -496,7 +501,7 @@ Botnet-42 (Ramnit), 43 (Neris), 44 (Ngrbot), 45 (Rbot), 46 (Virut), 48 (Sogou), 
    prior runs, MCC only) and **v14b** logit-threshold calibration (inference-only:
    `logp(ATTACK)−logp(FALSE)` at first verdict token, tune τ on the EVAL split — never
    the benchmark; retroactive to all checkpoints, do it first while v14a trains).
-6. **v14.1 planned — grounded reasons + GRPO reason-first pilot** (also in
+6. **v16 planned — grounded reasons + GRPO reason-first pilot** (also in
    `notes/v14_plan.md`): (a) replace random `pick_reason()` with feature-derived
    template reasons — attack-type labels exist in raw sources but training loaders
    discard them (IoT-23 detailed-label, UWF tactic, CTU flow labels, UNSW attack_cat;
@@ -524,7 +529,7 @@ Botnet-42 (Ramnit), 43 (Neris), 44 (Ngrbot), 45 (Rbot), 46 (Virut), 48 (Sogou), 
   - **Not actually started:** the "in progress" v12/v12.1 pair turned out to be two
     no-reason attempts (both interrupted), not a no-reason/with-reason A/B — see ⚠️
     STATUS block, top of file.
-  - **Now planned as v14.1a (2026-07-13)** — option 2 (feature-derived template reasons),
+  - **Now planned as v16a (2026-07-13)** — option 2 (feature-derived template reasons),
     see Next steps #6 and `notes/v14_plan.md`.
 - **Qwen2.5-3B capacity ablation** — queued control (see Deferred below).
 

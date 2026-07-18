@@ -13,6 +13,11 @@ Usage:
     --regen --ood   Regenerate only the OOD samples in the cache, then run
                     OOD-only inference (does not touch other source caches).
     --no-behavior   Keep prompts conn-only (skip [BEHAVIOR] rebuild).
+    --logits        v14b: single forward pass per sample, classify by
+                    score = logit(' ATTACK') − logit(' FALSE') > τ. τ comes from
+                    the adapter's run.json calibration block (written by
+                    scripts/calibrate_threshold.py), else 0.0. Does not write
+                    back to run.json — greedy decode stays the canonical number.
     --host-pass2    Run the host-level aggregation pass (OFF by default — it is a
                     documented null result; see thesis_notes_12.txt).
 """
@@ -36,8 +41,9 @@ from bench_loaders import (
     load_ctu_sme11, load_ctu_win7ad, load_ctu_botnet3,
 )
 from ids.behavior_features import build_behavior_contexts, build_host_summaries
-from ids.infer_utils import (BASE_MODEL, chat_text, load_lora_model, load_tokenizer,
-                             resolve_system_prompt)
+from ids.infer_utils import (BASE_MODEL, VERDICT_PREFIX, chat_text, load_lora_model,
+                             load_tokenizer, resolve_system_prompt,
+                             verdict_logit_scores, verdict_token_ids)
 from ids.prompt_utils import (build_prompt, build_host_prompt, extract_verdict, extract_reason,
                               SYSTEM_PROMPT)
 
@@ -87,15 +93,19 @@ MODELS = [
     # ("v14a ep2 (final)",          "./models/v14-ids-lora-adapter"),
     # ("v14a soup (ep1+ep2)",       "./models/v14-soup-adapter"),
     # Final overnight round: v14-nopack (completion-only, no-pack) + w-sweeps.
-    ("v14-nopack ep1",            "./models/v14-nopack-ids-model/epoch-1"),
-    ("v14-nopack ep2 (final)",    "./models/v14-nopack-ids-lora-adapter"),
-    ("v14-nopack soup w=0.5",     "./models/v14-nopack-soup-adapter"),
-    ("v14-nopack soup w=0.40",    "./models/v14-nopack-soup-w40-adapter"),
-    ("v14-nopack soup w=0.60",    "./models/v14-nopack-soup-w60-adapter"),
-    ("v13.3 soup w=0.40",         "./models/v13.3-soup-w40-adapter"),
-    ("v13.3 soup w=0.60",         "./models/v13.3-soup-w60-adapter"),
-    ("v14a soup w=0.40",          "./models/v14-soup-w40-adapter"),
+    # ("v14-nopack ep1",            "./models/v14-nopack-ids-model/epoch-1"),
+    # ("v14-nopack ep2 (final)",    "./models/v14-nopack-ids-lora-adapter"),
+    # ("v14-nopack soup w=0.40",    "./models/v14-nopack-soup-w40-adapter"),
+    # ("v14-nopack soup w=0.60",    "./models/v14-nopack-soup-w60-adapter"),
+    # ("v13.3 soup w=0.40",         "./models/v13.3-soup-w40-adapter"),
+    # ("v13.3 soup w=0.60",         "./models/v13.3-soup-w60-adapter"),
+    # ("v14a soup w=0.40",          "./models/v14-soup-w40-adapter"),
+    # v14b logit-calibration shortlist (τ from scripts/calibrate_threshold.py).
+    ("v11 soup w=0.40",           "./models/v11-soup-w40-adapter"),
+    ("v13.3 soup",                "./models/v13.3-soup-adapter"),
+    ("v14a soup",                 "./models/v14-soup-adapter"),
     ("v14a soup w=0.60",          "./models/v14-soup-w60-adapter"),
+    ("v14-nopack soup w=0.5",     "./models/v14-nopack-soup-adapter"),
 ]
 
 DATASETS = {
@@ -328,6 +338,23 @@ def run_inference(model, samples, label, system_prompt=SYSTEM_PROMPT):
     return preds, unknowns, reasons
 
 
+def run_logit_inference(model, samples, label, system_prompt=SYSTEM_PROMPT, tau=0.0):
+    """v14b: one forward pass per sample; ATTACK iff logit score > τ."""
+    atk_id, fp_id = verdict_token_ids(_tokenizer)
+    texts = [chat_text(_tokenizer, s["prompt"], system_prompt) + VERDICT_PREFIX
+             for s in samples]
+    scores = []
+    print(f"\nRunning logit inference: {label}  (τ={tau:+.4f})")
+    for i in range(0, len(texts), BATCH_SIZE):
+        batch = _tokenizer(texts[i:i + BATCH_SIZE], return_tensors="pt",
+                           padding=True, truncation=True, max_length=512).to("cuda")
+        scores += verdict_logit_scores(model, batch, atk_id, fp_id)
+        print(f"  {min(i + BATCH_SIZE, len(texts))}/{len(texts)}...", end="\r")
+    print()
+    preds = ["ATTACK" if s > tau else "FALSE POSITIVE" for s in scores]
+    return preds, scores
+
+
 # ── Model loading ─────────────────────────────────────────────────────────────────
 def load_model(adapter_path):
     print(f"\nLoading {adapter_path} ...")
@@ -526,6 +553,7 @@ if __name__ == "__main__":
     regen       = "--regen"       in sys.argv
     ood_only    = "--ood"         in sys.argv
     no_behavior = "--no-behavior" in sys.argv
+    logits_mode = "--logits"      in sys.argv
     host_pass2  = "--host-pass2"  in sys.argv   # off by default (null result; see thesis_notes_12)
 
     # ── Sample loading / cache management ───────────────────────────────────────
@@ -563,7 +591,9 @@ if __name__ == "__main__":
     atk_n  = sum(1 for s in samples if s["ground_truth"] == "ATTACK")
     ben_n  = len(samples) - atk_n
     ood_n  = sum(1 for s in samples if s["source"] in OOD_SOURCES)
-    mode   = "OOD-ONLY" if ood_only else "FULL"
+    # "+LOGITS" suffix also keeps the mode != "FULL", so logit runs never
+    # overwrite the canonical greedy MCC in run.json.
+    mode   = ("OOD-ONLY" if ood_only else "FULL") + ("+LOGITS" if logits_mode else "")
     out_lines = [
         f"REAL-WORLD ZEEK BENCHMARK [{mode}] — {ts}",
         f"Sources: IoT-23, CTU-13, UWF-ZeekData24, CTU-Normal | OOD: Win7AD-1, Echo, Kelihos",
@@ -592,7 +622,13 @@ if __name__ == "__main__":
         for line in prov:
             print(line)
         out_lines.extend(prov)
-        preds, unknowns, reasons = run_inference(model, samples, label, system_prompt)
+        if logits_mode:
+            tau = ((run_info or {}).get("calibration") or {}).get("tau", 0.0)
+            preds, scores    = run_logit_inference(model, samples, label, system_prompt, tau)
+            unknowns, reasons = 0, [""] * len(preds)
+        else:
+            scores = None
+            preds, unknowns, reasons = run_inference(model, samples, label, system_prompt)
         print_report(preds, samples, label, unknowns, out_lines)
         m                        = compute_metrics(preds, samples, unknowns)
         results.append((label, m))
@@ -677,6 +713,9 @@ if __name__ == "__main__":
                 "mcc":        round(host_m["mcc"],        4),
             },
             "per_source": src_metrics,
+            # Raw per-sample scores (logits mode) → ROC/PR curves for the thesis.
+            **({"tau": tau, "scores": [round(s, 4) for s in scores]}
+               if logits_mode else {}),
         })
 
         # ── Link result back into the adapter's run.json (canonical run only) ──
@@ -704,6 +743,9 @@ if __name__ == "__main__":
 
     print_comparison_table(results, json_output, out_lines)
 
+    if logits_mode:  # don't clobber the canonical greedy report/results
+        REPORT_TXT   = REPORT_TXT.replace(".txt", "_logits.txt")
+        RESULTS_JSON = RESULTS_JSON.replace(".json", "_logits.json")
     with open(REPORT_TXT, "w") as f:
         f.write("\n".join(out_lines))
     with open(RESULTS_JSON, "w") as f:

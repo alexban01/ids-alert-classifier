@@ -53,6 +53,16 @@ parser.add_argument("--flash-attn", action="store_true",
                          "from each other (SDPA/eager let them cross-attend — the v12.2 vs "
                          "v13.1 leak finding). Needs the flash-attn package installed; "
                          "errors out early if missing. Default (no flag) is unchanged (SDPA).")
+parser.add_argument("--completion-only", action="store_true",
+                    help="v14a: mask loss to the assistant turn only. Maps the messages-format "
+                         "dataset to prompt/completion at load time (file on disk unchanged, so "
+                         "the run.json dataset hash stays valid); TRL then auto-enables "
+                         "completion_only_loss. All gradient lands on 'VERDICT: <X>' instead of "
+                         "~95%% of it modeling the ~300-token prompt. eval_loss is NOT comparable "
+                         "to full-sequence runs — compare by MCC only.")
+parser.add_argument("--lora-r", type=int, default=16,
+                    help="LoRA rank (alpha is always 2r). Default 16 (V10/v13 setting); "
+                         "32 restores the v11 recipe.")
 parser.add_argument("--dataset", type=str, default="zeek_dataset.jsonl",
                     help="Train file (e.g. a preprocess_downsample.py output for a data-volume "
                          "ablation). Eval file is unaffected by this flag -- always "
@@ -137,13 +147,15 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL)
 tokenizer.pad_token = tokenizer.eos_token
 
 # ── LoRA ─────────────────────────────────────────────────────────────────────
-# r=16/alpha=32 (V10's setting, reverted from V11/V12's r=32/alpha=64). V10 is still
-# the best-ever Win7AD-1 OOD result (87.1%) and was never matched at r=32 — the extra
-# capacity may just memorize ID patterns harder without helping (or hurting) OOD
+# Default r=16/alpha=32 (V10's setting, reverted from V11/V12's r=32/alpha=64). V10 is
+# still the best-ever Win7AD-1 OOD result (87.1%) and was never matched at r=32 — the
+# extra capacity may just memorize ID patterns harder without helping (or hurting) OOD
 # transfer, same overfitting shape as the epoch-2-hurts-OOD finding. v13 tests this.
+# --lora-r 32 restores the v11 setting (alpha always = 2r) — used by v15 (v11 recipe
+# + v14.x training fixes, quality-first).
 lora_config = LoraConfig(
-    r=16,
-    lora_alpha=32,
+    r=args.lora_r,
+    lora_alpha=2 * args.lora_r,
     target_modules=[
         "q_proj", "k_proj", "v_proj", "o_proj",    # all attention
         "gate_proj", "up_proj", "down_proj",        # MLP
@@ -166,6 +178,16 @@ eval_dataset  = load_dataset("json", data_files=EVAL_DATASET)["train"]
 if args.eval_subset and len(eval_dataset) > args.eval_subset:
     eval_dataset = eval_dataset.shuffle(seed=42).select(range(args.eval_subset))
     print(f"Eval subsampled to {len(eval_dataset)} samples (--eval-subset {args.eval_subset})")
+
+# --completion-only (v14a): messages -> {prompt, completion}. TRL detects the
+# prompt/completion form and sets completion_only_loss=True automatically, masking
+# loss to the assistant turn ('VERDICT: <X>') in both padded and packed collators.
+if args.completion_only:
+    def to_prompt_completion(ex):
+        return {"prompt": ex["messages"][:-1], "completion": ex["messages"][-1:]}
+    train_dataset = train_dataset.map(to_prompt_completion, remove_columns=["messages"])
+    eval_dataset  = eval_dataset.map(to_prompt_completion,  remove_columns=["messages"])
+    print("completion-only loss: dataset mapped to prompt/completion form")
 
 # ── Training ─────────────────────────────────────────────────────────────────
 trainer = SFTTrainer(
@@ -263,6 +285,7 @@ try:
             "epochs":          trainer.args.num_train_epochs,
             "packing":         getattr(trainer.args, "packing", PACKING),
             "attn_implementation": ATTN_IMPLEMENTATION,
+            "completion_only":  args.completion_only,
             "batch":           trainer.args.per_device_train_batch_size,
             "grad_accum":      trainer.args.gradient_accumulation_steps,
             "effective_batch": BATCH * GRAD_ACCUM,

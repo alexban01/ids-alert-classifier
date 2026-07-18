@@ -68,7 +68,7 @@ benchmarks (w=0.40/0.60) for v13.3 + both v14a arms. Owner clarified: planned
 stuff only — the Qwen-3B capacity control I floated is OUT (not part of v14).
 Every training config smoke-tested ~100 steps on the L40S before its full run
 (OOM guard — the batch-24 crash was at step 0, so smokes catch peak memory).
-NOT doing unattended: v14.1a (needs local preprocess + open thesis decision),
+NOT doing unattended: v16a (needs local preprocess + open thesis decision),
 GRPO. All watchers poll at 5-min cadence, silent to owner; models pulled to
 the local machine as each benchmark completes.
 **Teardown (owner authorized 2026-07-17):** after ALL data is pulled AND

@@ -54,6 +54,30 @@ def chat_text(tokenizer, prompt, system_prompt=SYSTEM_PROMPT):
     )
 
 
+VERDICT_PREFIX = "VERDICT:"  # forced prefix for logit scoring (v14b)
+
+
+def verdict_token_ids(tokenizer):
+    """First-token ids that discriminate the verdict: ' ATTACK' vs ' FALSE'."""
+    atk = tokenizer.encode(" ATTACK")[0]
+    fp  = tokenizer.encode(" FALSE")[0]
+    assert atk != fp, "verdict tokens collide — logit scoring impossible"
+    return atk, fp
+
+
+def verdict_logit_scores(model, batch, atk_id, fp_id):
+    """score = logit(' ATTACK') − logit(' FALSE') at the next-token position.
+
+    batch must be left-padded and end with VERDICT_PREFIX so position -1 is the
+    last real token for every row. Equals logp difference (softmax cancels).
+    """
+    with torch.no_grad():
+        # logits_to_keep=1: lm_head only on the last position — full-sequence
+        # logits are ~3 GiB/batch (seq × 152k vocab) and OOM the 8 GB 3070.
+        logits = model(**batch, logits_to_keep=1).logits[:, -1, :]
+    return (logits[:, atk_id] - logits[:, fp_id]).float().cpu().tolist()
+
+
 def resolve_system_prompt(adapter_path):
     """Pick the system prompt matching how an adapter was trained.
 

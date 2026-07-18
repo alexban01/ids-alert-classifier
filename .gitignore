@@ -48,3 +48,7 @@ __pycache__/
 
 # Claude Code
 .claude/
+
+# SSH keys — never commit
+ibm_cloud
+ibm_cloud.pub

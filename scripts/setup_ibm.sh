@@ -1,22 +1,26 @@
 #!/usr/bin/env bash
 # setup_ibm.sh — bootstrap an IBM Cloud gx3 L40S VSI (stock Ubuntu 24.04) and
-# launch the v13.3 run. Run from the project dir after uploading it (see rsync
-# line below). Idempotent: safe to rerun, e.g. after the driver-install reboot.
+# launch the v15 run (v11 recipe + v14.x fixes: full data, reason-on, r=32,
+# completion-only, no-pack). Run from the project dir after uploading it (see
+# rsync line below). Idempotent: safe to rerun, e.g. after the driver-install reboot.
 #
-#   ./scripts/setup_ibm.sh                # full: driver + env + pre-flight + LAUNCH v13.3
+#   ./scripts/setup_ibm.sh                # full: driver + env + pre-flight + LAUNCH v15
 #   ./scripts/setup_ibm.sh --setup-only   # stop after pre-flight, launch manually
 #
-# Upload from the local machine — ONLY what training needs (~100 MB), not the repo:
+# Upload from the local machine — ONLY what training needs (~330 MB), not the repo:
 #   cd ~/fine_tunning && rsync -avR -e "ssh -i ~/.ssh/ibm_cloud" \
 #       train.py ids scripts/setup_ibm.sh \
-#       zeek_dataset_50pct.jsonl zeek_dataset_eval.jsonl \
+#       zeek_dataset.jsonl zeek_dataset_eval.jsonl \
 #       ubuntu@<FLOATING_IP>:~/fine_tunning/
 # (-R keeps relative paths so this script lands in scripts/. Login user is
 #  "ubuntu" on IBM's stock Ubuntu images, and the VM needs a floating IP.)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-TRAIN_ARGS="--ibm --flash-attn --epochs 2 --dataset zeek_dataset_50pct.jsonl --tag v13.3"
+# v15: full reason-on dataset (regenerate with plain preprocess_zeek.py — NOT the
+# no-reason one), v11's r=32, completion-only loss, no packing. FA2 still on (speed
+# only, objective unchanged).
+TRAIN_ARGS="--ibm --flash-attn --epochs 2 --no-pack --completion-only --lora-r 32 --tag v15"
 # cu12+torch2.9+cp312 prebuilt wheel — the exact stack validated locally 2026-07-16
 # after the cu130 build caused illegal-memory-access crashes. Ubuntu 24.04's system
 # python IS 3.12, which is why no uv/pyenv is needed. L40S is SM89 (Ada): runs the
@@ -27,7 +31,7 @@ SUDO=""
 [ "$(id -u)" -ne 0 ] && SUDO="sudo"
 
 # ── 0. Fail on missing files BEFORE any GPU-hour is spent installing ─────────
-for f in train.py ids zeek_dataset_50pct.jsonl zeek_dataset_eval.jsonl; do
+for f in train.py ids zeek_dataset.jsonl zeek_dataset_eval.jsonl; do
     [ -e "$f" ] || { echo "MISSING: $f — rsync the project + JSONLs first (see header)"; exit 1; }
 done
 
@@ -85,8 +89,8 @@ if [ "${1:-}" = "--setup-only" ]; then
     exit 0
 fi
 
-# ── 6. Launch v13.3 (nohup: survives SSH disconnects) ────────────────────────
-echo "── Launching v13.3 ──"
+# ── 6. Launch v15 (nohup: survives SSH disconnects) ────────────────────────
+echo "── Launching v15 ──"
 nohup .venv/bin/python train.py $TRAIN_ARGS > train.log 2>&1 &
 echo "PID $! — monitor with: tail -f train.log"
-echo "When done, download: models/v13.3-ids-lora-adapter/ + models/v13.3-ids-model/epoch-*/"
+echo "When done, download: models/v15-ids-lora-adapter/ + models/v15-ids-model/epoch-*/"

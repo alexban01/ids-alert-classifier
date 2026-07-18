@@ -1,4 +1,4 @@
-# v14 / v14.1 plan — dense-supervision fixes, then grounded reasons + GRPO pilot
+# v14 / v16 plan — dense-supervision fixes, then grounded reasons + GRPO pilot
 
 _Drafted 2026-07-13. Research session: SFT (dense) vs RL (sparse) — conclusions below.
 Prerequisite: **finish v13.2 first** (2-epoch no-pack, queued in STATE.md Next steps #4);
@@ -75,9 +75,9 @@ the operating point is visibly off-center and a tuned τ typically buys points.
 
 ---
 
-## v14.1 — grounded reasons + GRPO reason-first pilot
+## v16 — grounded reasons + GRPO reason-first pilot
 
-### v14.1a: grounded template reasons (preprocess change)
+### v16a: grounded template reasons (preprocess change)
 
 Replace random `pick_reason()` with reasons **derived from the sample's own features**,
 optionally enriched with the harvested attack-type label:
@@ -93,9 +93,9 @@ optionally enriched with the harvested attack-type label:
   incl. `extract_verdict()` / Modelfile).
 - Costs ~11–14% more training tokens than verdict-only (known REASON overhead).
 - New dataset ⇒ full preprocess rerun ⇒ breaks the "hold composition constant" chain —
-  which is why this is v14.1, after v14 isolates the loss-masking variable.
+  which is why this is v16, after v14 isolates the loss-masking variable.
 
-### v14.1b: GRPO reason-first pilot (new RL stage)
+### v16b: GRPO reason-first pilot (new RL stage)
 
 - **Recipe:** TRL `GRPOTrainer`, LoRA, starting from the best SFT checkpoint (post-v14).
   Reason-first output format (system prompt change). Reward: +1 correct verdict, small
@@ -128,5 +128,7 @@ v13.2 then runs with whichever arm wins. If v13.3 wins, v14a inherits
 2. **v14b threshold calibration** — free, retroactive, do it first; re-score v11 ep1,
    v12.2, v13.1, v13.2 while v14a trains.
 3. **v14a completion-only retrain** — one variable vs v13.x winner.
-4. **v14.1a grounded reasons** → retrain (verdict-first or reason-first, decide then).
-5. **v14.1b GRPO pilot** on top of the best of the above.
+4. **v15 recipe consolidation** (v11 recipe + v14.x fixes, full reason-on data —
+   `notes/v15_launch.md`) → sets the baseline the reason experiments must beat.
+5. **v16a grounded reasons** → retrain (verdict-first or reason-first, decide then).
+6. **v16b GRPO pilot** on top of the best of the above.
